@@ -1,7 +1,7 @@
 snr: 5 # validation SNR value. values: float.
 
 # general
-seed: 3 # run seed
+seed: 0 # run seed
 
 # channel
 fading_in_channel: False # If the channel is fading/non-fading. values: [True, False]

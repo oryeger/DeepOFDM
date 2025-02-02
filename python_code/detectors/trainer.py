@@ -10,7 +10,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, TRAIN_PERCENTAGE, EPOCHS, N_ANTS, NUM_SNRs
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE
 
 import commpy.modulation as mod
 
@@ -74,6 +74,7 @@ class Trainer(object):
         self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
                                                    pilots_length=conf.pilot_size,
                                                    blocks_num=conf.blocks_num,
+                                                   num_res=conf.num_res,
                                                    fading_in_channel=conf.fading_in_channel,
                                                    spatial_in_channel=conf.spatial_in_channel)
 
@@ -110,6 +111,19 @@ class Trainer(object):
             self._initialize_detector() # For reseting teh weights
 
             transmitted_words, received_words, hs, s_orig_words = self.channel_dataset.__getitem__(snr_list=[snr_cur])
+
+            # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
+            # REs = np.arange(conf.num_res)
+            # axes[0].plot(REs, np.abs(hs[0,0,0,:]), linestyle='-', color='b', label='Channel')
+            # axes[0].set_ylabel('abs(channel)')
+            # axes[0].grid()
+            # axes[1].plot(REs, np.unwrap(np.angle((hs[0,0,0,:]))), linestyle='-', color='b', label='Channel')
+            # axes[1].set_xlabel('REs')
+            # axes[1].set_ylabel('angle(channel)')
+            # axes[1].grid()
+            # axes[0].set_title('Channel with ' + str(conf.num_res) + ' REs')
+            # plt.show()
+
             # detect sequentially
             for block_ind in range(conf.blocks_num):
                 print('*' * 20)
@@ -119,11 +133,13 @@ class Trainer(object):
                 if IS_COMPLEX:
                     real_part = rx.real
                     imag_part = rx.imag
-                    rx_real = torch.empty((rx.shape[0], rx.shape[1] * 2), dtype=torch.float32)
-                    rx_real[:, 0::2] = real_part  # Real parts in even rows
-                    rx_real[:, 1::2] = imag_part  # Imaginary parts in odd rows
+                    rx_real = torch.empty((rx.shape[0], rx.shape[1] * 2, rx.shape[2]), dtype=torch.float32)
+                    rx_real[:, 0::2, :] = real_part  # Real parts in even rows
+                    rx_real[:, 1::2, :] = imag_part  # Imaginary parts in odd rows
                 else:
                     rx_real = rx
+
+                rx_real = rx_real.reshape(rx_real.shape[0],rx_real.shape[1]*conf.num_res)
 
                 # split words into data and pilot part
                 pilot_chunk = int(conf.pilot_size / np.log2(MOD_PILOT))
@@ -141,28 +157,41 @@ class Trainer(object):
                 rx_pilot_c, rx_data_c = rx[:pilot_chunk], rx[pilot_chunk:]
                 #s_orig_pilot, s_orig_data = s_orig[:pilot_chunk], s_orig[pilot_chunk:]
                 #ChanEst = 1/N_ANTS*torch.sum(s_orig_pilot.conj() * rx_pilot_c, dim=1)
-                H = h.numpy()
-                H_Ht = H @ H.T.conj()
-                H_Ht_inv = np.linalg.pinv(H_Ht)
-                H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
-                equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
-                for i in range(rx_data_c.shape[0]):
-                    equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :])
-                detected_word_legacy = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
-                if MOD_PILOT>2:
-                    qam = mod.QAMModem(MOD_PILOT)
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
-                else:
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
+                ber_acc = 0
+                ber_legacy_acc = 0
+                for re in range(conf.num_res):
+                    H = h[:,:,re].numpy()
+                    H_Ht = H @ H.T.conj()
+                    H_Ht_inv = np.linalg.pinv(H_Ht)
+                    H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+                    equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
+                    for i in range(rx_data_c.shape[0]):
+                        equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
+                    detected_word_legacy = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
+                    if MOD_PILOT>2:
+                        qam = mod.QAMModem(MOD_PILOT)
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
+                    else:
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
+                    pass
 
 
 
-                # calculate accuracy
-                target = tx_data[:, :rx.shape[1]]
-                ber = calculate_ber(detected_word, target)
-                ber_legacy = calculate_ber(detected_word_legacy, target)
+                    # calculate accuracy
+                    target = tx_data[:, :rx.shape[1],re]
+
+                    indexes = []
+                    for user in range(N_USERS):
+                        indexes.append(list(range(user * conf.num_res * NUM_BITS + re*NUM_BITS, NUM_BITS * (user * conf.num_res + 1)+re*NUM_BITS)))
+                    indexes = sum(indexes, [])
+
+                    ber = calculate_ber(detected_word[:,indexes], target)
+                    ber_acc = ber_acc + ber
+                    ber_legacy = calculate_ber(detected_word_legacy, target)
+                    ber_legacy_acc = ber_legacy_acc + ber_legacy
+
                 total_ber.append(ber)
                 total_ber_legacy.append(ber_legacy)
                 print(f'current: {block_ind, ber}')

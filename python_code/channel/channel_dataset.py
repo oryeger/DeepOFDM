@@ -16,7 +16,7 @@ class ChannelModelDataset(Dataset):
     Returns (transmitted, received, channel_coefficients) batch.
     """
 
-    def __init__(self, block_length: int, pilots_length: int, blocks_num: int, fading_in_channel: bool, spatial_in_channel: bool):
+    def __init__(self, block_length: int, pilots_length: int, blocks_num: int, num_res: int, fading_in_channel: bool, spatial_in_channel: bool):
         """
         Initialzes the relevant hyperparameters
         :param block_length: number of pilots + data bits
@@ -31,17 +31,18 @@ class ChannelModelDataset(Dataset):
         else:
             self.block_length = pilots_length*BLOCK_LENGTH_FACTOR
         self.channel_type = MIMOChannel(self.block_length, pilots_length, fading_in_channel, spatial_in_channel)
+        self.num_res = num_res
 
     def get_snr_data(self, snr: float, database: list):
         if database is None:
             database = []
-        tx_full = np.empty((self.blocks_num, self.block_length, self.channel_type.tx_length))
-        h_full = np.empty((self.blocks_num, *self.channel_type._h_shape), dtype=np.complex128)
-        rx_full = np.empty((self.blocks_num, int(self.block_length / NUM_BITS), self.channel_type.rx_length), dtype=np.complex128)
-        s_orig_full = np.empty((self.blocks_num, int(self.block_length / NUM_BITS), self.channel_type.tx_length), dtype=np.complex128)
+        tx_full = np.empty((self.blocks_num, self.block_length, self.channel_type.tx_length, self.num_res))
+        h_full = np.empty((self.blocks_num, *self.channel_type._h_shape, self.num_res), dtype=np.complex128)
+        rx_full = np.empty((self.blocks_num, int(self.block_length / NUM_BITS), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
+        s_orig_full = np.empty((self.blocks_num, int(self.block_length / NUM_BITS), self.channel_type.tx_length, self.num_res), dtype=np.complex128)
         # accumulate words until reaches desired number
         for index in range(self.blocks_num):
-            tx, h, rx, s_orig = self.channel_type._transmit_and_detect(snr, index)
+            tx, h, rx, s_orig = self.channel_type._transmit_and_detect(snr, self.num_res, index)
             # accumulate
             tx_full[index] = tx
             rx_full[index] = rx

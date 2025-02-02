@@ -8,19 +8,36 @@ H_COEF = 0.8
 
 class SEDChannel:
     @staticmethod
-    def calculate_channel(n_ant: int, n_user: int, frame_ind: int, fading: bool, spatial: bool) -> np.ndarray:
+    def calculate_channel(n_ant: int, n_user: int, num_res: int, frame_ind: int, fading: bool, spatial: bool) -> np.ndarray:
         H_row = np.array([i for i in range(n_ant)])
         H_row = np.tile(H_row, [n_user, 1]).T
         H_column = np.array([i for i in range(n_user)])
         H_column = np.tile(H_column, [n_ant, 1])
         H_real = np.exp(-np.abs(H_row - H_column))
+        # Frequency channel
+        sigma = 5
+        linear_phase_slope = 0.5
+        freq_indexes = np.linspace(-num_res // 2, num_res // 2, num_res)
+        ChannelFreq = np.exp(-0.5 * (freq_indexes / sigma) ** 2)
+        ChannelFreq = np.exp(1j * freq_indexes * linear_phase_slope)*ChannelFreq
+        ChannelFreq = ChannelFreq*num_res/np.sum(np.abs(ChannelFreq))
+
+
         if not spatial:
             H_real = np.eye(H_real.shape[0])
 
-        complex_scalar = np.exp(1j * PHASE_OFFSET)
-        H_complex = np.array(H_real * complex_scalar, dtype=complex)
+        H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
+
+        if num_res==1:
+            complex_scalar = np.exp(1j * PHASE_OFFSET)
+            H_complex [:,:,0]= np.array(H_real * complex_scalar, dtype=complex)
+        else:
+            for re_index in range(num_res):
+                H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
+
         if fading:
-            H = SEDChannel._add_fading(H_complex, n_ant, frame_ind)
+            for re_index in range(num_res):
+                H_complex[:,:,re_index] = SEDChannel._add_fading(H_complex[:,:,re_index], n_ant, frame_ind)
         return H_complex
 
     @staticmethod
@@ -31,7 +48,7 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def transmit(s: np.ndarray, h: np.ndarray, snr: float) -> np.ndarray:
+    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int) -> np.ndarray:
         """
         The MIMO SED Channel
         :param s: to transmit symbol words
@@ -39,10 +56,12 @@ class SEDChannel:
         :param h: channel function
         :return: received word
         """
-        conv = SEDChannel._compute_channel_signal_convolution(h, s)
-        var = 10 ** (-0.1 * snr)
-        w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j*np.random.randn(N_ANTS, s.shape[1]))
-        y = conv + w
+        y = np.zeros((s.shape[0],s.shape[1],num_res), dtype=complex)
+        for re_index in range(num_res):
+            conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
+            var = 10 ** (-0.1 * snr)
+            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j*np.random.randn(N_ANTS, s.shape[1]))
+            y[:,:,re_index] = conv + w
         return y
 
     @staticmethod

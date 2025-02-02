@@ -3,7 +3,7 @@ import numpy as np
 
 
 NUM_SNRs = 1
-BLOCK_LENGTH_FACTOR = 2
+BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
 N_USERS = 4 # number of users
 N_ANTS = 4 # number of antennas
@@ -12,7 +12,6 @@ EPOCHS = 100
 IS_COMPLEX = 1
 PHASE_OFFSET = 3.14159 / 3
 SHOW_ALL_ITERATIONS = False
-NUM_OF_REs = 12
 
 
 

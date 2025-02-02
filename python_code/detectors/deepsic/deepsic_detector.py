@@ -1,6 +1,6 @@
 import torch
 from torch import nn
-
+from python_code import conf
 
 from python_code.utils.constants import N_ANTS, N_USERS, IS_COMPLEX, NUM_BITS
 
@@ -22,11 +22,11 @@ class DeepSICDetector(nn.Module):
 
     def __init__(self):
         super(DeepSICDetector, self).__init__()
-        hidden_size = HIDDEN_BASE_SIZE * NUM_BITS
-        base_rx_size = N_ANTS
+        hidden_size = HIDDEN_BASE_SIZE * NUM_BITS * conf.num_res
+        base_rx_size = N_ANTS*conf.num_res
         if IS_COMPLEX:
             base_rx_size = base_rx_size * 2
-        linear_input = base_rx_size + NUM_BITS * (N_USERS - 1)  # from DeepSIC paper
+        linear_input = base_rx_size + NUM_BITS*(N_USERS*conf.num_res - 1) # from DeepSIC paper
         self.fc1 = nn.Linear(linear_input, hidden_size)
         self.activation1 = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, NUM_BITS)

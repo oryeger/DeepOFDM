@@ -22,9 +22,9 @@ class MIMOChannel:
         self.fading_in_channel = fading_in_channel
         self.spatial_in_channel = spatial_in_channel
 
-    def _transmit(self, h: np.ndarray, snr: float) -> Tuple[np.ndarray, np.ndarray]:
-        tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, N_USERS))
-        tx_data = self._bits_generator.integers(0, 2, size=(self._block_length - self._pilots_length, N_USERS))
+    def _transmit(self, h: np.ndarray, snr: float, num_res: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, N_USERS, num_res))
+        tx_data = self._bits_generator.integers(0, 2, size=(self._block_length - self._pilots_length, N_USERS, num_res))
         tx = np.concatenate([tx_pilots, tx_data])
 
         # modulation
@@ -32,25 +32,32 @@ class MIMOChannel:
             s_pilots = BPSKModulator.modulate(tx_pilots.T)
             s_data = BPSKModulator.modulate(tx_data.T)
         else:
-            s_pilots = np.zeros((N_USERS, int(tx_pilots.shape[0]/np.log2(MOD_PILOT))), dtype=complex)
-            s_data = np.zeros((N_USERS, int(tx_data.shape[0]/np.log2(MOD_DATA))), dtype=complex)
+            s_pilots = np.zeros((N_USERS, int(tx_pilots.shape[0]/np.log2(MOD_PILOT)), num_res), dtype=complex)
+            s_data = np.zeros((N_USERS, int(tx_data.shape[0]/np.log2(MOD_DATA)), num_res), dtype=complex)
             qam = mod.QAMModem(MOD_PILOT)
             for user in range(N_USERS):
-                s_pilots[user,:] = qam.modulate(tx_pilots.T[user,:])
-                s_data[user,:] = qam.modulate(tx_data.T[user,:])
+                for re_index in range(num_res):
+                    tx_pilots_cur = tx_pilots[:,:,re_index]
+                    s_pilots[user,:, re_index] = qam.modulate(tx_pilots_cur.T[user,:])
+                    tx_data_cur = tx_data[:,:,re_index]
+                    s_data[user,:, re_index] = qam.modulate(tx_data_cur.T[user,:])
 
         s = np.concatenate([s_pilots, s_data], axis=1)
-        (rows, col) = s.shape
-        s_real = np.empty((rows*2, col), dtype=s.real.dtype)
-        s_real[0::2, :] = s.real  # Real parts at even indices
-        s_real[1::2, :] = s.imag  # Imaginary parts at odd indices
+        (dim0, dim1, dim2) = s.shape
+        s_real = np.empty((dim0*2, dim1, dim2), dtype=s.real.dtype)
+        s_real[0::2, :, :] = s.real  # Real parts at even indices
+        s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx = SEDChannel.transmit(s=s, h=h, snr=snr)
-        return tx, rx.T, s.T
+        rx = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res)
 
-    def _transmit_and_detect(self, snr: float, index: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+        rx = np.transpose(rx, (1, 0, 2))
+        s = np.transpose(s, (1, 0, 2))
+
+        return tx, rx, s
+
+    def _transmit_and_detect(self, snr: float, num_res: int, index: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
-        h = SEDChannel.calculate_channel(N_ANTS, N_USERS, index, self.fading_in_channel, self.spatial_in_channel)
-        tx, rx, s_orig = self._transmit(h, snr)
+        h = SEDChannel.calculate_channel(N_ANTS, N_USERS, num_res, index, self.fading_in_channel, self.spatial_in_channel)
+        tx, rx, s_orig = self._transmit(h, snr,num_res)
         return tx, h, rx, s_orig

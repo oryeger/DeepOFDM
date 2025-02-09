@@ -249,7 +249,7 @@ class Trainer(object):
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
-        plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie')
+        plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
         title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%" + ", genie=" + str(GENIE_CHANNEL)

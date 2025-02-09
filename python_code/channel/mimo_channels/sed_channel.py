@@ -60,10 +60,10 @@ class SEDChannel:
         y = np.zeros((s.shape[0],s.shape[1],num_res), dtype=complex)
         y_ce = np.zeros((N_USERS, s.shape[0], s.shape[1], num_res), dtype=complex)
         var = 10 ** (-0.1 * snr)
-        w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
-        all_values = list(range(N_USERS))
         for re_index in range(num_res):
             conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
+            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+            all_values = list(range(N_USERS))
             y[:,:,re_index] = conv + w
             for user in range(N_USERS):
                 idx = np.setdiff1d(all_values, user)

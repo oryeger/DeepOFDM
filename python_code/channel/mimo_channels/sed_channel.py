@@ -1,7 +1,7 @@
 import numpy as np
 
 from python_code import conf
-from python_code.utils.constants import N_ANTS , PHASE_OFFSET
+from python_code.utils.constants import N_ANTS , PHASE_OFFSET, N_USERS
 
 H_COEF = 0.8
 
@@ -35,6 +35,7 @@ class SEDChannel:
             for re_index in range(num_res):
                 H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
 
+
         if fading:
             for re_index in range(num_res):
                 H_complex[:,:,re_index] = SEDChannel._add_fading(H_complex[:,:,re_index], n_ant, frame_ind)
@@ -57,12 +58,20 @@ class SEDChannel:
         :return: received word
         """
         y = np.zeros((s.shape[0],s.shape[1],num_res), dtype=complex)
+        y_ce = np.zeros((N_USERS, s.shape[0], s.shape[1], num_res), dtype=complex)
+        var = 10 ** (-0.1 * snr)
+        w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+        all_values = list(range(N_USERS))
         for re_index in range(num_res):
             conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
-            var = 10 ** (-0.1 * snr)
-            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j*np.random.randn(N_ANTS, s.shape[1]))
             y[:,:,re_index] = conv + w
-        return y
+            for user in range(N_USERS):
+                idx = np.setdiff1d(all_values, user)
+                s_cur_user = s[:, :, re_index].copy()
+                s_cur_user[idx,:] = 0
+                conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
+                y_ce[user,:, :, re_index] = conv_ce + w
+        return y,y_ce
 
     @staticmethod
     def _compute_channel_signal_convolution(h: np.ndarray, s: np.ndarray) -> np.ndarray:

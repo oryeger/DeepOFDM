@@ -10,13 +10,12 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL
 
 import commpy.modulation as mod
 
 from python_code.channel.modulator import BPSKModulator
-
-
+import pandas as pd
 
 
 
@@ -76,7 +75,8 @@ class Trainer(object):
                                                    blocks_num=conf.blocks_num,
                                                    num_res=conf.num_res,
                                                    fading_in_channel=conf.fading_in_channel,
-                                                   spatial_in_channel=conf.spatial_in_channel)
+                                                   spatial_in_channel=conf.spatial_in_channel,
+                                                   clip_percentage_in_tx=conf.clip_percentage_in_tx)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
         """
@@ -104,13 +104,14 @@ class Trainer(object):
 
         total_ber = []
         total_ber_legacy = []
+        total_ber_legacy_genie = []
         SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
         for snr_cur in SNR_range:
             # draw the test words for a given snr
 
             self._initialize_detector() # For reseting teh weights
 
-            transmitted_words, received_words, hs, s_orig_words = self.channel_dataset.__getitem__(snr_list=[snr_cur])
+            transmitted_words, received_words, received_words_ce, hs, s_orig_words = self.channel_dataset.__getitem__(snr_list=[snr_cur])
 
             # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
             # REs = np.arange(conf.num_res)
@@ -128,7 +129,7 @@ class Trainer(object):
             for block_ind in range(conf.blocks_num):
                 print('*' * 20)
                 # get current word and channel
-                tx, h, rx, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], s_orig_words[block_ind]
+                tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], received_words_ce[block_ind], s_orig_words[block_ind]
                 # Interleave real and imaginary partsos Rx into a real tensor
                 if IS_COMPLEX:
                     real_part = rx.real
@@ -155,12 +156,20 @@ class Trainer(object):
                 # train_loss_vect = [0] * EPOCHS
                 # val_loss_vect = [0] * EPOCHS
                 rx_pilot_c, rx_data_c = rx[:pilot_chunk], rx[pilot_chunk:]
-                #s_orig_pilot, s_orig_data = s_orig[:pilot_chunk], s_orig[pilot_chunk:]
-                #ChanEst = 1/N_ANTS*torch.sum(s_orig_pilot.conj() * rx_pilot_c, dim=1)
                 ber_acc = 0
                 ber_legacy_acc = 0
+                ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
-                    H = h[:,:,re].numpy()
+                    if GENIE_CHANNEL:
+                        H = h[:,:,re].numpy()
+                    else:
+                        H = torch.zeros_like(h[:, :, re])
+                        for user in range(N_USERS):
+                            s_orig_pilot = s_orig[:pilot_chunk,user,re]
+                            rx_pilot_ce_cur = rx_ce[user,:pilot_chunk,:,re]
+                            H[:,user] = 1/s_orig_pilot.shape[0]*(s_orig_pilot[:, None].conj()/(torch.abs(s_orig_pilot[:, None]) ** 2)* rx_pilot_ce_cur).sum(dim=0)
+                        H = H.numpy()
+
                     H_Ht = H @ H.T.conj()
                     H_Ht_inv = np.linalg.pinv(H_Ht)
                     H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
@@ -175,8 +184,23 @@ class Trainer(object):
                     else:
                         for i in range(equalized.shape[1]):
                             detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
-                    pass
 
+                    # GENIE
+                    H = h[:, :, re].numpy()
+                    H_Ht = H @ H.T.conj()
+                    H_Ht_inv = np.linalg.pinv(H_Ht)
+                    H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+                    equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
+                    for i in range(rx_data_c.shape[0]):
+                        equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
+                    detected_word_legacy_genie = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
+                    if MOD_PILOT>2:
+                        qam = mod.QAMModem(MOD_PILOT)
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy_genie[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
+                    else:
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy_genie[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
 
 
                     # calculate accuracy
@@ -191,11 +215,15 @@ class Trainer(object):
                     ber_acc = ber_acc + ber
                     ber_legacy = calculate_ber(detected_word_legacy, target)
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
+                    ber_legacy_genie = calculate_ber(detected_word_legacy_genie, target)
+                    ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
 
                 total_ber.append(ber)
                 total_ber_legacy.append(ber_legacy)
-                print(f'current: {block_ind, ber}')
-            print(f'Final BER: {sum(total_ber) / len(total_ber)}')
+                total_ber_legacy_genie.append(ber_legacy_genie)
+                print(f'current DeepSIC: {block_ind, ber}')
+                print(f'current legacy:  {block_ind, ber_legacy}')
+            # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
             epochs_vect = list(range(1, len(train_loss_vect)+1))
             plt.plot(epochs_vect, train_loss_vect, linestyle='-', color='b', label='Training Loss')
             plt.plot(epochs_vect, val_loss_vect, linestyle='-', color='r', label='Validation Loss')
@@ -213,21 +241,25 @@ class Trainer(object):
 
             train_samples = int(conf.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =conf. pilot_size - train_samples
-
-            plt.title('Loss, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", SNR=" + str(snr_cur) )
+            title_string = 'Loss, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", SNR=" + str(snr_cur) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%"
+            plt.title(title_string ,fontsize=10 )
             plt.legend()
             plt.grid()
             plt.show()
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
-
+        plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        plt.title('Total BER, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS))
+        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%" + ", genie=" + str(GENIE_CHANNEL)
+        plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()
         plt.show()
+        df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_legacy": total_ber_legacy})
+
+        df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)
         return total_ber
 
     def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor) -> float:

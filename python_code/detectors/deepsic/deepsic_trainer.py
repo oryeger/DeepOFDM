@@ -30,7 +30,7 @@ class DeepSICTrainer(Trainer):
         self.detector = [[DeepSICDetector().to(DEVICE) for _ in range(ITERATIONS)] for _ in
                          range(N_USERS*conf.num_res)]  # 2D list for Storing the DeepSIC Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, prob: torch.Tensor) -> list[float]:
         """
         Trains a DeepSIC Network and returns the total training loss.
         """
@@ -41,12 +41,11 @@ class DeepSICTrainer(Trainer):
         train_loss_vect = []
         val_loss_vect = []
         for _ in range(EPOCHS):
-            soft_estimation = single_model(y_total)
+            soft_estimation = single_model(prob, rx)
             if MOD_PILOT <= 2:
                 tx_reshaped = tx
             else:
                 tx_reshaped = tx.reshape(int(tx.numel() // NUM_BITS), NUM_BITS)
-
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
@@ -58,16 +57,14 @@ class DeepSICTrainer(Trainer):
         return train_loss_vect , val_loss_vect
 
     def _train_models(self, model: List[List[DeepSICDetector]], i: int, tx_all: List[torch.Tensor],
-                      rx_all: List[torch.Tensor]):
+                      rx: List[torch.Tensor], prob_all: List[torch.Tensor]):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(N_USERS):
-            for re in range(conf.num_res):
-                model_index = user*conf.num_res + re
-                train_loss_vect , val_loss_vect = self._train_model(model[model_index][i], tx_all[model_index], rx_all[model_index])
-                if user == 0:
-                    train_loss_vect_user = train_loss_vect
-                    val_loss_vect_user = val_loss_vect
+            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx, prob_all[user])
+            if user == 0:
+                train_loss_vect_user = train_loss_vect
+                val_loss_vect_user = val_loss_vect
         return train_loss_vect_user , val_loss_vect_user
 
 
@@ -80,9 +77,9 @@ class DeepSICTrainer(Trainer):
         """
 
         initial_probs = self._initialize_probs(tx)
-        tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, initial_probs)
+        tx_all, prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs)
         # Training the DeepSIC network for each user for iteration=1
-        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_all)
+        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_real, prob_all)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx)
         # Training the DeepSICNet for each user-symbol/iteration
@@ -90,9 +87,9 @@ class DeepSICTrainer(Trainer):
             # Generating soft symbols for training purposes
             probs_vec = self._calculate_posteriors(self.detector, i, probs_vec, rx_real)
             # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
-            tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, probs_vec)
+            tx_all, prob_all = self._prepare_data_for_training(tx, rx_real, probs_vec)
             # Training the DeepSIC networks for the iteration>1
-            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_all)
+            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_real, prob_all)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur
                 val_loss_vect = val_loss_vect + val_loss_cur
@@ -133,31 +130,34 @@ class DeepSICTrainer(Trainer):
         Generates the data for each user
         """
         tx_all = []
-        rx_all = []
+        prob_all = []
         for user in range(N_USERS):
-            for re in range(conf.num_res):
-                max_value = probs_vec.shape[1]
-                all_values = list(range(max_value))
+            max_value = probs_vec.shape[1]
+            all_values = list(range(max_value))
 
-                # Compute the excluded range for the current `i`
-                exclude_start = (conf.num_res*user + re)*NUM_BITS
-                exclude_end = (conf.num_res*user + re+1)*NUM_BITS
-                idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+            # Compute the excluded range for the current `i`
+            # exclude_start = (conf.num_res*user + re)*NUM_BITS
+            # exclude_end = (conf.num_res*user + re+1)*NUM_BITS
+            # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+            idx = all_values
 
-                current_y_train = torch.cat((rx.reshape(rx.shape[0], -1), probs_vec[:, idx].reshape(rx.shape[0], -1)), dim=1)
-                tx_all.append(tx[:, user, re])
-                rx_all.append(current_y_train)
-        return tx_all, rx_all
+            prob_all.append(probs_vec)
+            tx_all.append(tx[:, user, :])
+        return tx_all, prob_all
 
     def _initialize_probs_for_training(self, tx):
-        num_rows = int(tx.shape[0]//NUM_BITS)
-        num_cols = NUM_BITS * N_USERS * conf.num_res
-        return HALF * torch.ones(num_rows,num_cols).to(DEVICE)
+        dim0 = int(tx.shape[0]//NUM_BITS)
+        dim1 = NUM_BITS * N_USERS
+        dim2 = conf.num_res
+        dim3 = 1
+        return HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32).to(DEVICE)
 
     def _initialize_probs(self, tx):
-        num_rows = int(tx.shape[0]//NUM_BITS)
-        num_cols = NUM_BITS * N_USERS * conf.num_res
-        rnd_init = torch.from_numpy(np.random.choice([0, 1], size=(num_rows,num_cols)))
+        dim0 = int(tx.shape[0]//NUM_BITS)
+        dim1 = NUM_BITS * N_USERS
+        dim2 = conf.num_res
+        dim3 = 1
+        rnd_init = torch.from_numpy(np.random.choice([0, 1], size=(dim0,dim1,dim2,dim3)).astype(np.float32))
         return rnd_init
 
     def _calculate_posteriors(self, model: List[List[nn.Module]], i: int, probs_vec: torch.Tensor,
@@ -167,25 +167,13 @@ class DeepSICTrainer(Trainer):
         """
         next_probs_vec = torch.zeros(probs_vec.shape).to(DEVICE)
         for user in range(N_USERS):
-            for re in range(conf.num_res):
-                model_index = user*conf.num_res + re
-                max_value = probs_vec.shape[1]
-                all_values = list(range(max_value))
-
-                # Compute the excluded range for the current `i`
-                exclude_start = (conf.num_res*user + re)*NUM_BITS
-                exclude_end = (conf.num_res*user + re+1)*NUM_BITS
-                idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
-
-                user_indexes = np.setdiff1d(all_values, idx)
-                local_user_indexes = range(0, NUM_BITS)
-
-
-                input = torch.cat((rx, probs_vec[:, idx].reshape(rx.shape[0], -1)), dim=1)
-                preprocessed_input = self._preprocess(input)
-                with torch.no_grad():
-                    output = model[model_index][i - 1](preprocessed_input)
-                next_probs_vec[:, user_indexes] = output[:, local_user_indexes].reshape(next_probs_vec[:, user_indexes].shape)
+            local_user_indexes = range(0, NUM_BITS)
+            with torch.no_grad():
+                output = model[user][i - 1](probs_vec, rx)
+            index_start = user*NUM_BITS
+            index_end = (user+1) * NUM_BITS
+            output = output.view(next_probs_vec.shape[0],NUM_BITS,next_probs_vec.shape[2],next_probs_vec.shape[3])
+            next_probs_vec[:, index_start:index_end,:,:] = output
         return next_probs_vec
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor):

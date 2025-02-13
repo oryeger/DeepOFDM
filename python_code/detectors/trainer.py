@@ -76,7 +76,8 @@ class Trainer(object):
                                                    num_res=conf.num_res,
                                                    fading_in_channel=conf.fading_in_channel,
                                                    spatial_in_channel=conf.spatial_in_channel,
-                                                   clip_percentage_in_tx=conf.clip_percentage_in_tx)
+                                                   clip_percentage_in_tx=conf.clip_percentage_in_tx,
+                                                   kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
         """
@@ -140,12 +141,13 @@ class Trainer(object):
                 else:
                     rx_real = rx
 
-                rx_real = rx_real.reshape(rx_real.shape[0],rx_real.shape[1]*conf.num_res)
+                rx_real = rx_real.reshape(rx_real.shape[0]*rx_real.shape[2], rx_real.shape[1])
 
                 # split words into data and pilot part
                 pilot_chunk = int(conf.pilot_size / np.log2(MOD_PILOT))
+                pilot_chunk_all_res = pilot_chunk*conf.num_res
                 tx_pilot, tx_data = tx[:conf.pilot_size], tx[conf.pilot_size:]
-                rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
+                rx_pilot, rx_data = rx_real[:pilot_chunk_all_res], rx_real[pilot_chunk_all_res:]
 
                 # online training main function
                 if self.is_online_training:

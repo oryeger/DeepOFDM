@@ -23,23 +23,25 @@ class DeepSICDetector(nn.Module):
     def __init__(self):
         super(DeepSICDetector, self).__init__()
         hidden_size = HIDDEN_BASE_SIZE * NUM_BITS * conf.num_res
-        base_rx_size = N_ANTS*conf.num_res
+        base_rx_size = N_ANTS
         if IS_COMPLEX:
             base_rx_size = base_rx_size * 2
-        linear_input = base_rx_size + NUM_BITS*(N_USERS*conf.num_res - 1) # from DeepSIC paper
-        self.fc1 = nn.Linear(linear_input, hidden_size)
-        self.activation1 = nn.ReLU()
-        self.fc2 = nn.Linear(hidden_size, NUM_BITS)
-        self.activation2 = nn.Sigmoid()
+        conv_num_channels =  NUM_BITS*N_USERS
+
+        self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=1,kernel_size=(conf.kernel_size, 1),padding='same')
+        self.fc2 = nn.Linear(base_rx_size+1, NUM_BITS)
+        self.activation = nn.Sigmoid()
 
     def _reset_parameters(self):
         for layer in self.children():
             if hasattr(layer, 'reset_parameters'):
                 layer.reset_parameters()
 
-    def forward(self, rx: torch.Tensor) -> torch.Tensor:
-        out0 = self.activation1(self.fc1(rx))
-        out1 = self.fc2(out0)
-        out2 = self.activation2(out1)
+    def forward(self, probs: torch.Tensor, rx: torch.Tensor) -> torch.Tensor:
+        out0 = self.fc1(probs)
+        out0_flat = torch.flatten(out0)
+        out0_cat = torch.cat((out0_flat.view(-1,1),rx), dim=1)
+        out1 = self.fc2(out0_cat)
+        out2 = self.activation(out1)
         return out2
 

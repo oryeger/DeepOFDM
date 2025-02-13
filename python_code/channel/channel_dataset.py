@@ -16,7 +16,7 @@ class ChannelModelDataset(Dataset):
     Returns (transmitted, received, channel_coefficients) batch.
     """
 
-    def __init__(self, block_length: int, pilots_length: int, blocks_num: int, num_res: int, fading_in_channel: bool, spatial_in_channel: bool, clip_percentage_in_tx: bool):
+    def __init__(self, block_length: int, pilots_length: int, blocks_num: int, num_res: int, fading_in_channel: bool, spatial_in_channel: bool, clip_percentage_in_tx: int, kernel_size: int):
         """
         Initialzes the relevant hyperparameters
         :param block_length: number of pilots + data bits
@@ -32,6 +32,7 @@ class ChannelModelDataset(Dataset):
             self.block_length = pilots_length*BLOCK_LENGTH_FACTOR
         self.channel_type = MIMOChannel(self.block_length, pilots_length, fading_in_channel, spatial_in_channel, clip_percentage_in_tx)
         self.num_res = num_res
+        self.kernel_size = kernel_size
 
     def get_snr_data(self, snr: float, database: list):
         if database is None:

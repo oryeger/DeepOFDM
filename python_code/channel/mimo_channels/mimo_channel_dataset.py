@@ -49,17 +49,14 @@ class MIMOChannel:
         s = np.concatenate([s_pilots, s_data], axis=1)
         s_copy = np.copy(s)
 
-        # s_for_plot = np.zeros_like(s[0,0,:])
-        # center_index = int(s_for_plot.shape[0] // 2)
-        # s_for_plot[center_index] = s[0,0,center_index]
-        # s[0, 0, :] = s_for_plot
-
-        plt.subplot(2,1,1)
-        plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
-        plt.xlabel('Subcarriers')
-        plt.ylabel('Before CLipping')
-        plt.grid()
-        plt.title('Clipping effect')
+        show_clipping = False
+        if show_clipping:
+            plt.subplot(2,1,1)
+            plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
+            plt.xlabel('Subcarriers')
+            plt.ylabel('Before CLipping')
+            plt.grid()
+            plt.title('Clipping effect')
 
         if self.clip_percentage_in_tx<100:
             s_t = np.fft.ifft(s, axis=2, n=1024)
@@ -83,13 +80,13 @@ class MIMOChannel:
             s = np.fft.fft(s_t, axis=2, n=1024)
             s = s[:,:,:num_res]
 
-        plt.subplot(2,1,2)
-        plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
-        plt.xlabel('Subcarriers')
-        plt.ylabel('After CLipping')
-        plt.grid()
-        plt.show()
-        pass
+        if show_clipping:
+            plt.subplot(2,1,2)
+            plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
+            plt.xlabel('Subcarriers')
+            plt.ylabel('After CLipping')
+            plt.grid()
+            plt.show()
 
         # (dim0, dim1, dim2) = s.shape
         # s_real = np.empty((dim0*2, dim1, dim2), dtype=s.real.dtype)

@@ -36,7 +36,6 @@ class DeepSICTrainer(Trainer):
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
-        y_total = self._preprocess(rx)
         loss = 0
         train_loss_vect = []
         val_loss_vect = []
@@ -177,4 +176,8 @@ class DeepSICTrainer(Trainer):
         return next_probs_vec
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor):
-        return HALF * torch.ones(rx.shape[0], N_USERS*NUM_BITS*conf.num_res).to(DEVICE).float() # was N_ANTS instead of N_USERS
+        dim0 = int(rx.shape[0]//conf.num_res)
+        dim1 = NUM_BITS * N_USERS
+        dim2 = conf.num_res
+        dim3 = 1
+        return HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32).to(DEVICE)

@@ -208,12 +208,11 @@ class Trainer(object):
                     # calculate accuracy
                     target = tx_data[:, :rx.shape[1],re]
 
-                    indexes = []
-                    for user in range(N_USERS):
-                        indexes.append(list(range(user * conf.num_res * NUM_BITS + re*NUM_BITS, NUM_BITS * (user * conf.num_res + 1)+re*NUM_BITS)))
-                    indexes = sum(indexes, [])
+                    detected_word_cure_re = detected_word[:,:,re,:]
+                    detected_word_cure_re = detected_word_cure_re.squeeze(-1)
+                    detected_word_cure_re = detected_word_cure_re.view(tx_data.shape[0], N_USERS)
 
-                    ber = calculate_ber(detected_word[:,indexes], target)
+                    ber = calculate_ber(detected_word_cure_re, target)
                     ber_acc = ber_acc + ber
                     ber_legacy = calculate_ber(detected_word_legacy, target)
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
@@ -254,7 +253,7 @@ class Trainer(object):
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%" + ", genie=" + str(GENIE_CHANNEL)
+        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%"
         plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()

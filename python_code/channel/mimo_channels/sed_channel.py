@@ -15,8 +15,8 @@ class SEDChannel:
         H_column = np.tile(H_column, [n_ant, 1])
         H_real = np.exp(-np.abs(H_row - H_column))
         # Frequency channel
-        sigma = 5
-        linear_phase_slope = 0.5
+        sigma = 5*num_res/4
+        linear_phase_slope = 0.5*num_res/4
         freq_indexes = np.linspace(-num_res // 2, num_res // 2, num_res)
         ChannelFreq = np.exp(-0.5 * (freq_indexes / sigma) ** 2)
         ChannelFreq = np.exp(1j * freq_indexes * linear_phase_slope)*ChannelFreq

@@ -13,7 +13,7 @@ import numpy as np
 from python_code.utils.constants import MOD_PILOT, SHOW_ALL_ITERATIONS, EPOCHS, NUM_BITS
 import commpy.modulation as mod
 
-ITERATIONS = 5
+ITERATIONS = 1
 
 Softmax = torch.nn.Softmax(dim=1)
 

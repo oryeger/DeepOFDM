@@ -210,7 +210,7 @@ class Trainer(object):
 
                     detected_word_cure_re = detected_word[:,:,re,:]
                     detected_word_cure_re = detected_word_cure_re.squeeze(-1)
-                    detected_word_cure_re = detected_word_cure_re.view(tx_data.shape[0], N_USERS)
+                    detected_word_cure_re = detected_word_cure_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
 
                     ber = calculate_ber(detected_word_cure_re, target)
                     ber_acc = ber_acc + ber

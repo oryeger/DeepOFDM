@@ -57,8 +57,8 @@ class SEDChannel:
         :param h: channel function
         :return: received word
         """
-        y = np.zeros((s.shape[0],s.shape[1],num_res), dtype=complex)
-        y_ce = np.zeros((N_USERS, s.shape[0], s.shape[1], num_res), dtype=complex)
+        y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
+        y_ce = np.zeros((N_USERS, N_ANTS, s.shape[1], num_res), dtype=complex)
         var = 10 ** (-0.1 * snr)
         for re_index in range(num_res):
             conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])

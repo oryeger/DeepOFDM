@@ -12,6 +12,6 @@ clip_percentage_in_tx: 100
 pilot_size: 1000    # 6000 1000 # pilot bits - should be a multilpier of log2(MOD_PILOT)
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(MOD_PILOT)
 blocks_num: 1 # 100 number of validation frames. values: int.
-num_res: 1
+num_res: 50
 kernel_size: 5
 

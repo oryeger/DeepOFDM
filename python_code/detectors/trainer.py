@@ -38,7 +38,7 @@ class Trainer(object):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
-        self._initialize_dataloader()
+        self._initialize_dataloader(num_res)
         self._initialize_detector(num_res)
 
     def get_name(self):
@@ -66,10 +66,11 @@ class Trainer(object):
         self.criterion = BCELoss().to(DEVICE)
 
 
-    def _initialize_dataloader(self):
+    def _initialize_dataloader(self, num_res):
         """
         Sets up the data loader - a generator from which we draw batches, in iterations
         """
+        conf.num_res = num_res
         self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
                                                    pilots_length=conf.pilot_size,
                                                    blocks_num=conf.blocks_num,
@@ -110,7 +111,7 @@ class Trainer(object):
         for snr_cur in SNR_range:
             # draw the test words for a given snr
 
-            self._initialize_detector(12) # For reseting teh weights
+            self._initialize_detector(conf.num_res) # For reseting teh weights
 
             transmitted_words, received_words, received_words_ce, hs, s_orig_words = self.channel_dataset.__getitem__(snr_list=[snr_cur])
 
@@ -227,8 +228,8 @@ class Trainer(object):
                 print(f'current legacy genie:   {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
             epochs_vect = list(range(1, len(train_loss_vect)+1))
-            plt.plot(epochs_vect, train_loss_vect, linestyle='-', color='b', label='Training Loss')
-            plt.plot(epochs_vect, val_loss_vect, linestyle='-', color='r', label='Validation Loss')
+            plt.plot(epochs_vect[0::conf.num_res], train_loss_vect[0::conf.num_res], linestyle='-', color='b', label='Training Loss')
+            plt.plot(epochs_vect[0::conf.num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r', label='Validation Loss')
             plt.xlabel('Epochs')
             plt.ylabel('Loss')
 

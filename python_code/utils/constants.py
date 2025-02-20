@@ -5,17 +5,17 @@ import numpy as np
 NUM_SNRs = 1
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
-N_USERS = 1 # number of users
+N_USERS = 4 # number of users
 N_ANTS = 4 # number of antennas
 TRAIN_PERCENTAGE = 80
-EPOCHS = 4000
+EPOCHS = 100
 IS_COMPLEX = 1
 PHASE_OFFSET = 3.14159 / 3
 SHOW_ALL_ITERATIONS = False
 GENIE_CHANNEL = False
 
 
-MOD_GENERAL = 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+MOD_GENERAL = 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 
 MOD_PILOT = MOD_GENERAL
 MOD_DATA = MOD_GENERAL

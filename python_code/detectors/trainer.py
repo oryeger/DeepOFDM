@@ -34,17 +34,17 @@ class Trainer(object):
     It also defines some functions that every inherited trainer must implement.
     """
 
-    def __init__(self):
+    def __init__(self, num_res):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
         self._initialize_dataloader()
-        self._initialize_detector()
+        self._initialize_detector(num_res)
 
     def get_name(self):
         return self.__name__()
 
-    def _initialize_detector(self):
+    def _initialize_detector(self, num_res):
         """
         Every trainer must have some base detector
         """
@@ -110,7 +110,7 @@ class Trainer(object):
         for snr_cur in SNR_range:
             # draw the test words for a given snr
 
-            self._initialize_detector() # For reseting teh weights
+            self._initialize_detector(12) # For reseting teh weights
 
             transmitted_words, received_words, received_words_ce, hs, s_orig_words = self.channel_dataset.__getitem__(snr_list=[snr_cur])
 
@@ -141,13 +141,13 @@ class Trainer(object):
                 else:
                     rx_real = rx
 
-                rx_real = rx_real.reshape(rx_real.shape[0]*rx_real.shape[2], rx_real.shape[1])
+                # rx_real = rx_real.reshape(rx_real.shape[0]*rx_real.shape[2], rx_real.shape[1])
 
                 # split words into data and pilot part
                 pilot_chunk = int(conf.pilot_size / np.log2(MOD_PILOT))
                 pilot_chunk_all_res = pilot_chunk*conf.num_res
                 tx_pilot, tx_data = tx[:conf.pilot_size], tx[conf.pilot_size:]
-                rx_pilot, rx_data = rx_real[:pilot_chunk_all_res], rx_real[pilot_chunk_all_res:]
+                rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
                 # online training main function
                 if self.is_online_training:

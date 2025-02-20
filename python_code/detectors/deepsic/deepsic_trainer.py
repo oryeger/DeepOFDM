@@ -21,14 +21,14 @@ class DeepSICTrainer(Trainer):
 
     def __init__(self):
         self.lr = 5e-3
-        super().__init__()
+        super().__init__(12)
 
     def __str__(self):
         return 'DeepSIC'
 
-    def _initialize_detector(self):
-        self.detector = [[DeepSICDetector().to(DEVICE) for _ in range(ITERATIONS)] for _ in
-                         range(N_USERS*conf.num_res)]  # 2D list for Storing the DeepSIC Networks
+    def _initialize_detector(self, num_res):
+        self.detector = [[DeepSICDetector(num_res).to(DEVICE) for _ in range(ITERATIONS)] for _ in
+                         range(N_USERS)]  # 2D list for Storing the DeepSIC Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, prob: torch.Tensor) -> list[float]:
         """
@@ -40,19 +40,20 @@ class DeepSICTrainer(Trainer):
         train_loss_vect = []
         val_loss_vect = []
         for _ in range(EPOCHS):
-            soft_estimation = single_model(prob, rx)
-            if MOD_PILOT <= 2:
-                tx_reshaped = tx
-            else:
-                tx_reshaped = tx.reshape(int(tx.numel() // NUM_BITS), NUM_BITS)
+            for re in range(conf.num_res):
+                soft_estimation = single_model(prob, rx, re)
+                if MOD_PILOT <= 2:
+                    tx_reshaped = tx
+                else:
+                    tx_reshaped = tx[:,re].reshape(int(tx[:,re].numel() // NUM_BITS), NUM_BITS)
 
-            train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
-            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
-            val_loss = val_loss.item()
-            loss += current_loss
-            train_loss_vect.append(current_loss)
-            val_loss_vect.append(val_loss)
+                train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
+                current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
+                val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+                val_loss = val_loss.item()
+                loss += current_loss
+                train_loss_vect.append(current_loss)
+                val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
     def _train_models(self, model: List[List[DeepSICDetector]], i: int, tx_all: List[torch.Tensor],
@@ -166,17 +167,16 @@ class DeepSICTrainer(Trainer):
         """
         next_probs_vec = torch.zeros(probs_vec.shape).to(DEVICE)
         for user in range(N_USERS):
-            local_user_indexes = range(0, NUM_BITS)
-            with torch.no_grad():
-                output = model[user][i - 1](probs_vec, rx)
-            index_start = user*NUM_BITS
-            index_end = (user+1) * NUM_BITS
-            output = output.view(next_probs_vec.shape[0],NUM_BITS,next_probs_vec.shape[2],next_probs_vec.shape[3])
-            next_probs_vec[:, index_start:index_end,:,:] = output
+            for re in range(conf.num_res):
+                with torch.no_grad():
+                    output = model[user][i - 1](probs_vec, rx, re)
+                index_start = user*NUM_BITS
+                index_end = (user+1) * NUM_BITS
+                next_probs_vec[:, index_start:index_end,re,:] = output.unsqueeze(2)
         return next_probs_vec
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor):
-        dim0 = int(rx.shape[0]//conf.num_res)
+        dim0 = rx.shape[0]
         dim1 = NUM_BITS * N_USERS
         dim2 = conf.num_res
         dim3 = 1

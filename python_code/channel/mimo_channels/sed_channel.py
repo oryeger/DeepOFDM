@@ -8,7 +8,7 @@ H_COEF = 0.8
 
 class SEDChannel:
     @staticmethod
-    def calculate_channel(n_ant: int, n_user: int, num_res: int, frame_ind: int, fading: bool, spatial: bool) -> np.ndarray:
+    def calculate_channel(n_ant: int, n_user: int, num_res: int, frame_ind: int, fading: bool, spatial: bool, delayspread: bool) -> np.ndarray:
         H_row = np.array([i for i in range(n_ant)])
         H_row = np.tile(H_row, [n_user, 1]).T
         H_column = np.array([i for i in range(n_user)])
@@ -33,8 +33,10 @@ class SEDChannel:
             H_complex [:,:,0]= np.array(H_real * complex_scalar, dtype=complex)
         else:
             for re_index in range(num_res):
-                H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
-
+                if delayspread:
+                    H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
+                else:
+                    H_complex[:, :, re_index] = H_real
 
         if fading:
             for re_index in range(num_res):

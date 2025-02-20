@@ -77,6 +77,7 @@ class Trainer(object):
                                                    num_res=conf.num_res,
                                                    fading_in_channel=conf.fading_in_channel,
                                                    spatial_in_channel=conf.spatial_in_channel,
+                                                   delayspread_in_channel=conf.delayspread_in_channel,
                                                    clip_percentage_in_tx=conf.clip_percentage_in_tx,
                                                    kernel_size=conf.kernel_size)
 
@@ -263,6 +264,9 @@ class Trainer(object):
         df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_legacy": total_ber_legacy})
 
         df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)
+        # Look at teh weights:
+        # print(self.detector[0][0].shared_backbone.fc.weight)
+
         return total_ber
 
     def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor) -> float:

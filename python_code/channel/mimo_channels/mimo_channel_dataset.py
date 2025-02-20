@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, clip_percentage_in_tx: bool):
+    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool, clip_percentage_in_tx: bool):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
@@ -23,6 +23,7 @@ class MIMOChannel:
         self.rx_length = N_ANTS
         self.fading_in_channel = fading_in_channel
         self.spatial_in_channel = spatial_in_channel
+        self.delayspread_in_channel = delayspread_in_channel
         self.clip_percentage_in_tx = clip_percentage_in_tx
 
 
@@ -107,6 +108,6 @@ class MIMOChannel:
 
     def _transmit_and_detect(self, snr: float, num_res: int, index: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
-        h = SEDChannel.calculate_channel(N_ANTS, N_USERS, num_res, index, self.fading_in_channel, self.spatial_in_channel)
+        h = SEDChannel.calculate_channel(N_ANTS, N_USERS, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
         tx, rx, rx_ce, s_orig = self._transmit(h, snr,num_res)
         return tx, h, rx, rx_ce, s_orig

@@ -26,6 +26,14 @@ class SEDChannel:
         if not spatial:
             H_real = np.eye(H_real.shape[0])
 
+        # OryEger - adding more interference
+        # H_real = H_real * 1.5
+        # H_real[0,0] = 1
+        # H_real[1,1] = 1
+        # H_real[2,2] = 1
+        # H_real[3,3] = 1
+
+
         H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
 
         if num_res==1:

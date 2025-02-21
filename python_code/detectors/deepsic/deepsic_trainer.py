@@ -41,7 +41,7 @@ class DeepSICTrainer(Trainer):
         val_loss_vect = []
         for _ in range(EPOCHS):
             for re in range(conf.num_res):
-                soft_estimation = single_model(prob, rx, re)
+                soft_estimation = single_model(prob, rx.to(DEVICE), re)
                 if MOD_PILOT <= 2:
                     tx_reshaped = tx
                 else:
@@ -61,7 +61,7 @@ class DeepSICTrainer(Trainer):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(N_USERS):
-            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx, prob_all[user])
+            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx, prob_all[user].to(DEVICE))
             if user == 0:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
@@ -169,7 +169,7 @@ class DeepSICTrainer(Trainer):
         for user in range(N_USERS):
             for re in range(conf.num_res):
                 with torch.no_grad():
-                    output = model[user][i - 1](probs_vec, rx, re)
+                    output = model[user][i - 1](probs_vec, rx.to(DEVICE), re)
                 index_start = user*NUM_BITS
                 index_end = (user+1) * NUM_BITS
                 next_probs_vec[:, index_start:index_end,re,:] = output.unsqueeze(2)

@@ -3,6 +3,7 @@ from typing import List, Tuple
 
 import numpy as np
 import torch
+import torch.nn as nn
 from torch.nn import BCELoss
 from torch.optim import Adam
 
@@ -154,12 +155,16 @@ class Trainer(object):
                 # online training main function
                 if self.is_online_training:
                     train_loss_vect , val_loss_vect = self._online_training(tx_pilot, rx_pilot)
+                    #OryEger zero CNN weights
+                    # for user_for_zero in range(N_USERS):
+                    #     nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
+
                     # detect data part after training on the pilot part
                     detected_word = self._forward(rx_data)
 
                 # train_loss_vect = [0] * EPOCHS
                 # val_loss_vect = [0] * EPOCHS
-                rx_pilot_c, rx_data_c = rx[:pilot_chunk], rx[pilot_chunk:]
+                rx_data_c = rx[pilot_chunk:].cpu()
                 ber_acc = 0
                 ber_legacy_acc = 0
                 ber_legacy_acc_genie = 0
@@ -172,7 +177,7 @@ class Trainer(object):
                             s_orig_pilot = s_orig[:pilot_chunk,user,re]
                             rx_pilot_ce_cur = rx_ce[user,:pilot_chunk,:,re]
                             H[:,user] = 1/s_orig_pilot.shape[0]*(s_orig_pilot[:, None].conj()/(torch.abs(s_orig_pilot[:, None]) ** 2)* rx_pilot_ce_cur).sum(dim=0)
-                        H = H.numpy()
+                        H = H.cpu().numpy()
 
                     H_Ht = H @ H.T.conj()
                     H_Ht_inv = np.linalg.pinv(H_Ht)
@@ -190,7 +195,7 @@ class Trainer(object):
                             detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
 
                     # GENIE
-                    H = h[:, :, re].numpy()
+                    H = h[:, :, re].cpu().numpy()
                     H_Ht = H @ H.T.conj()
                     H_Ht_inv = np.linalg.pinv(H_Ht)
                     H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
@@ -214,12 +219,21 @@ class Trainer(object):
                     detected_word_cure_re = detected_word_cure_re.squeeze(-1)
                     detected_word_cure_re = detected_word_cure_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
 
-                    ber = calculate_ber(detected_word_cure_re, target)
+                    ber = calculate_ber(detected_word_cure_re.cpu(), target.cpu())
                     ber_acc = ber_acc + ber
-                    ber_legacy = calculate_ber(detected_word_legacy, target)
+                    ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu())
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
-                    ber_legacy_genie = calculate_ber(detected_word_legacy_genie, target)
+                    ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
                     ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
+
+                    # Just lookign at the first user
+                    # ber = calculate_ber(detected_word_cure_re[:,0], target[:,0])
+                    # ber_acc = ber_acc + ber
+                    # ber_legacy = calculate_ber(detected_word_legacy[:,0], target[:,0])
+                    # ber_legacy_acc = ber_legacy_acc + ber_legacy
+                    # ber_legacy_genie = calculate_ber(detected_word_legacy_genie[:,0], target[:,0])
+                    # ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
+
 
                 total_ber.append(ber)
                 total_ber_legacy.append(ber_legacy)
@@ -266,6 +280,7 @@ class Trainer(object):
         df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)
         # Look at teh weights:
         # print(self.detector[0][0].shared_backbone.fc.weight)
+        # print(self.detector[1][0].instance_heads[0].fc1.weight[0])
 
         return total_ber
 

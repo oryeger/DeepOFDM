@@ -10,10 +10,9 @@ from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, N_USERS, N_ANTS, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol, prob_to_QAM_index
 import numpy as np
-from python_code.utils.constants import MOD_PILOT, SHOW_ALL_ITERATIONS, EPOCHS, NUM_BITS
-import commpy.modulation as mod
+from python_code.utils.constants import MOD_PILOT, SHOW_ALL_ITERATIONS, EPOCHS, NUM_BITS, ITERATIONS
 
-ITERATIONS = 1
+import commpy.modulation as mod
 
 Softmax = torch.nn.Softmax(dim=1)
 

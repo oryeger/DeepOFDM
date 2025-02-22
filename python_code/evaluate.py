@@ -15,5 +15,11 @@ if __name__ == '__main__':
     trainer.evaluate()
     end_time = time.time()
     elapsed_time = end_time - start_time
-    print(f"Elapsed time: {elapsed_time:.4f} seconds")
+    days = int(elapsed_time // (24 * 3600))
+    elapsed_time %= 24 * 3600
+    hours = int(elapsed_time // 3600)
+    elapsed_time %= 3600
+    minutes = int(elapsed_time // 60)
+    seconds = int(elapsed_time % 60)
+    print(f"Elapsed time: {days} days, {hours} hours, {minutes} minutes, {seconds} seconds")
 

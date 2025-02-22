@@ -1,19 +1,20 @@
 from enum import Enum
 import numpy as np
 
-
 NUM_SNRs = 1
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
 N_USERS = 4 # number of users
 N_ANTS = 4 # number of antennas
 TRAIN_PERCENTAGE = 80
-EPOCHS = 100
+EPOCHS = 400
 IS_COMPLEX = 1
 PHASE_OFFSET = 3.14159 / 3
 SHOW_ALL_ITERATIONS = True
 GENIE_CHANNEL = False
 NUM_REs = 20
+ITERATIONS = 1
+
 
 
 MOD_GENERAL = 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM

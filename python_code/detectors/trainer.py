@@ -156,8 +156,8 @@ class Trainer(object):
                 if self.is_online_training:
                     train_loss_vect , val_loss_vect = self._online_training(tx_pilot, rx_pilot)
                     #OryEger zero CNN weights
-                    # for user_for_zero in range(N_USERS):
-                    #     nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
+                    for user_for_zero in range(N_USERS):
+                        nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
 
                     # detect data part after training on the pilot part
                     detected_word = self._forward(rx_data)
@@ -226,7 +226,7 @@ class Trainer(object):
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
                     ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
 
-                    # Just lookign at the first user
+                    # Just looking at the first user
                     # ber = calculate_ber(detected_word_cure_re[:,0], target[:,0])
                     # ber_acc = ber_acc + ber
                     # ber_legacy = calculate_ber(detected_word_legacy[:,0], target[:,0])

@@ -33,6 +33,20 @@ class SEDChannel:
         H_real[2,2] = 1
         H_real[3,3] = 1
 
+        # np.random.seed(42)
+        # real_part = np.random.normal(0, 1, (n_ant, n_user))
+        # imag_part = np.random.normal(0, 1, (n_ant, n_user))
+        # H_real = real_part + 1j * imag_part
+
+        # H_real = np.array([
+        #     [0.8 + 0.2j, 0.75 + 0.25j, 0.78 + 0.22j, 0.79 + 0.21j],
+        #     [0.79 + 0.21j, 0.8 + 0.2j, 0.75 + 0.25j, 0.78 + 0.22j],
+        #     [0.78 + 0.22j, 0.79 + 0.21j, 0.8 + 0.2j, 0.75 + 0.25j],
+        #     [0.75 + 0.25j, 0.78 + 0.22j, 0.79 + 0.21j, 0.8 + 0.2j]
+        # ])
+        #
+        # reg_factor = 0.1
+        # H_real = H_real + reg_factor*np.eye(H_real.shape[0])
 
         H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
 

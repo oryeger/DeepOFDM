@@ -8,12 +8,12 @@ N_USERS = 4 # number of users
 N_ANTS = 4 # number of antennas
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
-PHASE_OFFSET = 0 # 3.14159 / 3
+PHASE_OFFSET = 0 # np.pi / 3
 SHOW_ALL_ITERATIONS = True
 GENIE_CHANNEL = False
-NUM_REs = 1
-EPOCHS = 500
-ITERATIONS = 3
+NUM_REs = 20
+EPOCHS = 300
+ITERATIONS = 1
 
 
 

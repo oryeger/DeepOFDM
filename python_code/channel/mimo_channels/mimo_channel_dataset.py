@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool, clip_percentage_in_tx: bool):
+    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool, clip_percentage_in_tx: int, cfo: bool):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
@@ -25,6 +25,7 @@ class MIMOChannel:
         self.spatial_in_channel = spatial_in_channel
         self.delayspread_in_channel = delayspread_in_channel
         self.clip_percentage_in_tx = clip_percentage_in_tx
+        self.cfo = cfo
 
 
     def _transmit(self, h: np.ndarray, snr: float, num_res: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -50,14 +51,14 @@ class MIMOChannel:
         s = np.concatenate([s_pilots, s_data], axis=1)
         s_copy = np.copy(s)
 
-        show_clipping = False
-        if show_clipping:
+        show_impair = False
+        if show_impair:
             plt.subplot(2,1,1)
             plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
             plt.xlabel('Subcarriers')
-            plt.ylabel('Before CLipping')
+            plt.ylabel('Before Impair')
             plt.grid()
-            plt.title('Clipping effect')
+            plt.title('Impairment effect')
 
         if self.clip_percentage_in_tx<100:
             s_t = np.fft.ifft(s, axis=2, n=1024)
@@ -81,13 +82,25 @@ class MIMOChannel:
             s = np.fft.fft(s_t, axis=2, n=1024)
             s = s[:,:,:num_res]
 
-        if show_clipping:
+        if self.cfo>0:
+            FFT_size = 1024
+            s_t = np.fft.ifft(s, axis=2, n=FFT_size)
+            n = np.arange(FFT_size)
+            cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
+            s_t = s_t * np.exp(1j * cfo_phase)
+            s = np.fft.fft(s_t, axis=2, n=1024)
+            s = s[:,:,:num_res]
+
+        if show_impair:
             plt.subplot(2,1,2)
             plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
             plt.xlabel('Subcarriers')
-            plt.ylabel('After CLipping')
+            plt.ylabel('After Impair')
             plt.grid()
             plt.show()
+        pass
+
+
 
         # (dim0, dim1, dim2) = s.shape
         # s_real = np.empty((dim0*2, dim1, dim2), dtype=s.real.dtype)

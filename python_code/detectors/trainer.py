@@ -80,6 +80,7 @@ class Trainer(object):
                                                    spatial_in_channel=conf.spatial_in_channel,
                                                    delayspread_in_channel=conf.delayspread_in_channel,
                                                    clip_percentage_in_tx=conf.clip_percentage_in_tx,
+                                                   cfo=conf.cfo,
                                                    kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
@@ -107,6 +108,7 @@ class Trainer(object):
         plt.close('all')
 
         total_ber = []
+        total_ber_no_cnn = []
         total_ber_legacy = []
         total_ber_legacy_genie = []
         SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
@@ -155,17 +157,19 @@ class Trainer(object):
                 # online training main function
                 if self.is_online_training:
                     train_loss_vect , val_loss_vect = self._online_training(tx_pilot, rx_pilot)
-                    #OryEger zero CNN weights
+                    # Zero CNN weights
+                    detected_word = self._forward(rx_data)
                     for user_for_zero in range(N_USERS):
                         nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
 
                     # detect data part after training on the pilot part
-                    detected_word = self._forward(rx_data)
+                    detected_word_no_cnn = self._forward(rx_data)
 
                 # train_loss_vect = [0] * EPOCHS
                 # val_loss_vect = [0] * EPOCHS
                 rx_data_c = rx[pilot_chunk:].cpu()
                 ber_acc = 0
+                ber_no_cnn_acc = 0
                 ber_legacy_acc = 0
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
@@ -215,19 +219,27 @@ class Trainer(object):
                     # calculate accuracy
                     target = tx_data[:, :rx.shape[1],re]
 
-                    detected_word_cure_re = detected_word[:,:,re,:]
-                    detected_word_cure_re = detected_word_cure_re.squeeze(-1)
-                    detected_word_cure_re = detected_word_cure_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
+                    detected_word_cur_re = detected_word[:,:,re,:]
+                    detected_word_cur_re = detected_word_cur_re.squeeze(-1)
+                    detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
 
-                    ber = calculate_ber(detected_word_cure_re.cpu(), target.cpu())
+                    detected_word_no_cnn_cur_re = detected_word_no_cnn[:,:,re,:]
+                    detected_word_no_cnn_cur_re = detected_word_no_cnn_cur_re.squeeze(-1)
+                    detected_word_no_cnn_cur_re = detected_word_no_cnn_cur_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
+
+
+
+                    ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu())
                     ber_acc = ber_acc + ber
+                    ber_no_cnn = calculate_ber(detected_word_no_cnn_cur_re.cpu(), target.cpu())
+                    ber_no_cnn_acc = ber_no_cnn_acc + ber_no_cnn
                     ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu())
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
                     ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
 
                     # Just looking at the first user
-                    # ber = calculate_ber(detected_word_cure_re[:,0], target[:,0])
+                    # ber = calculate_ber(detected_word_cur_re[:,0], target[:,0])
                     # ber_acc = ber_acc + ber
                     # ber_legacy = calculate_ber(detected_word_legacy[:,0], target[:,0])
                     # ber_legacy_acc = ber_legacy_acc + ber_legacy
@@ -236,9 +248,11 @@ class Trainer(object):
 
 
                 total_ber.append(ber)
+                total_ber_no_cnn.append(ber_no_cnn)
                 total_ber_legacy.append(ber_legacy)
                 total_ber_legacy_genie.append(ber_legacy_genie)
                 print(f'current DeepSIC:        {block_ind, ber}')
+                print(f'current DeepSIC no CNN: {block_ind, ber_no_cnn}')
                 print(f'current legacy:         {block_ind, ber_legacy}')
                 print(f'current legacy genie:   {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
@@ -259,23 +273,24 @@ class Trainer(object):
 
             train_samples = int(conf.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =conf. pilot_size - train_samples
-            title_string = 'Loss, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", SNR=" + str(snr_cur) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%"
+            title_string = 'Loss, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", SNR=" + str(snr_cur) + ", #REs=" + str(conf.num_res) + ", CFO=" + str(conf.cfo) + " scs"
             plt.title(title_string ,fontsize=10 )
             plt.legend()
             plt.grid()
             plt.show()
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
+        plt.semilogy(SNR_range, total_ber_no_cnn, '-x', color='k', label='DeeSIC no CNN')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", Clip=" + str(conf.clip_percentage_in_tx) + "%"
+        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", CFO=" + str(conf.cfo) + " scs"
         plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()
         plt.show()
-        df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_legacy": total_ber_legacy})
+        df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_no_cnn": total_ber_no_cnn, "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie})
 
         df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)
         # Look at teh weights:

@@ -11,7 +11,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL, ITERATIONS
 
 import commpy.modulation as mod
 
@@ -107,6 +107,14 @@ class Trainer(object):
             plt.close(fig_num)
         plt.close('all')
 
+        if MOD_PILOT == 2:
+            mod_text = 'BPSK'
+        elif MOD_PILOT == 4:
+            mod_text = 'QPSK'
+        else:
+            mod_text = [str(MOD_PILOT) + 'QAM']
+            mod_text = mod_text[0]
+
         total_ber = []
         total_ber_no_cnn = []
         total_ber_legacy = []
@@ -158,12 +166,15 @@ class Trainer(object):
                 if self.is_online_training:
                     train_loss_vect , val_loss_vect = self._online_training(tx_pilot, rx_pilot)
                     # Zero CNN weights
-                    detected_word = self._forward(rx_data)
+                    detected_word, llrs_mat = self._forward(rx_data)
                     for user_for_zero in range(N_USERS):
                         nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
+                        # nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.bias)
 
                     # detect data part after training on the pilot part
-                    detected_word_no_cnn = self._forward(rx_data)
+                    detected_word_no_cnn, llrs_mat_no_cnn = self._forward(rx_data)
+
+
 
                 # train_loss_vect = [0] * EPOCHS
                 # val_loss_vect = [0] * EPOCHS
@@ -251,33 +262,35 @@ class Trainer(object):
                 total_ber_no_cnn.append(ber_no_cnn)
                 total_ber_legacy.append(ber_legacy)
                 total_ber_legacy_genie.append(ber_legacy_genie)
-                print(f'current DeepSIC:        {block_ind, ber}')
-                print(f'current DeepSIC no CNN: {block_ind, ber_no_cnn}')
-                print(f'current legacy:         {block_ind, ber_legacy}')
-                print(f'current legacy genie:   {block_ind, ber_legacy_genie}')
+                print(f'current DeepSIC:                {block_ind, ber}')
+                print(f'current DeepSIC just CNN bias:  {block_ind, ber_no_cnn}')
+                print(f'current legacy:                 {block_ind, ber_legacy}')
+                print(f'current legacy genie:           {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
+
+            fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
             epochs_vect = list(range(1, len(train_loss_vect)+1))
-            plt.plot(epochs_vect[0::conf.num_res], train_loss_vect[0::conf.num_res], linestyle='-', color='b', label='Training Loss')
-            plt.plot(epochs_vect[0::conf.num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r', label='Validation Loss')
-            plt.xlabel('Epochs')
-            plt.ylabel('Loss')
-
-            if MOD_PILOT == 2:
-                mod_text = 'BPSK'
-            elif MOD_PILOT == 4:
-                mod_text = 'QPSK'
-            else:
-                mod_text = [str(MOD_PILOT)+'QAM']
-                mod_text = mod_text[0]
-
-
+            axes[0].plot(epochs_vect[0::conf.num_res], train_loss_vect[0::conf.num_res], linestyle='-', color='b', label='Training Loss')
+            axes[0].plot(epochs_vect[0::conf.num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r', label='Validation Loss')
+            axes[0].set_xlabel('Epochs')
+            axes[0].set_ylabel('Loss')
             train_samples = int(conf.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =conf. pilot_size - train_samples
-            title_string = 'Loss, ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", SNR=" + str(snr_cur) + ", #REs=" + str(conf.num_res) + ", CFO=" + str(conf.cfo) + " scs"
-            plt.title(title_string ,fontsize=10 )
-            plt.legend()
-            plt.grid()
+            title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', \n ' +
+            'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+
+            axes[0].set_title(title_string ,fontsize=10 )
+            axes[0].legend()
+            axes[0].grid()
+
+            axes[1].hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
+            axes[1].set_xlabel('LLRs')
+            axes[1].set_ylabel('#Values')
+            axes[1].grid()
             plt.show()
+            pass
+
+
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_no_cnn, '-x', color='k', label='DeeSIC no CNN')
@@ -285,13 +298,15 @@ class Trainer(object):
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        title_string = mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #EPOCHS=" + str(EPOCHS) + ", #REs=" + str(conf.num_res) + ", CFO=" + str(conf.cfo) + " scs"
+        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res) + ', \n' +
+                        'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) + ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()
         plt.show()
         df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_no_cnn": total_ber_no_cnn, "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie})
-
+        print('\n'+title_string)
+        title_string = title_string.replace("\n", "")
         df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)
         # Look at teh weights:
         # print(self.detector[0][0].shared_backbone.fc.weight)

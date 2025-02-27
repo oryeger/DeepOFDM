@@ -66,9 +66,9 @@ class InstanceDeepSICDetector(nn.Module):
         out0_cat = torch.cat((out0_flat.view(-1,1),rx), dim=1)
         out1 = self.fc1(out0_cat)
         out2 = self.activation1(out1)
-        out3 = self.fc2(out2)
-        out4 = self.activation2(out3)
-        return out4
+        llrs = self.fc2(out2)
+        out3 = self.activation2(llrs)
+        return out3, llrs
 
 
 class DeepSICDetector(nn.Module):
@@ -81,5 +81,5 @@ class DeepSICDetector(nn.Module):
         # Pass through shared backbone
         shared_output = self.shared_backbone(prob)
         # Pass through the specific head for the given instance
-        instance_output = self.instance_heads[instance_id](rx[:,:,instance_id],torch.squeeze(shared_output[:,:,instance_id,:]))
-        return instance_output
+        instance_output, llrs = self.instance_heads[instance_id](rx[:,:,instance_id],torch.squeeze(shared_output[:,:,instance_id,:]))
+        return instance_output, llrs

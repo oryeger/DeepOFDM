@@ -11,7 +11,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL, ITERATIONS
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL, ITERATIONS, INTERF_FACTOR
 
 import commpy.modulation as mod
 
@@ -276,7 +276,7 @@ class Trainer(object):
             axes[0].set_ylabel('Loss')
             train_samples = int(conf.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =conf. pilot_size - train_samples
-            title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', \n ' +
+            title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
             'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
 
             axes[0].set_title(title_string ,fontsize=10 )
@@ -298,7 +298,7 @@ class Trainer(object):
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res) + ', \n' +
+        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
                         'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) + ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
         plt.legend()

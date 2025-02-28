@@ -8,7 +8,7 @@ fading_in_channel: False # If the channel is fading/non-fading. values: [True, F
 spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
 delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 clip_percentage_in_tx: 100
-cfo:  0
+cfo:  0.1
 
 
 # validation phase protocol

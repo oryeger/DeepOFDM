@@ -116,7 +116,6 @@ class Trainer(object):
             mod_text = mod_text[0]
 
         total_ber = []
-        total_ber_no_cnn = []
         total_ber_legacy = []
         total_ber_legacy_genie = []
         SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
@@ -167,12 +166,6 @@ class Trainer(object):
                     train_loss_vect , val_loss_vect = self._online_training(tx_pilot, rx_pilot)
                     # Zero CNN weights
                     detected_word, llrs_mat = self._forward(rx_data)
-                    for user_for_zero in range(N_USERS):
-                        nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.weight)
-                        # nn.init.zeros_(self.detector[user_for_zero][0].shared_backbone.fc.bias)
-
-                    # detect data part after training on the pilot part
-                    detected_word_no_cnn, llrs_mat_no_cnn = self._forward(rx_data)
 
 
 
@@ -180,7 +173,6 @@ class Trainer(object):
                 # val_loss_vect = [0] * EPOCHS
                 rx_data_c = rx[pilot_chunk:].cpu()
                 ber_acc = 0
-                ber_no_cnn_acc = 0
                 ber_legacy_acc = 0
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
@@ -234,16 +226,11 @@ class Trainer(object):
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
                     detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
 
-                    detected_word_no_cnn_cur_re = detected_word_no_cnn[:,:,re,:]
-                    detected_word_no_cnn_cur_re = detected_word_no_cnn_cur_re.squeeze(-1)
-                    detected_word_no_cnn_cur_re = detected_word_no_cnn_cur_re.reshape(int(tx_data.shape[0]/NUM_BITS), N_USERS, NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0], N_USERS)
 
 
 
                     ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu())
                     ber_acc = ber_acc + ber
-                    ber_no_cnn = calculate_ber(detected_word_no_cnn_cur_re.cpu(), target.cpu())
-                    ber_no_cnn_acc = ber_no_cnn_acc + ber_no_cnn
                     ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu())
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
@@ -259,11 +246,9 @@ class Trainer(object):
 
 
                 total_ber.append(ber)
-                total_ber_no_cnn.append(ber_no_cnn)
                 total_ber_legacy.append(ber_legacy)
                 total_ber_legacy_genie.append(ber_legacy_genie)
                 print(f'current DeepSIC:                {block_ind, ber}')
-                print(f'current DeepSIC just CNN bias:  {block_ind, ber_no_cnn}')
                 print(f'current legacy:                 {block_ind, ber_legacy}')
                 print(f'current legacy genie:           {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
@@ -287,13 +272,20 @@ class Trainer(object):
             axes[1].set_xlabel('LLRs')
             axes[1].set_ylabel('#Values')
             axes[1].grid()
+            text  = 'BER DeepSIC:' + str(f"{ber:.4f}") + '\
+                     BER legacy:' +  str(f"{ber_legacy:.4f}") + '\
+                     BER legacy genie:' + (f"{ber_legacy_genie:.4f}")
+            # axes[2].text(0.5, 0.5, text, fontsize=12, ha="center", va="center")
+            # axes[2].axis('off')
+            fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=12)
             plt.show()
+
+
             pass
 
 
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
-        plt.semilogy(SNR_range, total_ber_no_cnn, '-x', color='k', label='DeeSIC no CNN')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
@@ -304,7 +296,7 @@ class Trainer(object):
         plt.legend()
         plt.grid()
         plt.show()
-        df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_no_cnn": total_ber_no_cnn, "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie})
+        df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie})
         print('\n'+title_string)
         title_string = title_string.replace("\n", "")
         df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv" , index=False)

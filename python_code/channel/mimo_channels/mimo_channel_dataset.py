@@ -48,8 +48,25 @@ class MIMOChannel:
                     tx_data_cur = tx_data[:,:,re_index]
                     s_data[user,:, re_index] = qam.modulate(tx_data_cur.T[user,:])
 
+        if self.cfo>0:
+            FFT_size = 1024
+            s_t = np.fft.ifft(s_pilots, axis=2, n=FFT_size)
+            n = np.arange(FFT_size)
+            cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
+            s_t = s_t * np.exp(1j * cfo_phase)
+            s_pilots = np.fft.fft(s_t, axis=2, n=1024)
+            s_pilots = s_pilots[:,:,:num_res]
+
+
+            s_t = np.fft.ifft(s_data, axis=2, n=FFT_size)
+            n = np.arange(FFT_size)
+            cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
+            s_t = s_t * np.exp(1j * cfo_phase)
+            s_data = np.fft.fft(s_t, axis=2, n=1024)
+            s_data = s_data[:,:,:num_res]
+
+
         s = np.concatenate([s_pilots, s_data], axis=1)
-        s_copy = np.copy(s)
 
         show_impair = False
         if show_impair:
@@ -82,14 +99,6 @@ class MIMOChannel:
             s = np.fft.fft(s_t, axis=2, n=1024)
             s = s[:,:,:num_res]
 
-        if self.cfo>0:
-            FFT_size = 1024
-            s_t = np.fft.ifft(s, axis=2, n=FFT_size)
-            n = np.arange(FFT_size)
-            cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
-            s_t = s_t * np.exp(1j * cfo_phase)
-            s = np.fft.fft(s_t, axis=2, n=1024)
-            s = s[:,:,:num_res]
 
         if show_impair:
             plt.subplot(2,1,2)

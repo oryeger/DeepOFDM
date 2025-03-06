@@ -11,7 +11,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, GENIE_CHANNEL, ITERATIONS, INTERF_FACTOR
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR
 
 import commpy.modulation as mod
 
@@ -157,7 +157,6 @@ class Trainer(object):
 
                 # split words into data and pilot part
                 pilot_chunk = int(conf.pilot_size / np.log2(MOD_PILOT))
-                pilot_chunk_all_res = pilot_chunk*conf.num_res
                 tx_pilot, tx_data = tx[:conf.pilot_size], tx[conf.pilot_size:]
                 rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
@@ -167,8 +166,7 @@ class Trainer(object):
                     # Zero CNN weights
                     detected_word, llrs_mat = self._forward(rx_data)
 
-
-
+                # CE Based
                 # train_loss_vect = [0] * EPOCHS
                 # val_loss_vect = [0] * EPOCHS
                 rx_data_c = rx[pilot_chunk:].cpu()
@@ -176,21 +174,20 @@ class Trainer(object):
                 ber_legacy_acc = 0
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
-                    if GENIE_CHANNEL:
-                        H = h[:,:,re].numpy()
-                    else:
-                        H = torch.zeros_like(h[:, :, re])
-                        for user in range(N_USERS):
-                            s_orig_pilot = s_orig[:pilot_chunk,user,re]
-                            rx_pilot_ce_cur = rx_ce[user,:pilot_chunk,:,re]
-                            H[:,user] = 1/s_orig_pilot.shape[0]*(s_orig_pilot[:, None].conj()/(torch.abs(s_orig_pilot[:, None]) ** 2)* rx_pilot_ce_cur).sum(dim=0)
-                        H = H.cpu().numpy()
+                    H = torch.zeros_like(rx_ce[:, pilot_chunk:, :, re])
+                    for user in range(N_USERS):
+                        s_orig_data = s_orig[pilot_chunk:,user,re]
+                        rx_data_ce_cur = rx_ce[user,pilot_chunk:,:,re]
+                        H[user,:,:] = (s_orig_data[:, None].conj()/(torch.abs(s_orig_data[:, None]) ** 2)* rx_data_ce_cur)
+                        pass
+                    H = H.cpu().numpy()
 
-                    H_Ht = H @ H.T.conj()
-                    H_Ht_inv = np.linalg.pinv(H_Ht)
-                    H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
+                        H_cur = H[:,i,:].T
+                        H_Ht = H_cur @ H_cur.T.conj()
+                        H_Ht_inv = np.linalg.pinv(H_Ht)
+                        H_pi = torch.tensor(H_cur.T.conj() @ H_Ht_inv)
                         equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
                     detected_word_legacy = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
                     if MOD_PILOT>2:
@@ -217,7 +214,6 @@ class Trainer(object):
                     else:
                         for i in range(equalized.shape[1]):
                             detected_word_legacy_genie[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
-
 
                     # calculate accuracy
                     target = tx_data[:, :rx.shape[1],re]

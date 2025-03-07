@@ -12,7 +12,8 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR, NUM_SYMB_PER_SLOT
+from python_code.utils.constants import (IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR,
+                                         FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
 import commpy.modulation as mod
 
@@ -181,11 +182,16 @@ class Trainer(object):
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
                     H = torch.zeros_like(rx_ce[:, pilot_chunk:, :, re])
+                    H_pilot = torch.zeros_like(rx_ce[:, :pilot_chunk, :, re])
                     for user in range(N_USERS):
+                        s_orig_data_pilot = s_orig[:pilot_chunk,user,re]
+                        rx_data_ce_cur_pilot = rx_ce[user,:pilot_chunk,:,re]
+                        H_pilot[user,:,:] = (s_orig_data_pilot[:, None].conj()/(torch.abs(s_orig_data_pilot[:, None]) ** 2)* rx_data_ce_cur_pilot)
                         s_orig_data = s_orig[pilot_chunk:,user,re]
                         rx_data_ce_cur = rx_ce[user,pilot_chunk:,:,re]
                         H[user,:,:] = (s_orig_data[:, None].conj()/(torch.abs(s_orig_data[:, None]) ** 2)* rx_data_ce_cur)
                         pass
+                    H_pilot = H_pilot.cpu().numpy()
                     H = H.cpu().numpy()
 
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
@@ -205,12 +211,30 @@ class Trainer(object):
                             detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
 
                     # GENIE
-                    H = h[:, :, re].cpu().numpy()
-                    H_Ht = H @ H.T.conj()
-                    H_Ht_inv = np.linalg.pinv(H_Ht)
-                    H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+
+                    if conf.cfo > 0:
+                        NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
+                        n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
+                        cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
+
+                        pointer = 0
+                        cfo_genie_vect = np.array([])
+                        for slot_num in range(NUM_SLOTS):
+                            cp_length = FIRST_CP
+                            for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                                pointer += (cp_length + int(FFT_size / 2))
+                                cfo_genie_vect = np.concatenate((cfo_genie_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
+                                pointer += int(FFT_size / 2)
+                                cp_length = CP
+
+                    cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
+                        H = h[:, :, re].cpu().numpy()
+                        H = H * cfo_genie_vect[i]
+                        H_Ht = H @ H.T.conj()
+                        H_Ht_inv = np.linalg.pinv(H_Ht)
+                        H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
                         equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
                     detected_word_legacy_genie = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
                     if MOD_PILOT>2:

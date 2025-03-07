@@ -6,7 +6,7 @@ from numpy.random import default_rng
 from python_code import conf
 from python_code.channel.mimo_channels.sed_channel import SEDChannel
 from python_code.channel.modulator import BPSKModulator
-from python_code.utils.constants import N_USERS, N_ANTS, MOD_PILOT, MOD_DATA, NUM_SYMB_PER_SLOT
+from python_code.utils.constants import N_USERS, N_ANTS, MOD_PILOT, MOD_DATA, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP, CP, NUM_SAMPLES_PER_SLOT
 import commpy.modulation as mod
 import matplotlib.pyplot as plt
 
@@ -54,13 +54,8 @@ class MIMOChannel:
         s_orig = np.copy(s)
 
         if self.go_to_td:
-            FFT_size = 1024
-            FIRST_CP = 88
-            CP = 72
-            SAMPLING_RATE = 30.72e6
-            NUM_SAMPLES_PER_SLOT = int(0.5e-3*SAMPLING_RATE)
 
-            NUM_SLOTS = int(s.shape[1]/NUM_SYMB_PER_SLOT)
+            NUM_SLOTS = int(s.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
 
             # OFDM modulation:
@@ -78,11 +73,9 @@ class MIMOChannel:
                 st_full[user,:] = st_one_user
 
             if self.cfo > 0:
-                n = np.aranges(FFT_size)
+                n = np.arange(st_full.shape[1])
                 cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
-                s_t = s_t * np.exp(1j * cfo_phase)
-                s = np.fft.fft(s_t, axis=2, n=1024)
-                s = s[:,:,:num_res]
+                st_full = st_full * np.exp(1j * cfo_phase)
 
 
             # OFDM demodulation:

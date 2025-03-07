@@ -4,7 +4,7 @@ import numpy as np
 NUM_SNRs = 1
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
-N_USERS = 4 # number of users
+N_USERS = 1 # number of users
 N_ANTS = 4 # number of antennas
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
@@ -15,7 +15,6 @@ NUM_REs = 12
 EPOCHS = 200
 ITERATIONS = 2
 INTERF_FACTOR = 1
-NUM_SYMB_PER_SLOT = 14
 
 
 
@@ -25,6 +24,20 @@ MOD_PILOT = MOD_GENERAL
 MOD_DATA = MOD_GENERAL
 
 NUM_BITS = int(np.log2(MOD_PILOT))
+
+NUM_SYMB_PER_SLOT = 14
+FFT_size = 128
+FIRST_CP = 11
+CP =9
+SAMPLING_RATE = 3.84e6
+NUM_SAMPLES_PER_SLOT = int(0.5e-3 * SAMPLING_RATE)
+
+
+# FFT_size = 1024
+# FIRST_CP = 88
+# CP = 72
+# SAMPLING_RATE = 30.72e6
+
 
 class Phase(Enum):
     TRAIN = 'train'

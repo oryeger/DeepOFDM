@@ -13,7 +13,7 @@ from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
 from python_code.utils.constants import (IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR,
-                                         FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
+                                         GENIE_CFO, FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
 import commpy.modulation as mod
 
@@ -212,7 +212,7 @@ class Trainer(object):
 
                     # GENIE
 
-                    if conf.cfo > 0:
+                    if conf.cfo > 0 & GENIE_CFO:
                         NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                         n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
                         cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
@@ -231,7 +231,8 @@ class Trainer(object):
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
                         H = h[:, :, re].cpu().numpy()
-                        H = H * cfo_genie_vect[i]
+                        if GENIE_CFO:
+                            H = H * cfo_genie_vect[i]
                         H_Ht = H @ H.T.conj()
                         H_Ht_inv = np.linalg.pinv(H_Ht)
                         H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)

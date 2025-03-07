@@ -4,6 +4,7 @@ from typing import List, Tuple
 import numpy as np
 import torch
 import torch.nn as nn
+from sympy import ceiling
 from torch.nn import BCELoss
 from torch.optim import Adam
 
@@ -11,7 +12,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR
+from python_code.utils.constants import IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR, NUM_SYMB_PER_SLOT
 
 import commpy.modulation as mod
 
@@ -27,6 +28,8 @@ torch.manual_seed(conf.seed)
 torch.cuda.manual_seed(conf.seed)
 np.random.seed(conf.seed)
 
+def get_next_divisible(num, divisor):
+    return (num + divisor - 1) // divisor * divisor
 
 class Trainer(object):
     """
@@ -39,7 +42,9 @@ class Trainer(object):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
-        self._initialize_dataloader(num_res)
+        pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
+        self.pilot_size = pilot_size
+        self._initialize_dataloader(num_res,self.pilot_size)
         self._initialize_detector(num_res)
 
     def get_name(self):
@@ -67,13 +72,13 @@ class Trainer(object):
         self.criterion = BCELoss().to(DEVICE)
 
 
-    def _initialize_dataloader(self, num_res):
+    def _initialize_dataloader(self, num_res, pilot_size):
         """
         Sets up the data loader - a generator from which we draw batches, in iterations
         """
         conf.num_res = num_res
         self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
-                                                   pilots_length=conf.pilot_size,
+                                                   pilots_length=pilot_size,
                                                    blocks_num=conf.blocks_num,
                                                    num_res=conf.num_res,
                                                    fading_in_channel=conf.fading_in_channel,
@@ -81,6 +86,7 @@ class Trainer(object):
                                                    delayspread_in_channel=conf.delayspread_in_channel,
                                                    clip_percentage_in_tx=conf.clip_percentage_in_tx,
                                                    cfo=conf.cfo,
+                                                   go_to_td=conf.go_to_td,
                                                    kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
@@ -156,8 +162,8 @@ class Trainer(object):
                 # rx_real = rx_real.reshape(rx_real.shape[0]*rx_real.shape[2], rx_real.shape[1])
 
                 # split words into data and pilot part
-                pilot_chunk = int(conf.pilot_size / np.log2(MOD_PILOT))
-                tx_pilot, tx_data = tx[:conf.pilot_size], tx[conf.pilot_size:]
+                pilot_chunk = int(self.pilot_size / np.log2(MOD_PILOT))
+                tx_pilot, tx_data = tx[:self.pilot_size], tx[self.pilot_size:]
                 rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
                 # online training main function
@@ -255,8 +261,8 @@ class Trainer(object):
             axes[0].plot(epochs_vect[0::conf.num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r', label='Validation Loss')
             axes[0].set_xlabel('Epochs')
             axes[0].set_ylabel('Loss')
-            train_samples = int(conf.pilot_size*TRAIN_PERCENTAGE/100)
-            val_samples =conf. pilot_size - train_samples
+            train_samples = int(self.pilot_size*TRAIN_PERCENTAGE/100)
+            val_samples =self.pilot_size - train_samples
             title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
             'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
 

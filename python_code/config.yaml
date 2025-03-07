@@ -13,7 +13,7 @@ go_to_td: True
 
 
 # validation phase protocol
-pilot_size: 5000    # 6000 1000 # pilot bits - should be a multilpier of log2(MOD_PILOT)
+pilot_size: 500    # 6000 1000 # pilot bits - should be a multilpier of log2(MOD_PILOT)
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(MOD_PILOT)
 blocks_num: 1 # 100 number of validation frames. values: int.
 kernel_size: 5

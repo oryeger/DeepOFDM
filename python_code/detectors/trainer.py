@@ -88,6 +88,7 @@ class Trainer(object):
                                                    clip_percentage_in_tx=conf.clip_percentage_in_tx,
                                                    cfo=conf.cfo,
                                                    go_to_td=conf.go_to_td,
+                                                   cfo_in_rx=conf.cfo_in_rx,
                                                    kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
@@ -227,11 +228,11 @@ class Trainer(object):
                                 pointer += int(FFT_size / 2)
                                 cp_length = CP
 
-                    cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
+                        cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
                         H = h[:, :, re].cpu().numpy()
-                        if GENIE_CFO:
+                        if conf.cfo > 0 & GENIE_CFO:
                             H = H * cfo_genie_vect[i]
                         H_Ht = H @ H.T.conj()
                         H_Ht_inv = np.linalg.pinv(H_Ht)

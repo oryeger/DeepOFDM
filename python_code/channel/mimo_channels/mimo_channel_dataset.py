@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool, clip_percentage_in_tx: int, cfo: int, go_to_td: bool):
+    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool, clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_in_rx: bool):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
@@ -26,6 +26,7 @@ class MIMOChannel:
         self.delayspread_in_channel = delayspread_in_channel
         self.clip_percentage_in_tx = clip_percentage_in_tx
         self.cfo = cfo
+        self.cfo_in_rx = cfo_in_rx
         self.go_to_td = go_to_td
 
 
@@ -54,7 +55,6 @@ class MIMOChannel:
         s_orig = np.copy(s)
 
         if self.go_to_td:
-
             NUM_SLOTS = int(s.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
 
@@ -72,7 +72,7 @@ class MIMOChannel:
                         cp_length = CP
                 st_full[user,:] = st_one_user
 
-            if self.cfo > 0:
+            if (self.cfo > 0) & (self.cfo_in_rx==False):
                 n = np.arange(st_full.shape[1])
                 cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
                 st_full = st_full * np.exp(1j * cfo_phase)
@@ -145,7 +145,7 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_in_rx=self.cfo_in_rx)
 
         rx = np.transpose(rx, (1, 0, 2))
         rx_ce_t = np.zeros((N_USERS,rx.shape[0],rx.shape[1],rx.shape[2]),dtype=complex)

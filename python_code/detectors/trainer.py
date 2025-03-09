@@ -182,6 +182,8 @@ class Trainer(object):
                 ber_legacy_acc = 0
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
+
+
                     H = torch.zeros_like(rx_ce[:, pilot_chunk:, :, re])
                     H_pilot = torch.zeros_like(rx_ce[:, :pilot_chunk, :, re])
                     for user in range(N_USERS):
@@ -192,7 +194,7 @@ class Trainer(object):
                         rx_data_ce_cur = rx_ce[user,pilot_chunk:,:,re]
                         H[user,:,:] = (s_orig_data[:, None].conj()/(torch.abs(s_orig_data[:, None]) ** 2)* rx_data_ce_cur)
                         pass
-                    H_pilot = H_pilot.cpu().numpy()
+
                     H = H.cpu().numpy()
 
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
@@ -231,12 +233,12 @@ class Trainer(object):
                         cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
-                        H = h[:, :, re].cpu().numpy()
+                        H_genie = h[:, :, re].cpu().numpy()
                         if conf.cfo > 0 & GENIE_CFO:
-                            H = H * cfo_genie_vect[i]
-                        H_Ht = H @ H.T.conj()
+                            H_genie = H_genie * cfo_genie_vect[i]
+                        H_Ht = H_genie @ H_genie.T.conj()
                         H_Ht_inv = np.linalg.pinv(H_Ht)
-                        H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+                        H_pi = torch.tensor(H_genie.T.conj() @ H_Ht_inv)
                         equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
                     detected_word_legacy_genie = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
                     if MOD_PILOT>2:
@@ -280,6 +282,10 @@ class Trainer(object):
                 print(f'current legacy:                 {block_ind, ber_legacy}')
                 print(f'current legacy genie:           {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
+            if conf.cfo_in_rx:
+                cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
+            else:
+                cfo_str = 'cfo in Tx=' + str(conf.cfo) + ' scs'
 
             fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
             epochs_vect = list(range(1, len(train_loss_vect)+1))
@@ -290,7 +296,7 @@ class Trainer(object):
             train_samples = int(self.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =self.pilot_size - train_samples
             title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
-            'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+            cfo_str + ', Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
 
             axes[0].set_title(title_string ,fontsize=10 )
             axes[0].legend()
@@ -311,15 +317,13 @@ class Trainer(object):
 
             pass
 
-
-
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
         plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
         title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
-                        'CFO=' + str(conf.cfo) + ' scs, Epochs=' + str(EPOCHS) + ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+                        cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()

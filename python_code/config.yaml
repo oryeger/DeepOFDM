@@ -1,11 +1,11 @@
-snr: 30 # validation SNR value. values: float.
+snr: 40 # validation SNR value. values: float.
 
 # general
 seed: 0 # run seed
 
 # channel
 fading_in_channel: False # If the channel is fading/non-fading. values: [True, False]
-spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
+spatial_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 clip_percentage_in_tx: 100
 cfo:  0.1
@@ -17,5 +17,5 @@ go_to_td: True
 pilot_size: 500    # 6000 1000 # pilot bits - should be a multilpier of log2(MOD_PILOT)
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(MOD_PILOT)
 blocks_num: 1 # 100 number of validation frames. values: int.
-kernel_size: 5
+kernel_size: 1
 

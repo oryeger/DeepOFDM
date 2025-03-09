@@ -54,7 +54,7 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        if self.go_to_td:
+        if self.go_to_td | (self.cfo > 0): # if cfo > 0 we must go to td
             NUM_SLOTS = int(s.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
 

@@ -24,9 +24,14 @@ class SEDChannel:
 
 
         if not spatial:
-            H_real = np.eye(H_real.shape[0])
+            if N_USERS != 1:
+                H_real = np.eye(H_real.shape[0])
+            else:
+                H_real = np.zeros((H_real.shape[0],1))
+                H_real[0,0] = 1
 
-        # OryEger - adding more interference
+
+                # OryEger - adding more interference
         H_real = H_real * INTERF_FACTOR
         for i in range(H_real.shape[1]):
             H_real[0,i] = 1
@@ -94,7 +99,7 @@ class SEDChannel:
                 conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
                 y_ce[user, :, :, re_index] = conv_ce
 
-        if go_to_td:
+        if go_to_td | (cfo > 0): # if cfo > 0 we must go to td
             NUM_SLOTS = int(y_ce.shape[2] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
 

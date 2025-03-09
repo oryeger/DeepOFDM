@@ -1,7 +1,7 @@
 import numpy as np
 
 from python_code import conf
-from python_code.utils.constants import N_ANTS , PHASE_OFFSET, N_USERS, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP, CP, NUM_SAMPLES_PER_SLOT
+from python_code.utils.constants import N_ANTS , PHASE_OFFSET, N_USERS, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP, CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE
 
 H_COEF = 0.8
 
@@ -76,6 +76,76 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
+    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, num_res) -> np.ndarray:
+        if go_to_td | (cfo > 0): # if cfo > 0 we must go to td
+            if td_in_rx:
+                if y_in.ndim == 4:
+                    NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
+                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                    n_users_int = N_USERS
+                    y = y_in
+                else:
+                    NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
+                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                    n_users_int = 1
+                    y = np.expand_dims(y_in, axis=0)
+            else:
+                NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
+                NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                n_users_int = N_USERS
+                y = np.expand_dims(y_in, axis=1)
+
+            st_full = np.zeros((n_users_int, N_ANTS, NUM_SAMPLES_TOTAL), dtype=complex)
+
+            # OFDM modulation:
+            for user in range(n_users_int):
+                for rx in range(y.shape[1]):
+                    st_one_antenna = np.array([])
+                    for slot_num in range(NUM_SLOTS):
+                        cp_length = FIRST_CP
+                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                            cur_index = slot_num * NUM_SYMB_PER_SLOT + ofdm_symbol
+                            s_t = np.fft.ifft(y[user, rx, cur_index, :], n=FFT_size)
+                            s_t_with_cp = np.concatenate((s_t[-cp_length:], s_t))
+                            st_one_antenna = np.concatenate((st_one_antenna, s_t_with_cp))
+                            cp_length = CP
+                    st_full[user,rx, :] = st_one_antenna
+
+            if (cfo > 0):
+                n = np.arange(st_full.shape[2])
+                cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
+                st_full = st_full * np.exp(1j * cfo_phase)
+
+            # OFDM demodulation:
+            y_out_pre = np.zeros_like(y)
+            for user in range(n_users_int):
+                for rx in range(y.shape[1]):
+                    pointer = 0
+                    index = 0
+                    for slot_num in range(NUM_SLOTS):
+                        cp_length = FIRST_CP
+                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                            s_t_no_cp = st_full[user, rx, pointer + cp_length:pointer + cp_length + FFT_size]
+                            S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
+                            y_out_pre[user, rx, index, :] = S_no_cp[:num_res]
+                            pointer += (cp_length + FFT_size)
+                            cp_length = CP
+                            index += 1
+            if td_in_rx:
+                if y_in.ndim == 4: # Multiple users
+                    y_out = y_out_pre
+                else:
+                    y_out = np.squeeze(y_out_pre, axis=0)
+            else:
+                y_out = np.squeeze(y_out_pre, axis=1)
+        else:
+            y_out = y_in
+        return y_out
+
+
+
+
+    @staticmethod
     def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_in_rx: bool) -> np.ndarray:
         """
         The MIMO SED Channel
@@ -89,9 +159,9 @@ class SEDChannel:
         var = 10 ** (-0.1 * snr)
         for re_index in range(num_res):
             conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
-            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+            y[:, :, re_index] = conv
+
             all_values = list(range(N_USERS))
-            y[:,:,re_index] = conv + w
             for user in range(N_USERS):
                 idx = np.setdiff1d(all_values, user)
                 s_cur_user = s[:, :, re_index].copy()
@@ -99,49 +169,16 @@ class SEDChannel:
                 conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
                 y_ce[user, :, :, re_index] = conv_ce
 
-        if go_to_td | (cfo > 0): # if cfo > 0 we must go to td
-            NUM_SLOTS = int(y_ce.shape[2] / NUM_SYMB_PER_SLOT)
-            NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+        if cfo_in_rx:
+            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, num_res)
+            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, num_res)
 
-            # OFDM modulation:
-            st_full = np.zeros((N_USERS, N_ANTS, NUM_SAMPLES_TOTAL), dtype=complex)
-            for user in range(N_USERS):
-                for rx in range(N_ANTS):
-                    st_one_antenna = np.array([])
-                    for slot_num in range(NUM_SLOTS):
-                        cp_length = FIRST_CP
-                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                            cur_index = slot_num * NUM_SYMB_PER_SLOT + ofdm_symbol
-                            s_t = np.fft.ifft(y_ce[user, rx, cur_index, :], n=FFT_size)
-                            s_t_with_cp = np.concatenate((s_t[-cp_length:], s_t))
-                            st_one_antenna = np.concatenate((st_one_antenna, s_t_with_cp))
-                            cp_length = CP
-                    st_full[user,rx, :] = st_one_antenna
-
-            if (cfo > 0) & (cfo_in_rx==True):
-                n = np.arange(st_full.shape[2])
-                cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
-                st_full = st_full * np.exp(1j * cfo_phase)
-
-            # OFDM demodulation:
-            y_ce_out = np.zeros_like(y_ce)
-            for user in range(N_USERS):
-                for rx in range(N_ANTS):
-                    pointer = 0
-                    index = 0
-                    for slot_num in range(NUM_SLOTS):
-                        cp_length = FIRST_CP
-                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                            s_t_no_cp = st_full[user, rx, pointer + cp_length:pointer + cp_length + FFT_size]
-                            S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
-                            y_ce_out[user, rx, index, :] = S_no_cp[:num_res]
-                            pointer += (cp_length + FFT_size)
-                            cp_length = CP
-                            index += 1
-            y_ce = y_ce_out
 
         for re_index in range(num_res):
-            for user in range(N_USERS):
+            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+            y[:, :, re_index] = y[:, :, re_index] + w
+            if NOISE_TO_CE:
+                for user in range(N_USERS):
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         return y,y_ce
 

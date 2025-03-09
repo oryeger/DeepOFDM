@@ -54,47 +54,8 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        if self.go_to_td | (self.cfo > 0): # if cfo > 0 we must go to td
-            NUM_SLOTS = int(s.shape[1] / NUM_SYMB_PER_SLOT)
-            NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-
-            # OFDM modulation:
-            st_full = np.zeros((N_USERS,NUM_SAMPLES_TOTAL), dtype=complex)
-            for user in range(N_USERS):
-                st_one_user = np.array([])
-                for slot_num in range(NUM_SLOTS):
-                    cp_length =  FIRST_CP
-                    for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                        cur_index = slot_num*NUM_SYMB_PER_SLOT + ofdm_symbol
-                        s_t = np.fft.ifft(s[user, cur_index, :], n=FFT_size)
-                        s_t_with_cp = np.concatenate((s_t[-cp_length:], s_t))
-                        st_one_user = np.concatenate((st_one_user, s_t_with_cp))
-                        cp_length = CP
-                st_full[user,:] = st_one_user
-
-            if (self.cfo > 0) & (self.cfo_in_rx==False):
-                n = np.arange(st_full.shape[1])
-                cfo_phase = 2 * np.pi * self.cfo * n / FFT_size  # CFO phase shift
-                st_full = st_full * np.exp(1j * cfo_phase)
-
-
-            # OFDM demodulation:
-            s_out = np.zeros_like(s)
-            for user in range(N_USERS):
-                pointer = 0
-                index = 0
-                for slot_num in range(NUM_SLOTS):
-                    cp_length =  FIRST_CP
-                    for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                        s_t_no_cp = st_full[user,pointer+cp_length:pointer+cp_length+FFT_size]
-                        S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
-                        s_out[user,index,:] =  S_no_cp[:num_res]
-                        pointer += (cp_length + FFT_size)
-                        cp_length = CP
-                        index += 1
-            s = s_out
-
-
+        if not(self.cfo_in_rx):
+            s = SEDChannel.apply_td_and_impairments(s, False, self.go_to_td, self.cfo, num_res)
 
         show_impair = False
         if show_impair:

@@ -193,7 +193,6 @@ class Trainer(object):
                         s_orig_data = s_orig[pilot_chunk:,user,re]
                         rx_data_ce_cur = rx_ce[user,pilot_chunk:,:,re]
                         H[user,:,:] = (s_orig_data[:, None].conj()/(torch.abs(s_orig_data[:, None]) ** 2)* rx_data_ce_cur)
-                        pass
 
                     H = H.cpu().numpy()
 

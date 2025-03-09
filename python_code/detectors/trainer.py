@@ -12,6 +12,7 @@ from python_code import DEVICE, conf
 from python_code.channel.channel_dataset import ChannelModelDataset
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
+import mplcursors  # Enables interactive data tooltips
 from python_code.utils.constants import (IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_SNRs, NUM_BITS, N_USERS, TRAIN_PERCENTAGE, ITERATIONS, INTERF_FACTOR,
                                          GENIE_CFO, FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
@@ -127,6 +128,7 @@ class Trainer(object):
         total_ber_legacy = []
         total_ber_legacy_genie = []
         SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
+        Final_SNR = conf.snr + NUM_SNRs
         for snr_cur in SNR_range:
             # draw the test words for a given snr
 
@@ -297,10 +299,10 @@ class Trainer(object):
                 total_ber.append(ber)
                 total_ber_legacy.append(ber_legacy)
                 total_ber_legacy_genie.append(ber_legacy_genie)
-                print(f'current DeepSIC:                {block_ind, ber}')
-                print(f'current legacy:                 {block_ind, ber_legacy}')
-                print(f'current legacy genie:           {block_ind, ber_legacy_genie}')
-            # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
+                print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
+                print(f'current DeepSIC: {block_ind, ber}')
+                print(f'current legacy: {block_ind, ber_legacy}')
+                print(f'current legacy genie: {block_ind, ber_legacy_genie}')            # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
             if conf.cfo != 0:
                 if conf.cfo_in_rx:
                     cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
@@ -317,7 +319,7 @@ class Trainer(object):
             axes[0].set_ylabel('Loss')
             train_samples = int(self.pilot_size*TRAIN_PERCENTAGE/100)
             val_samples =self.pilot_size - train_samples
-            title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
+            title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs='+ str(N_USERS) + '\n ' +
             cfo_str + ', Epochs=' + str(EPOCHS) +  ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
 
             axes[0].set_title(title_string ,fontsize=10 )
@@ -335,16 +337,14 @@ class Trainer(object):
             # axes[2].axis('off')
             fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=12)
             plt.show()
-
-
             pass
 
         plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
-        plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
+        # plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')
-        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + '\n ' +
+        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(conf.num_res)+ ', Interf=' + str(INTERF_FACTOR)  + ', #UEs='+ str(N_USERS) + '\n ' +
                         cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
         plt.legend()

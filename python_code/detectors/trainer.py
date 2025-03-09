@@ -151,6 +151,33 @@ class Trainer(object):
                 print('*' * 20)
                 # get current word and channel
                 tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], received_words_ce[block_ind], s_orig_words[block_ind]
+                pilot_chunk = int(self.pilot_size / np.log2(MOD_PILOT))
+
+                if (conf.cfo != 0) & (GENIE_CFO != 'NONE'):
+                    pointer = 0
+                    NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
+                    n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
+                    if (GENIE_CFO == 'ON_CE'):
+                        cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
+                    else:
+                        cfo_phase = -2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
+                    cfo_genie_vect = np.array([])
+                    for slot_num in range(NUM_SLOTS):
+                        cp_length = FIRST_CP
+                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                            pointer += (cp_length + int(FFT_size / 2))
+                            cfo_genie_vect = np.concatenate(
+                                (cfo_genie_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
+                            pointer += int(FFT_size / 2)
+                            cp_length = CP
+
+                    if (GENIE_CFO == 'ON_CE'):
+                        cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
+                    else: #'ON_Y'
+                        for i in range(s_orig.shape[0]):
+                            rx[i,:,:] = rx[i,:,:]*cfo_genie_vect[i]
+                            rx_ce[:,i,:,:] = rx_ce[:,i,:,:]*cfo_genie_vect[i]
+
                 # Interleave real and imaginary partsos Rx into a real tensor
                 if IS_COMPLEX:
                     real_part = rx.real
@@ -161,12 +188,12 @@ class Trainer(object):
                 else:
                     rx_real = rx
 
-                # rx_real = rx_real.reshape(rx_real.shape[0]*rx_real.shape[2], rx_real.shape[1])
 
                 # split words into data and pilot part
-                pilot_chunk = int(self.pilot_size / np.log2(MOD_PILOT))
                 tx_pilot, tx_data = tx[:self.pilot_size], tx[self.pilot_size:]
                 rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
+
+
 
                 # online training main function
                 if self.is_online_training:
@@ -214,26 +241,19 @@ class Trainer(object):
 
                     # GENIE
 
-                    if conf.cfo != 0 & GENIE_CFO:
-                        NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
-                        n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
-                        cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
 
-                        pointer = 0
-                        cfo_genie_vect = np.array([])
-                        for slot_num in range(NUM_SLOTS):
-                            cp_length = FIRST_CP
-                            for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                                pointer += (cp_length + int(FFT_size / 2))
-                                cfo_genie_vect = np.concatenate((cfo_genie_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
-                                pointer += int(FFT_size / 2)
-                                cp_length = CP
+                    # plot phases:
+                    # plt.plot(np.unwrap(np.angle(H[0,:,0])), linestyle='-', color='g', label='Channel Estimation')
+                    # plt.plot(np.unwrap(np.angle(cfo_genie_vect)), linestyle='-', color='b', label='cfo_genie_vect')
+                    # plt.legend()
+                    # plt.show()
 
-                        cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
+
+
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
                         H_genie = h[:, :, re].cpu().numpy()
-                        if conf.cfo != 0 & GENIE_CFO:
+                        if (conf.cfo != 0) & (GENIE_CFO == 'ON_CE'):
                             H_genie = H_genie * cfo_genie_vect[i]
                         H_Ht = H_genie @ H_genie.T.conj()
                         H_Ht_inv = np.linalg.pinv(H_Ht)

@@ -1,7 +1,8 @@
 import numpy as np
 
 from python_code import conf
-from python_code.utils.constants import N_ANTS , PHASE_OFFSET, N_USERS, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP, CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE
+from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, N_USERS, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
+                                         CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE, GENIE_CFO)
 
 H_COEF = 0.8
 
@@ -173,12 +174,12 @@ class SEDChannel:
             y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, num_res)
             y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, num_res)
 
-
         for re_index in range(num_res):
             w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
                 for user in range(N_USERS):
+                    w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         return y,y_ce
 

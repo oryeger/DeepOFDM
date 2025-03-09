@@ -214,7 +214,7 @@ class Trainer(object):
 
                     # GENIE
 
-                    if conf.cfo > 0 & GENIE_CFO:
+                    if conf.cfo != 0 & GENIE_CFO:
                         NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                         n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
                         cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
@@ -233,7 +233,7 @@ class Trainer(object):
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
                         H_genie = h[:, :, re].cpu().numpy()
-                        if conf.cfo > 0 & GENIE_CFO:
+                        if conf.cfo != 0 & GENIE_CFO:
                             H_genie = H_genie * cfo_genie_vect[i]
                         H_Ht = H_genie @ H_genie.T.conj()
                         H_Ht_inv = np.linalg.pinv(H_Ht)
@@ -281,10 +281,13 @@ class Trainer(object):
                 print(f'current legacy:                 {block_ind, ber_legacy}')
                 print(f'current legacy genie:           {block_ind, ber_legacy_genie}')
             # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
-            if conf.cfo_in_rx:
-                cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
+            if conf.cfo != 0:
+                if conf.cfo_in_rx:
+                    cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
+                else:
+                    cfo_str = 'cfo in Tx=' + str(conf.cfo) + ' scs'
             else:
-                cfo_str = 'cfo in Tx=' + str(conf.cfo) + ' scs'
+                cfo_str = 'cfo=0'
 
             fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
             epochs_vect = list(range(1, len(train_loss_vect)+1))

@@ -77,7 +77,7 @@ class SEDChannel:
 
     @staticmethod
     def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, num_res) -> np.ndarray:
-        if go_to_td | (cfo > 0): # if cfo > 0 we must go to td
+        if go_to_td | (cfo != 0): # if cfo != 0 we must go to td
             if td_in_rx:
                 if y_in.ndim == 4:
                     NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
@@ -111,7 +111,7 @@ class SEDChannel:
                             cp_length = CP
                     st_full[user,rx, :] = st_one_antenna
 
-            if (cfo > 0):
+            if (cfo != 0):
                 n = np.arange(st_full.shape[2])
                 cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
                 st_full = st_full * np.exp(1j * cfo_phase)

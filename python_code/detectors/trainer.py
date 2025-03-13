@@ -34,7 +34,7 @@ class Trainer(object):
         self.is_online_training = True
         pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
         self.pilot_size = pilot_size
-        self._initialize_dataloader(num_res,self.pilot_size)
+        #  self._initialize_dataloader(num_res,self.pilot_size)
         self._initialize_detector(num_res)
 
     def get_name(self):
@@ -62,23 +62,23 @@ class Trainer(object):
         self.criterion = BCELoss().to(DEVICE)
 
 
-    def _initialize_dataloader(self, num_res, pilot_size):
-        """
-        Sets up the data loader - a generator from which we draw batches, in iterations
-        """
-        conf.num_res = num_res
-        self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
-                                                   pilots_length=pilot_size,
-                                                   blocks_num=conf.blocks_num,
-                                                   num_res=conf.num_res,
-                                                   fading_in_channel=conf.fading_in_channel,
-                                                   spatial_in_channel=conf.spatial_in_channel,
-                                                   delayspread_in_channel=conf.delayspread_in_channel,
-                                                   clip_percentage_in_tx=conf.clip_percentage_in_tx,
-                                                   cfo=conf.cfo,
-                                                   go_to_td=conf.go_to_td,
-                                                   cfo_in_rx=conf.cfo_in_rx,
-                                                   kernel_size=conf.kernel_size)
+    # def _initialize_dataloader(self, num_res, pilot_size):
+    #     """
+    #     Sets up the data loader - a generator from which we draw batches, in iterations
+    #     """
+    #     conf.num_res = num_res
+    #     self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
+    #                                                pilots_length=pilot_size,
+    #                                                blocks_num=conf.blocks_num,
+    #                                                num_res=conf.num_res,
+    #                                                fading_in_channel=conf.fading_in_channel,
+    #                                                spatial_in_channel=conf.spatial_in_channel,
+    #                                                delayspread_in_channel=conf.delayspread_in_channel,
+    #                                                clip_percentage_in_tx=conf.clip_percentage_in_tx,
+    #                                                cfo=conf.cfo,
+    #                                                go_to_td=conf.go_to_td,
+    #                                                cfo_in_rx=conf.cfo_in_rx,
+    #                                                kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
         """

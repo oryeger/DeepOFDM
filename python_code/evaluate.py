@@ -1,9 +1,9 @@
 import os
 import time
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
+from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
 from python_code.utils.constants import NUM_REs
-import random
-from typing import List, Tuple
+from typing import List
 
 import numpy as np
 import torch
@@ -19,11 +19,13 @@ import commpy.modulation as mod
 from python_code.channel.modulator import BPSKModulator
 import pandas as pd
 
+from python_code.channel.channel_dataset import  ChannelModelDataset
+
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 
-def run_evaluate(cur_trainer) -> List[float]:
+def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -52,9 +54,27 @@ def run_evaluate(cur_trainer) -> List[float]:
     for snr_cur in SNR_range:
         # draw the test words for a given snr
 
-        cur_trainer._initialize_detector(conf.num_res)  # For reseting teh weights
+        deepsic_trainer._initialize_detector(NUM_REs)  # For reseting teh weights
+        deeprx_trainer._initialize_detector(NUM_REs)
 
-        transmitted_words, received_words, received_words_ce, hs, s_orig_words = cur_trainer.channel_dataset.__getitem__(
+        pilot_size = conf.pilot_size # OryEGer
+        conf.num_res = NUM_REs
+        channel_dataset = ChannelModelDataset(block_length=conf.block_length,
+                                                   pilots_length=pilot_size,
+                                                   blocks_num=conf.blocks_num,
+                                                   num_res=conf.num_res,
+                                                   fading_in_channel=conf.fading_in_channel,
+                                                   spatial_in_channel=conf.spatial_in_channel,
+                                                   delayspread_in_channel=conf.delayspread_in_channel,
+                                                   clip_percentage_in_tx=conf.clip_percentage_in_tx,
+                                                   cfo=conf.cfo,
+                                                   go_to_td=conf.go_to_td,
+                                                   cfo_in_rx=conf.cfo_in_rx,
+                                                   kernel_size=conf.kernel_size)
+
+
+
+        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(
             snr_list=[snr_cur])
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
@@ -75,7 +95,7 @@ def run_evaluate(cur_trainer) -> List[float]:
             # get current word and channel
             tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
             received_words_ce[block_ind], s_orig_words[block_ind]
-            pilot_chunk = int(cur_trainer.pilot_size / np.log2(MOD_PILOT))
+            pilot_chunk = int(deepsic_trainer.pilot_size / np.log2(MOD_PILOT))
 
             if (conf.cfo != 0) & (GENIE_CFO != 'NONE'):
                 pointer = 0
@@ -113,14 +133,14 @@ def run_evaluate(cur_trainer) -> List[float]:
                 rx_real = rx
 
             # split words into data and pilot part
-            tx_pilot, tx_data = tx[:cur_trainer.pilot_size], tx[cur_trainer.pilot_size:]
+            tx_pilot, tx_data = tx[:deepsic_trainer.pilot_size], tx[deepsic_trainer.pilot_size:]
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
             # online training main function
-            if cur_trainer.is_online_training:
-                train_loss_vect, val_loss_vect = cur_trainer._online_training(tx_pilot, rx_pilot)
+            if deepsic_trainer.is_online_training:
+                train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot)
                 # Zero CNN weights
-                detected_word, llrs_mat = cur_trainer._forward(rx_data)
+                detected_word, llrs_mat = deepsic_trainer._forward(rx_data)
 
             # CE Based
             # train_loss_vect = [0] * EPOCHS
@@ -269,8 +289,8 @@ def run_evaluate(cur_trainer) -> List[float]:
                      label='Validation Loss')
         axes[0].set_xlabel('Epochs')
         axes[0].set_ylabel('Loss')
-        train_samples = int(cur_trainer.pilot_size * TRAIN_PERCENTAGE / 100)
-        val_samples = cur_trainer.pilot_size - train_samples
+        train_samples = int(deepsic_trainer.pilot_size * TRAIN_PERCENTAGE / 100)
+        val_samples = deepsic_trainer.pilot_size - train_samples
         title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(
             snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(
             N_USERS) + '\n ' +
@@ -315,17 +335,18 @@ def run_evaluate(cur_trainer) -> List[float]:
     title_string = title_string.replace("\n", "")
     df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv", index=False)
     # Look at teh weights:
-    # print(cur_trainer.detector[0][0].shared_backbone.fc.weight)
-    # print(cur_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
+    # print(deepsic_trainer.detector[0][0].shared_backbone.fc.weight)
+    # print(deepsic_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
 
     return total_ber
 
 
 if __name__ == '__main__':
     start_time = time.time()
-    trainer = DeepSICTrainer(NUM_REs)
-    print(trainer)
-    run_evaluate(trainer)
+    deepsic_trainer = DeepSICTrainer(NUM_REs)
+    deeprx_trainer = DeepRxTrainer(NUM_REs)
+    print(deepsic_trainer)
+    run_evaluate(deepsic_trainer,deeprx_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

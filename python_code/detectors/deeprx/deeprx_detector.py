@@ -1,5 +1,8 @@
 from torch import nn
 import torch
+from python_code import conf
+
+from python_code.utils.constants import N_ANTS, N_USERS, IS_COMPLEX, NUM_BITS, NUM_REs
 
 
 class ResBlock(nn.Module):

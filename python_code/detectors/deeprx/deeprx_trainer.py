@@ -42,7 +42,8 @@ class DeepRxTrainer(Trainer):
             if MOD_PILOT <= 2:
                 tx_reshaped = tx
             else:
-                tx_reshaped = tx.reshape(int(tx.shape[0] // NUM_BITS), NUM_BITS,tx.shape[1],tx.shape[2])
+                tx_reshaped = tx.reshape(int(tx.shape[0] // NUM_BITS), NUM_BITS,tx.shape[1])
+                #tx_reshaped = tx.reshape(int(tx.shape[0] // NUM_BITS), NUM_BITS, tx.shape[1], tx.shape[2])
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
@@ -109,13 +110,16 @@ class DeepRxTrainer(Trainer):
         rx_all = []
         rx_split = torch.split(rx, NUM_SYMB_PER_SLOT, dim=0)
         rx_stacked = torch.stack(rx_split, dim=0)
-        rx_permuted = rx_stacked.permute(0, 2, 1, 3)
+        rx_permuted = rx_stacked.permute(0, 2, 3, 1)
         for user in range(N_USERS):
-            rx_all.append(rx_permuted)
+            # rx_all.append(rx_permuted)
+            rx_all.append(rx.unsqueeze(-1))
             cur_tx = tx[:, user, :]
             tx_split = torch.split(cur_tx, NUM_SYMB_PER_SLOT, dim=0)
             tx_stacked = torch.stack(tx_split, dim=0)
-            tx_all.append(tx_stacked)
+            tx_permuted = tx_stacked.permute(0, 2, 1)
+            # tx_all.append(tx_permuted)
+            tx_all.append(cur_tx)
         return tx_all, rx_all
 
     def _calculate_posteriors(self, model: List[List[nn.Module]], rx: torch.Tensor) -> torch.Tensor:

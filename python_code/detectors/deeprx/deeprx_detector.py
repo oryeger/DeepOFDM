@@ -111,4 +111,3 @@ class DeepRxDetector(nn.Module):
         llrs = self.conv_end(out_res12)
         outputs = torch.sigmoid(llrs)
         return outputs, llrs
-

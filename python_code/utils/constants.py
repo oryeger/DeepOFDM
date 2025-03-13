@@ -1,7 +1,7 @@
 from enum import Enum
 import numpy as np
 
-NUM_SNRs = 10
+NUM_SNRs = 16
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
 N_USERS = 4 # number of users
@@ -13,7 +13,7 @@ SHOW_ALL_ITERATIONS = True
 GENIE_CFO = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
 NUM_REs = 12
 EPOCHS = 300
-ITERATIONS = 1
+ITERATIONS = 5
 INTERF_FACTOR = 1
 NOISE_TO_CE = True
 

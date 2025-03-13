@@ -179,7 +179,7 @@ class SEDChannel:
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
                 for user in range(N_USERS):
-                    w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+                    # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         return y,y_ce
 

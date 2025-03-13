@@ -126,6 +126,7 @@ class Trainer(object):
 
         total_ber = []
         total_ber_legacy = []
+        total_ber_legacy_ce_on_data = []
         total_ber_legacy_genie = []
         SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
         Final_SNR = conf.snr + NUM_SNRs
@@ -209,8 +210,33 @@ class Trainer(object):
                 rx_data_c = rx[pilot_chunk:].cpu()
                 ber_acc = 0
                 ber_legacy_acc = 0
+                ber_legacy_acc_ce_on_data = 0
                 ber_legacy_acc_genie = 0
                 for re in range(conf.num_res):
+                    # Regular CE
+                    H = torch.zeros_like(h[:, :, re])
+                    for user in range(N_USERS):
+                        s_orig_pilot = s_orig[:pilot_chunk,user,re]
+                        rx_pilot_ce_cur = rx_ce[user,:pilot_chunk,:,re]
+                        H[:,user] = 1/s_orig_pilot.shape[0]*(s_orig_pilot[:, None].conj()/(torch.abs(s_orig_pilot[:, None]) ** 2)* rx_pilot_ce_cur).sum(dim=0)
+                    H = H.cpu().numpy()
+
+                    H_Ht = H @ H.T.conj()
+                    H_Ht_inv = np.linalg.pinv(H_Ht)
+                    H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+                    equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
+                    for i in range(rx_data_c.shape[0]):
+                        equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
+                    detected_word_legacy = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
+                    if MOD_PILOT>2:
+                        qam = mod.QAMModem(MOD_PILOT)
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
+                    else:
+                        for i in range(equalized.shape[1]):
+                            detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
+
+
 
 
                     H = torch.zeros_like(rx_ce[:, pilot_chunk:, :, re])
@@ -232,16 +258,15 @@ class Trainer(object):
                         H_Ht_inv = np.linalg.pinv(H_Ht)
                         H_pi = torch.tensor(H_cur.T.conj() @ H_Ht_inv)
                         equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :,re])
-                    detected_word_legacy = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
+                    detected_word_legacy_ce_on_data = torch.zeros(int(equalized.shape[0]*np.log2(MOD_PILOT)),equalized.shape[1])
                     if MOD_PILOT>2:
                         qam = mod.QAMModem(MOD_PILOT)
                         for i in range(equalized.shape[1]):
-                            detected_word_legacy[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
+                            detected_word_legacy_ce_on_data[:,i] = torch.from_numpy(qam.demodulate(equalized[:,i].numpy(),'hard'))
                     else:
                         for i in range(equalized.shape[1]):
-                            detected_word_legacy[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
+                            detected_word_legacy_ce_on_data[:,i] = torch.from_numpy(BPSKModulator.demodulate(-torch.sign(equalized[:,i].real).numpy()))
 
-                    # GENIE
 
 
                     # plot phases:
@@ -250,8 +275,7 @@ class Trainer(object):
                     # plt.legend()
                     # plt.show()
 
-
-
+                    # GENIE
                     equalized = torch.zeros(rx_data_c.shape[0],tx_data.shape[1], dtype=torch.cfloat)
                     for i in range(rx_data_c.shape[0]):
                         H_genie = h[:, :, re].cpu().numpy()
@@ -284,6 +308,8 @@ class Trainer(object):
                     ber_acc = ber_acc + ber
                     ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu())
                     ber_legacy_acc = ber_legacy_acc + ber_legacy
+                    ber_legacy_ce_on_data = calculate_ber(detected_word_legacy_ce_on_data.cpu(), target.cpu())
+                    ber_legacy_acc_ce_on_data = ber_legacy_acc_ce_on_data + ber_legacy_ce_on_data
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
                     ber_legacy_acc_genie = ber_legacy_acc_genie + ber_legacy_genie
 
@@ -298,10 +324,12 @@ class Trainer(object):
 
                 total_ber.append(ber)
                 total_ber_legacy.append(ber_legacy)
+                total_ber_legacy_ce_on_data.append(ber_legacy_ce_on_data)
                 total_ber_legacy_genie.append(ber_legacy_genie)
                 print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
                 print(f'current DeepSIC: {block_ind, ber}')
                 print(f'current legacy: {block_ind, ber_legacy}')
+                print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
                 print(f'current legacy genie: {block_ind, ber_legacy_genie}')            # print(f'Final BER: {sum(total_ber) / len(total_ber)}')
             if conf.cfo != 0:
                 if conf.cfo_in_rx:
@@ -311,7 +339,7 @@ class Trainer(object):
             else:
                 cfo_str = 'cfo=0'
 
-            fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
+            fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
             epochs_vect = list(range(1, len(train_loss_vect)+1))
             axes[0].plot(epochs_vect[0::conf.num_res], train_loss_vect[0::conf.num_res], linestyle='-', color='b', label='Training Loss')
             axes[0].plot(epochs_vect[0::conf.num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r', label='Validation Loss')
@@ -339,8 +367,10 @@ class Trainer(object):
             plt.show()
             pass
 
-        plt.semilogy(SNR_range, total_ber, '-x', color='b', label='DeeSIC')
+        plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')
         plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
+        plt.semilogy(SNR_range, total_ber_legacy_ce_on_data, '-o', color='b', label='Legacy CE on data')
+
         # plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
         plt.xlabel('SNR (dB)')
         plt.ylabel('BER')

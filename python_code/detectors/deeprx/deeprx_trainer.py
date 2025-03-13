@@ -7,10 +7,10 @@ from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
 from python_code.detectors.deeprx.deeprx_detector import DeepRxDetector
 from python_code.detectors.trainer import Trainer
-from python_code.utils.constants import HALF, N_USERS, N_ANTS, TRAIN_PERCENTAGE
+from python_code.utils.constants import HALF, N_USERS, N_ANTS, TRAIN_PERCENTAGE, NUM_SAMPLES_PER_SLOT, NUM_SYMB_PER_SLOT
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 import numpy as np
-from python_code.utils.constants import MOD_PILOT, SHOW_ALL_ITERATIONS, EPOCHS, NUM_BITS, ITERATIONS, N_ANTS
+from python_code.utils.constants import MOD_PILOT, EPOCHS, NUM_BITS, N_ANTS
 
 import commpy.modulation as mod
 
@@ -35,7 +35,6 @@ class DeepRxTrainer(Trainer):
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
-        loss = 0
         train_loss_vect = []
         val_loss_vect = []
         for _ in range(EPOCHS):
@@ -43,18 +42,17 @@ class DeepRxTrainer(Trainer):
             if MOD_PILOT <= 2:
                 tx_reshaped = tx
             else:
-                tx_reshaped = tx.reshape(int(tx.shape[0] // NUM_BITS), NUM_BITS,tx.shape[1])
+                tx_reshaped = tx.reshape(int(tx.shape[0] // NUM_BITS), NUM_BITS,tx.shape[1],tx.shape[2])
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
             val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             val_loss = val_loss.item()
-            loss += current_loss
             train_loss_vect.append(current_loss)
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[DeepRxDetector], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[DeepRxDetector], tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor]):
         train_loss_vect_user = []
         val_loss_vect_user = []
@@ -74,8 +72,7 @@ class DeepRxTrainer(Trainer):
         """
 
         tx_all, rx_all = self._prepare_data_for_training(tx, rx_real)
-        # Training the DeepSIC network for each user for iteration=1
-        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_all)
+        train_loss_vect , val_loss_vect = self._train_models(self.detector, tx_all, rx_all)
         return train_loss_vect , val_loss_vect
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:
@@ -91,9 +88,8 @@ class DeepRxTrainer(Trainer):
 
     def _forward(self, rx: torch.Tensor) -> torch.Tensor:
         # detect and decode
-        for i in range(ITERATIONS):
-            rx_in = rx.to('cuda').unsqueeze(-1)
-            probs_vec, llrs = self._calculate_posteriors(self.detector, i + 1, rx_in)
+        rx_in = rx.to('cuda').unsqueeze(-1)
+        probs_vec, llrs = self._calculate_posteriors(self.detector, rx_in)
 
         return self._compute_output(probs_vec), llrs
 
@@ -111,20 +107,26 @@ class DeepRxTrainer(Trainer):
         """
         tx_all = []
         rx_all = []
+        rx_split = torch.split(rx, NUM_SYMB_PER_SLOT, dim=0)
+        rx_stacked = torch.stack(rx_split, dim=0)
+        rx_permuted = rx_stacked.permute(0, 2, 1, 3)
         for user in range(N_USERS):
-            rx_all.append(rx.unsqueeze(-1))
-            tx_all.append(tx[:, user, :])
+            rx_all.append(rx_permuted)
+            cur_tx = tx[:, user, :]
+            tx_split = torch.split(cur_tx, NUM_SYMB_PER_SLOT, dim=0)
+            tx_stacked = torch.stack(tx_split, dim=0)
+            tx_all.append(tx_stacked)
         return tx_all, rx_all
 
-    def _calculate_posteriors(self, model: List[List[nn.Module]], i: int, rx: torch.Tensor) -> torch.Tensor:
+    def _calculate_posteriors(self, model: List[List[nn.Module]], rx: torch.Tensor) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(rx.shape[0],rx.shape[1]-2*N_ANTS,rx.shape[2],rx.shape[3]).to(DEVICE)
+        next_probs_vec = torch.zeros(rx.shape[0],NUM_BITS,rx.shape[2],rx.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(N_USERS):
             with torch.no_grad():
-                output, llrs = model[user][i - 1](rx)
+                output, llrs = model[user](rx)
             index_start = user*NUM_BITS
             index_end = (user+1) * NUM_BITS
             next_probs_vec[:, index_start:index_end,:,:] = output

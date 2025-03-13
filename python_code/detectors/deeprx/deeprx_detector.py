@@ -74,8 +74,9 @@ class DspResBlock(nn.Module):
 class DeepRxDetector(nn.Module):
     def __init__(self, in_planes, planes, stride=1, n_chan=64):
         super(DeepRxDetector, self).__init__()
-
-        self.conv1 = nn.Conv2d(in_planes, n_chan, kernel_size=3, dilation=(1, 1), padding=1, bias=False)
+        in_planes = N_ANTS * 2
+        planes = NUM_BITS
+        self.conv1 = nn.Conv2d(in_channels=in_planes, out_channels=n_chan, kernel_size=3, dilation=(1, 1), padding=1, bias=False)
         self.rs1 = ResBlock(n_chan, out_chan=n_chan, padding=1, dilation=(1, 1), groups=n_chan)
         self.rs2 = ResBlock(n_chan * 2, out_chan=n_chan * 2, padding=(2, 3), dilation=(2, 3), groups=n_chan * 2)
         self.rs3 = UpsResBlock(n_chan * 4, out_chan=n_chan, padding=(3, 6), dilation=(3, 6), groups=n_chan * 4)
@@ -91,7 +92,7 @@ class DeepRxDetector(nn.Module):
         self.rs10 = ResBlock(n_chan * 2, out_chan=n_chan * 2, padding=(3, 6), dilation=(3, 6), groups=n_chan * 2)
         self.rs11 = ResBlock(n_chan * 4, out_chan=n_chan * 4, padding=(2, 3), dilation=(2, 3), groups=n_chan * 4)
         self.rs12 = DspResBlock(n_chan * 4, out_chan=n_chan * 2, padding=1, dilation=1, groups=n_chan * 4)
-        self.conv_end = nn.Conv2d(n_chan * 2, planes, kernel_size=1, dilation=(1, 1), stride=1, padding=0, bias=False)
+        self.conv_end = nn.Conv2d(in_channels=n_chan * 2, out_channels=planes, kernel_size=1, dilation=(1, 1), stride=1, padding=0, bias=False)
 
     def forward(self, inputs):
         out1 = self.conv1(inputs)
@@ -107,6 +108,7 @@ class DeepRxDetector(nn.Module):
         out_res10 = self.rs10(out_res9)
         out_res11 = self.rs11(out_res10)
         out_res12 = self.rs12(out_res11)
-        output = torch.sigmoid(self.conv_end(out_res12))
-        return output
+        llrs = self.conv_end(out_res12)
+        outputs = torch.sigmoid(llrs)
+        return outputs, llrs
 

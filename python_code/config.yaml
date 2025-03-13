@@ -1,4 +1,4 @@
-snr: 26 # validation SNR value. values: float.
+snr: 20 # validation SNR value. values: float.
 
 # general
 seed: 0 # run seed

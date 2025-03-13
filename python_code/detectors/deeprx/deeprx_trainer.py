@@ -126,7 +126,7 @@ class DeepRxTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(rx.shape[0],NUM_BITS,rx.shape[2],rx.shape[3]).to(DEVICE)
+        next_probs_vec = torch.zeros(rx.shape[0],NUM_BITS*N_USERS,rx.shape[2],rx.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(N_USERS):
             with torch.no_grad():

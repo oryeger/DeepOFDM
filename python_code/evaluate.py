@@ -24,6 +24,8 @@ from python_code.channel.channel_dataset import  ChannelModelDataset
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+def get_next_divisible(num, divisor):
+    return (num + divisor - 1) // divisor * divisor
 
 def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     """
@@ -57,7 +59,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         deepsic_trainer._initialize_detector(NUM_REs)  # For reseting teh weights
         deeprx_trainer._initialize_detector(NUM_REs)
 
-        pilot_size = conf.pilot_size # OryEGer
+        pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
+        pilot_chunk = int(pilot_size / np.log2(MOD_PILOT))
         conf.num_res = NUM_REs
         channel_dataset = ChannelModelDataset(block_length=conf.block_length,
                                                    pilots_length=pilot_size,
@@ -72,10 +75,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                                                    cfo_in_rx=conf.cfo_in_rx,
                                                    kernel_size=conf.kernel_size)
 
-
-
-        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(
-            snr_list=[snr_cur])
+        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(snr_list=[snr_cur])
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
         # REs = np.arange(conf.num_res)
@@ -89,13 +89,14 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         # axes[0].set_title('Channel with ' + str(conf.num_res) + ' REs')
         # plt.show()
 
+
+
         # detect sequentially
         for block_ind in range(conf.blocks_num):
             print('*' * 20)
             # get current word and channel
             tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
             received_words_ce[block_ind], s_orig_words[block_ind]
-            pilot_chunk = int(deepsic_trainer.pilot_size / np.log2(MOD_PILOT))
 
             if (conf.cfo != 0) & (GENIE_CFO != 'NONE'):
                 pointer = 0
@@ -133,7 +134,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 rx_real = rx
 
             # split words into data and pilot part
-            tx_pilot, tx_data = tx[:deepsic_trainer.pilot_size], tx[deepsic_trainer.pilot_size:]
+            tx_pilot, tx_data = tx[:pilot_size], tx[pilot_size:]
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
             # online training main function
@@ -141,6 +142,13 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot)
                 # Zero CNN weights
                 detected_word, llrs_mat = deepsic_trainer._forward(rx_data)
+
+            if deeprx_trainer.is_online_training:
+                train_loss_vect, val_loss_vect = deeprx_trainer._online_training(tx_pilot, rx_pilot)
+                # Zero CNN weights
+                detected_word, llrs_mat = deepsic_trainer._forward(rx_data)
+
+
 
             # CE Based
             # train_loss_vect = [0] * EPOCHS
@@ -289,8 +297,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                      label='Validation Loss')
         axes[0].set_xlabel('Epochs')
         axes[0].set_ylabel('Loss')
-        train_samples = int(deepsic_trainer.pilot_size * TRAIN_PERCENTAGE / 100)
-        val_samples = deepsic_trainer.pilot_size - train_samples
+        train_samples = int(pilot_size * TRAIN_PERCENTAGE / 100)
+        val_samples = pilot_size - train_samples
         title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(
             snr_cur) + ", #REs=" + str(conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(
             N_USERS) + '\n ' +

@@ -18,9 +18,6 @@ torch.manual_seed(conf.seed)
 torch.cuda.manual_seed(conf.seed)
 np.random.seed(conf.seed)
 
-def get_next_divisible(num, divisor):
-    return (num + divisor - 1) // divisor * divisor
-
 class Trainer(object):
     """
     Implements the meta-trainer class. Every trainer must inherent from this base class.
@@ -32,8 +29,6 @@ class Trainer(object):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
-        pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
-        self.pilot_size = pilot_size
         #  self._initialize_dataloader(num_res,self.pilot_size)
         self._initialize_detector(num_res)
 

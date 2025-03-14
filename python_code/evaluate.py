@@ -27,7 +27,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
 
-def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_res, detector, kernel_size, pilot_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie):
+def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_res, detector, kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie):
 
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
     epochs_vect = list(range(1, len(train_loss_vect) + 1))
@@ -43,7 +43,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_re
                     cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(
                 ITERATIONS) + ', CNN kernel size=' + str(kernel_size))
 
-    axes[0].set_title(title_string, fontsize=10)
+    axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()
     axes[0].grid()
 
@@ -51,7 +51,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_re
     axes[1].set_xlabel('LLRs')
     axes[1].set_ylabel('#Values')
     axes[1].grid()
-    text = 'BER DeepSIC:' + str(f"{ber:.4f}") + '\
+    text = 'BER '+detector+':' + str(f"{ber:.4f}") + '\
              BER legacy:' + str(f"{ber_legacy:.4f}") + '\
              BER legacy genie:' + (f"{ber_legacy_genie:.4f}")
     # axes[2].text(0.5, 0.5, text, fontsize=12, ha="center", va="center")
@@ -318,8 +318,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         else:
             cfo_str = 'cfo=0'
 
-        plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, conf.num_res, "DeepSIC", conf.kernel_size, pilot_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
-        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, pilot_size, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
+        plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, conf.num_res, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
+        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
 
 
 
@@ -339,8 +339,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     plt.legend()
     plt.grid()
     plt.show()
-    df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_legacy": total_ber_legacy,
-                       "total_ber_legacy_genie": total_ber_legacy_genie})
+    df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_deeprx": total_ber_deeprx,
+                       "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
     # print('\n'+title_string)
     title_string = title_string.replace("\n", "")
     df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv", index=False)

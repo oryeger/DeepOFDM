@@ -33,26 +33,40 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
     llr_4 = llr_3.reshape(tx_data.shape[0], N_USERS, NUM_REs)
     llr_for_mi = llr_4.flatten()
     tx_data_for_mi = tx_data.flatten()
+
+    llr_for_mi = llr_for_mi/np.mean(np.abs(llr_for_mi.numpy()))
+    # llrs = llr_for_mi
+    # llrs = llrs/torch.mean(torch.abs(llrs))
+    # bits = tx_data_for_mi
+    # x = 2 * bits - 1
+    # mi = 1 - torch.mean(torch.log2(1 + torch.exp(-x * llrs)+1e-6))
+
+    # aaa = torch.log2(1 + torch.exp(-x * llrs)+1e-6)
+    # mask = torch.isinf(aaa)
+    # indices = torch.nonzero(mask, as_tuple=True)
+
+    pass
+
     # H_y calculation
-    (hist, bins) = np.histogram(llr_for_mi, bins=50)[0]
+    hist = np.histogram(llr_for_mi, bins=50)[0]
     p_y_y = hist / np.sum(hist) + 1e-6
-    # H_y = -np.sum(p_y_y*np.log2(p_y_y))
-    H_y = -np.mean(np.log2(p_y_y))
+    H_y = -np.sum(p_y_y*np.log2(p_y_y))
+    # H_y = -np.mean(np.log2(p_y_y))
     # H_y_x calculation
     # x=0
     zero_indexes = np.where(tx_data_for_mi == 0)[0]
     p_x_0 = zero_indexes.shape[0] / tx_data_for_mi.shape[0]
     hist_0 = np.histogram(llr_for_mi[zero_indexes].cpu(), bins=50)[0]
     p_y_x_0 = hist_0 / np.sum(hist_0) + 1e-6
-    # H_y_x_0 = -np.sum(p_y_x_0*np.log2(p_y_x_0))
-    H_y_x_0 = -np.mean(np.log2(p_y_x_0))
+    H_y_x_0 = -np.sum(p_y_x_0*np.log2(p_y_x_0))
+    # H_y_x_0 = -np.mean(np.log2(p_y_x_0))
     # x=1
     one_indexes = np.where(tx_data_for_mi == 1)[0]
     p_x_1 = one_indexes.shape[0] / tx_data_for_mi.shape[0]
     hist_1 = np.histogram(llr_for_mi[one_indexes], bins=50)[0]
     p_y_x_1 = hist_1 / np.sum(hist_1) + 1e-6
-    # H_y_x_1 = -np.sum(p_y_x_1*np.log2(p_y_x_1))
-    H_y_x_1 = -np.mean(np.log2(p_y_x_1))
+    H_y_x_1 = -np.sum(p_y_x_1*np.log2(p_y_x_1))
+    # H_y_x_1 = -np.mean(np.log2(p_y_x_1))
 
     H_y_x = p_x_0 * H_y_x_0 + p_x_1 * H_y_x_1
 
@@ -124,11 +138,6 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     total_ber_legacy = []
     total_ber_legacy_ce_on_data = []
     total_ber_legacy_genie = []
-    ber_sum = 0
-    ber_sum_deeprx = 0
-    ber_sum_legacy = 0
-    ber_sum_legacy_ce_on_data = 0
-    ber_sum_egacy_genie = 0
 
 
     SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
@@ -136,8 +145,11 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     total_mi_deeprx = []
     Final_SNR = conf.snr + NUM_SNRs - 1
     for snr_cur in SNR_range:
-        # draw the test words for a given snr
-
+        ber_sum = 0
+        ber_sum_deeprx = 0
+        ber_sum_legacy = 0
+        ber_sum_legacy_ce_on_data = 0
+        ber_sum_legacy_genie = 0
         deepsic_trainer._initialize_detector(NUM_REs)  # For reseting the weights
         deeprx_trainer._initialize_detector(NUM_REs)
 
@@ -349,16 +361,26 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 ber_sum_deeprx += ber_deeprx
                 ber_sum_legacy += ber_legacy
                 ber_sum_legacy_ce_on_data += ber_legacy_ce_on_data
-                ber_sum_egacy_genie += ber_legacy_genie
+                ber_sum_legacy_genie += ber_legacy_genie
 
-            total_ber.append(ber_sum/NUM_REs)
-            total_ber_deeprx.append(ber_sum_deeprx/NUM_REs)
-            total_ber_legacy.append(ber_sum_legacy/NUM_REs)
-            total_ber_legacy_ce_on_data.append(ber_sum_legacy_ce_on_data/NUM_REs)
-            total_ber_legacy_genie.append(ber_sum_egacy_genie/NUM_REs)
+            mi = calc_mi(tx_data.cpu(), llrs_mat.cpu())
+            total_mi.append(mi)
+            mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu())
+            total_mi_deeprx.append(mi_deeprx)
+            ber = ber_sum/NUM_REs
+            ber_deeprx = ber_sum_deeprx/NUM_REs
+            ber_legacy = ber_sum_legacy/NUM_REs
+            ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data/NUM_REs
+            ber_legacy_genie = ber_sum_legacy_genie/NUM_REs
+
+            total_ber.append(ber_sum)
+            total_ber_deeprx.append(ber_sum_deeprx)
+            total_ber_legacy.append(ber_sum_legacy)
+            total_ber_legacy_ce_on_data.append(ber_sum_legacy_ce_on_data)
+            total_ber_legacy_genie.append(ber_sum_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            print(f'current DeepSIC: {block_ind, ber}')
-            print(f'current DeepRx: {block_ind, ber_deeprx}')
+            print(f'current DeepSIC: {block_ind, ber, mi}')
+            print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
             print(f'current legacy: {block_ind, ber_legacy}')
             print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
             print(
@@ -374,12 +396,10 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, conf.num_res, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
         plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
 
-        mi = calc_mi(tx_data.cpu(), llrs_mat.cpu())
-        total_mi.append(mi)
-        mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu())
-        total_mi_deeprx.append(mi_deeprx)
 
-        pass
+        # np.save('C:\\Projects\\Misc\\tx_data.npy', tx_data.cpu())
+        # np.save('C:\\Projects\\Misc\\llrs_mat.npy', llrs_mat.cpu())
+
 
     plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx')

@@ -1,4 +1,4 @@
-snr: 40 # validation SNR value. values: float.
+snr: 0 # validation SNR value. values: float.
 
 # general
 seed: 0 # run seed
@@ -8,9 +8,9 @@ fading_in_channel: False # If the channel is fading/non-fading. values: [True, F
 spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
 delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 clip_percentage_in_tx: 100
-cfo:  00
+cfo:  0.15
 cfo_in_rx: False
-go_to_td: False
+go_to_td: True
 
 
 # validation phase protocol

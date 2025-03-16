@@ -24,6 +24,43 @@ from python_code.channel.channel_dataset import  ChannelModelDataset
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+
+def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
+
+    llr_1 = llrs_mat[:, :, :, :].squeeze(-1)
+    llr_2 = llr_1.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS, NUM_BITS, NUM_REs)
+    llr_3 = llr_2.swapaxes(1, 2)
+    llr_4 = llr_3.reshape(tx_data.shape[0], N_USERS, NUM_REs)
+    llr_for_mi = llr_4.flatten()
+    tx_data_for_mi = tx_data.flatten()
+    # H_y calculation
+    (hist, bins) = np.histogram(llr_for_mi, bins=50)[0]
+    p_y_y = hist / np.sum(hist) + 1e-6
+    # H_y = -np.sum(p_y_y*np.log2(p_y_y))
+    H_y = -np.mean(np.log2(p_y_y))
+    # H_y_x calculation
+    # x=0
+    zero_indexes = np.where(tx_data_for_mi == 0)[0]
+    p_x_0 = zero_indexes.shape[0] / tx_data_for_mi.shape[0]
+    hist_0 = np.histogram(llr_for_mi[zero_indexes].cpu(), bins=50)[0]
+    p_y_x_0 = hist_0 / np.sum(hist_0) + 1e-6
+    # H_y_x_0 = -np.sum(p_y_x_0*np.log2(p_y_x_0))
+    H_y_x_0 = -np.mean(np.log2(p_y_x_0))
+    # x=1
+    one_indexes = np.where(tx_data_for_mi == 1)[0]
+    p_x_1 = one_indexes.shape[0] / tx_data_for_mi.shape[0]
+    hist_1 = np.histogram(llr_for_mi[one_indexes], bins=50)[0]
+    p_y_x_1 = hist_1 / np.sum(hist_1) + 1e-6
+    # H_y_x_1 = -np.sum(p_y_x_1*np.log2(p_y_x_1))
+    H_y_x_1 = -np.mean(np.log2(p_y_x_1))
+
+    H_y_x = p_x_0 * H_y_x_0 + p_x_1 * H_y_x_1
+
+    mi = H_y - H_y_x
+    mi = np.maximum(mi, 0)
+    return mi
+
+
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
 
@@ -87,12 +124,21 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     total_ber_legacy = []
     total_ber_legacy_ce_on_data = []
     total_ber_legacy_genie = []
+    ber_sum = 0
+    ber_sum_deeprx = 0
+    ber_sum_legacy = 0
+    ber_sum_legacy_ce_on_data = 0
+    ber_sum_egacy_genie = 0
+
+
     SNR_range = [conf.snr + i for i in range(NUM_SNRs)]
+    total_mi = []
+    total_mi_deeprx = []
     Final_SNR = conf.snr + NUM_SNRs - 1
     for snr_cur in SNR_range:
         # draw the test words for a given snr
 
-        deepsic_trainer._initialize_detector(NUM_REs)  # For reseting teh weights
+        deepsic_trainer._initialize_detector(NUM_REs)  # For reseting the weights
         deeprx_trainer._initialize_detector(NUM_REs)
 
         pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
@@ -286,6 +332,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS,
                                                                     NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0],
                                                                                                      N_USERS)
+
                 detected_word_cur_re_deeprx = detected_word_deeprx[:, :, re, :]
                 detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.squeeze(-1)
                 detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS,
@@ -298,11 +345,17 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 ber_legacy_ce_on_data = calculate_ber(detected_word_legacy_ce_on_data.cpu(), target.cpu())
                 ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
 
-            total_ber.append(ber)
-            total_ber_deeprx.append(ber_deeprx)
-            total_ber_legacy.append(ber_legacy)
-            total_ber_legacy_ce_on_data.append(ber_legacy_ce_on_data)
-            total_ber_legacy_genie.append(ber_legacy_genie)
+                ber_sum += ber
+                ber_sum_deeprx += ber_deeprx
+                ber_sum_legacy += ber_legacy
+                ber_sum_legacy_ce_on_data += ber_legacy_ce_on_data
+                ber_sum_egacy_genie += ber_legacy_genie
+
+            total_ber.append(ber_sum/NUM_REs)
+            total_ber_deeprx.append(ber_sum_deeprx/NUM_REs)
+            total_ber_legacy.append(ber_sum_legacy/NUM_REs)
+            total_ber_legacy_ce_on_data.append(ber_sum_legacy_ce_on_data/NUM_REs)
+            total_ber_legacy_genie.append(ber_sum_egacy_genie/NUM_REs)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, ber}')
             print(f'current DeepRx: {block_ind, ber_deeprx}')
@@ -321,7 +374,12 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, conf.num_res, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
         plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
 
+        mi = calc_mi(tx_data.cpu(), llrs_mat.cpu())
+        total_mi.append(mi)
+        mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu())
+        total_mi_deeprx.append(mi_deeprx)
 
+        pass
 
     plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx')
@@ -338,7 +396,23 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     plt.title(title_string, fontsize=10)
     plt.legend()
     plt.grid()
+    plt.tight_layout()
     plt.show()
+
+    plt.semilogy(SNR_range, total_mi, '-x', color='g', label='DeeSIC')
+    plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
+    plt.xlabel('SNR (dB)')
+    plt.ylabel('MI')
+    title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
+        conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(N_USERS) + '\n ' +
+                    cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(
+                ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+    plt.title(title_string, fontsize=10)
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
+
     df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber, "total_ber_deeprx": total_ber_deeprx,
                        "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
     # print('\n'+title_string)

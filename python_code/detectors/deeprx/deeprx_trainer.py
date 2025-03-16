@@ -26,7 +26,7 @@ class DeepRxTrainer(Trainer):
         return 'DeepSIC'
 
     def _initialize_detector(self, num_res):
-        self.detector = [DeepRxDetector(18,2,1).to(DEVICE) for _ in
+        self.detector = [DeepRxDetector(18,2,1, 64).to(DEVICE) for _ in
                          range(N_USERS)]  # 2D list for Storing the DeepSIC Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor) -> list[float]:

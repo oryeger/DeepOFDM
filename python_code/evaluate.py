@@ -20,60 +20,42 @@ from python_code.channel.modulator import BPSKModulator
 import pandas as pd
 
 from python_code.channel.channel_dataset import  ChannelModelDataset
+from scipy.stats import entropy
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
+def entropy_with_bin_width(data, bin_width):
+    """Estimate entropy using histogram binning with a specified bin width."""
+    min_x, max_x = np.min(data), np.max(data)
+    bins = np.arange(min_x, max_x + bin_width, bin_width)  # Define bin edges
+    hist, _ = np.histogram(data, bins=bins, density=True)  # Compute histogram
+    hist = hist[hist > 0]  # Remove zero probabilities
+    return entropy(hist, base=np.e) # Compute entropy
+
 
 def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
-
     llr_1 = llrs_mat[:, :, :, :].squeeze(-1)
     llr_2 = llr_1.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS, NUM_BITS, NUM_REs)
     llr_3 = llr_2.swapaxes(1, 2)
     llr_4 = llr_3.reshape(tx_data.shape[0], N_USERS, NUM_REs)
     llr_for_mi = llr_4.flatten()
     tx_data_for_mi = tx_data.flatten()
-
-    llr_for_mi = llr_for_mi/np.mean(np.abs(llr_for_mi.numpy()))
-    # llrs = llr_for_mi
-    # llrs = llrs/torch.mean(torch.abs(llrs))
-    # bits = tx_data_for_mi
-    # x = 2 * bits - 1
-    # mi = 1 - torch.mean(torch.log2(1 + torch.exp(-x * llrs)+1e-6))
-
-    # aaa = torch.log2(1 + torch.exp(-x * llrs)+1e-6)
-    # mask = torch.isinf(aaa)
-    # indices = torch.nonzero(mask, as_tuple=True)
-
-    pass
-
     # H_y calculation
-    hist = np.histogram(llr_for_mi, bins=50)[0]
-    p_y_y = hist / np.sum(hist) + 1e-6
-    H_y = -np.sum(p_y_y*np.log2(p_y_y))
-    # H_y = -np.mean(np.log2(p_y_y))
+    H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.1)
     # H_y_x calculation
     # x=0
     zero_indexes = np.where(tx_data_for_mi == 0)[0]
-    p_x_0 = zero_indexes.shape[0] / tx_data_for_mi.shape[0]
-    hist_0 = np.histogram(llr_for_mi[zero_indexes].cpu(), bins=50)[0]
-    p_y_x_0 = hist_0 / np.sum(hist_0) + 1e-6
-    H_y_x_0 = -np.sum(p_y_x_0*np.log2(p_y_x_0))
-    # H_y_x_0 = -np.mean(np.log2(p_y_x_0))
+    H_y_x_0 = entropy_with_bin_width(llr_for_mi[zero_indexes].numpy(), 0.1)
     # x=1
     one_indexes = np.where(tx_data_for_mi == 1)[0]
-    p_x_1 = one_indexes.shape[0] / tx_data_for_mi.shape[0]
-    hist_1 = np.histogram(llr_for_mi[one_indexes], bins=50)[0]
-    p_y_x_1 = hist_1 / np.sum(hist_1) + 1e-6
-    H_y_x_1 = -np.sum(p_y_x_1*np.log2(p_y_x_1))
-    # H_y_x_1 = -np.mean(np.log2(p_y_x_1))
+    H_y_x_1 = entropy_with_bin_width(llr_for_mi[one_indexes].numpy(), 0.1)
 
-    H_y_x = p_x_0 * H_y_x_0 + p_x_1 * H_y_x_1
+    H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
 
     mi = H_y - H_y_x
     mi = np.maximum(mi, 0)
     return mi
-
 
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
@@ -397,8 +379,9 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
 
 
-        # np.save('C:\\Projects\\Misc\\tx_data.npy', tx_data.cpu())
-        # np.save('C:\\Projects\\Misc\\llrs_mat.npy', llrs_mat.cpu())
+        np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
+        np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
+        pass
 
 
     plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')

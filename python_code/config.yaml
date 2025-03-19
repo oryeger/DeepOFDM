@@ -10,7 +10,7 @@ delayspread_in_channel: False # If the channel is fading/non-fading. values: [Tr
 clip_percentage_in_tx: 100
 cfo:  0.15
 cfo_in_rx: True
-go_to_td: True
+go_to_td: True # False
 
 
 # validation phase protocol

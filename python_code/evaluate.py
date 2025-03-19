@@ -31,7 +31,7 @@ def entropy_with_bin_width(data, bin_width):
     bins = np.arange(min_x, max_x + bin_width, bin_width)  # Define bin edges
     hist, _ = np.histogram(data, bins=bins, density=True)  # Compute histogram
     hist = hist[hist > 0]  # Remove zero probabilities
-    return entropy(hist, base=np.e) # Compute entropy
+    return entropy(hist, base=2) # Compute entropy
 
 
 def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
@@ -41,6 +41,11 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
     llr_4 = llr_3.reshape(tx_data.shape[0], N_USERS, NUM_REs)
     llr_for_mi = llr_4.flatten()
     tx_data_for_mi = tx_data.flatten()
+
+    if (llr_for_mi.shape[0] > 50000) & (tx_data_for_mi.shape[0] > 50000):
+        tx_data_for_mi = tx_data_for_mi[:50000]
+        llr_for_mi = llr_for_mi[:50000]
+
     # H_y calculation
     H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.1)
     # H_y_x calculation
@@ -317,6 +322,27 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_genie[:, i] = torch.from_numpy(
                             BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
+
+
+                ###############################################################
+                # llr_for_mi = torch.stack([equalized.real , equalized.imag], dim=1).flatten()
+                # tx_data_for_mi = tx_data[:, :rx.shape[1], re]
+                # H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.005)
+                # # H_y_x calculation
+                # # x=0
+                # zero_indexes = np.where(tx_data_for_mi.cpu() == 0)[0]
+                # H_y_x_0 = entropy_with_bin_width(llr_for_mi[zero_indexes].numpy(), 0.005)
+                # # x=1
+                # one_indexes = np.where(tx_data_for_mi.cpu() == 1)[0]
+                # H_y_x_1 = entropy_with_bin_width(llr_for_mi[one_indexes].numpy(), 0.005)
+                #
+                # H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
+                #
+                # mi = H_y - H_y_x
+                # mi = np.maximum(mi, 0)
+                # pass
+                ###############################################################
+
 
                 # calculate accuracy
                 target = tx_data[:, :rx.shape[1], re]

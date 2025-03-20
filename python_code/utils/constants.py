@@ -1,10 +1,10 @@
 from enum import Enum
 import numpy as np
 
-NUM_SNRs = 30
+NUM_SNRs = 20
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
-N_USERS = 4 # number of users
+N_USERS = 1 # number of users
 N_ANTS = 4 # number of antennas
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
@@ -12,12 +12,12 @@ PHASE_OFFSET = 0 # np.pi / 3
 SHOW_ALL_ITERATIONS = True
 GENIE_CFO = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
 NUM_REs = 12
-EPOCHS = 300
+EPOCHS = 100
 ITERATIONS = 1
 INTERF_FACTOR = 1
 NOISE_TO_CE = True
 
-MOD_GENERAL = 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+MOD_GENERAL = 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 
 MOD_PILOT = MOD_GENERAL
 MOD_DATA = MOD_GENERAL

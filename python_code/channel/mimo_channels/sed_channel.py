@@ -1,18 +1,18 @@
 import numpy as np
 
 from python_code import conf
-from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, N_USERS, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
-                                         CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE, GENIE_CFO)
+from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
+                                         CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
 H_COEF = 0.8
 
 
 class SEDChannel:
     @staticmethod
-    def calculate_channel(n_ant: int, n_user: int, num_res: int, frame_ind: int, fading: bool, spatial: bool, delayspread: bool) -> np.ndarray:
+    def calculate_channel(n_ant: int, n_users: int, num_res: int, frame_ind: int, fading: bool, spatial: bool, delayspread: bool) -> np.ndarray:
         H_row = np.array([i for i in range(n_ant)])
-        H_row = np.tile(H_row, [n_user, 1]).T
-        H_column = np.array([i for i in range(n_user)])
+        H_row = np.tile(H_row, [n_users, 1]).T
+        H_column = np.array([i for i in range(n_users)])
         H_column = np.tile(H_column, [n_ant, 1])
         H_real = np.exp(-np.abs(H_row - H_column))
         # Frequency channel
@@ -25,7 +25,7 @@ class SEDChannel:
 
 
         if not spatial:
-            if N_USERS != 1:
+            if n_users != 1:
                 H_real = np.eye(H_real.shape[0])
             else:
                 H_real = np.zeros((H_real.shape[0],1))
@@ -77,13 +77,13 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, num_res) -> np.ndarray:
+    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, num_res, n_users) -> np.ndarray:
         if go_to_td | (cfo != 0): # if cfo != 0 we must go to td
             if td_in_rx:
                 if y_in.ndim == 4:
                     NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
                     NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                    n_users_int = N_USERS
+                    n_users_int = n_users
                     y = y_in
                 else:
                     NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
@@ -93,7 +93,7 @@ class SEDChannel:
             else:
                 NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
                 NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                n_users_int = N_USERS
+                n_users_int = n_users
                 y = np.expand_dims(y_in, axis=1)
 
             st_full = np.zeros((n_users_int, N_ANTS, NUM_SAMPLES_TOTAL), dtype=complex)
@@ -147,7 +147,7 @@ class SEDChannel:
 
 
     @staticmethod
-    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_in_rx: bool) -> np.ndarray:
+    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_in_rx: bool, n_users: int) -> np.ndarray:
         """
         The MIMO SED Channel
         :param s: to transmit symbol words
@@ -156,14 +156,14 @@ class SEDChannel:
         :return: received word
         """
         y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
-        y_ce = np.zeros((N_USERS, N_ANTS, s.shape[1], num_res), dtype=complex)
+        y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
         var = 10 ** (-0.1 * snr)
         for re_index in range(num_res):
             conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
             y[:, :, re_index] = conv
 
-            all_values = list(range(N_USERS))
-            for user in range(N_USERS):
+            all_values = list(range(n_users))
+            for user in range(n_users):
                 idx = np.setdiff1d(all_values, user)
                 s_cur_user = s[:, :, re_index].copy()
                 s_cur_user[idx,:] = 0
@@ -171,14 +171,14 @@ class SEDChannel:
                 y_ce[user, :, :, re_index] = conv_ce
 
         if cfo_in_rx:
-            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, num_res)
-            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, num_res)
+            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, num_res, n_users)
+            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, num_res, n_users)
 
         for re_index in range(num_res):
             w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
-                for user in range(N_USERS):
+                for user in range(n_users):
                     # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         return y,y_ce

@@ -7,9 +7,6 @@ from torch.nn import BCELoss
 from torch.optim import Adam
 
 from python_code import DEVICE, conf
-from python_code.channel.channel_dataset import ChannelModelDataset
-from python_code.utils.constants import NUM_BITS, NUM_SYMB_PER_SLOT
-
 
 
 
@@ -25,17 +22,17 @@ class Trainer(object):
     It also defines some functions that every inherited trainer must implement.
     """
 
-    def __init__(self, num_res):
+    def __init__(self, num_bits, n_users):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
         #  self._initialize_dataloader(num_res,self.pilot_size)
-        self._initialize_detector(num_res)
+        self._initialize_detector(num_bits, n_users)
 
     def get_name(self):
         return self.__name__()
 
-    def _initialize_detector(self, num_res):
+    def _initialize_detector(self, num_bits, n_users):
         """
         Every trainer must have some base detector
         """
@@ -75,13 +72,13 @@ class Trainer(object):
     #                                                cfo_in_rx=conf.cfo_in_rx,
     #                                                kernel_size=conf.kernel_size)
 
-    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor):
+    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iterations: int, epochs: int):
         """
         Every detector trainer must have some function to adapt it online
         """
         pass
 
-    def _forward(self, rx: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Every trainer must have some forward pass for its detector
         """

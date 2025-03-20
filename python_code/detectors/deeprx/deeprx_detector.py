@@ -2,7 +2,7 @@ from torch import nn
 import torch
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS, N_USERS, IS_COMPLEX, NUM_BITS, NUM_REs
+from python_code.utils.constants import N_ANTS
 
 
 class ResBlock(nn.Module):
@@ -72,10 +72,10 @@ class DspResBlock(nn.Module):
 
 
 class DeepRxDetector(nn.Module):
-    def __init__(self, in_planes, planes, stride=1, n_chan=64):
+    def __init__(self, in_planes, planes, stride=1, n_chan=64, num_bits=2, n_ants=4,):
         super(DeepRxDetector, self).__init__()
-        in_planes = N_ANTS * 2
-        planes = NUM_BITS
+        in_planes = n_ants * 2
+        planes = num_bits
         self.conv1 = nn.Conv2d(in_channels=in_planes, out_channels=n_chan, kernel_size=3, dilation=(1, 1), padding=1, bias=False)
         self.rs1 = ResBlock(n_chan, out_chan=n_chan, padding=1, dilation=(1, 1), groups=n_chan)
         self.rs2 = ResBlock(n_chan * 2, out_chan=n_chan * 2, padding=(2, 3), dilation=(2, 3), groups=n_chan * 2)

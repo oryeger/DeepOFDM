@@ -1,7 +1,7 @@
 import torch
 
 from python_code import DEVICE
-from python_code.utils.constants import HALF, N_USERS, MOD_PILOT, NUM_BITS
+from python_code.utils.constants import HALF
 
 
 def calculate_mimo_states(n_user: int, transmitted_words: torch.Tensor) -> torch.Tensor:
@@ -20,17 +20,16 @@ def prob_to_BPSK_symbol(p: torch.Tensor) -> torch.Tensor:
     """
     return torch.sign(p - HALF)
 
-def prob_to_QAM_index(p: torch.Tensor) -> torch.Tensor:
-    output_symbols = torch.empty(p.size(0),N_USERS)
-    for user in range(N_USERS):
-        user_indexes = [int(user * (NUM_BITS)) + i for i in range(0, NUM_BITS)]
+def prob_to_QAM_index(p: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    output_symbols = torch.empty(p.size(0),n_users)
+    for user in range(n_users):
+        user_indexes = [int(user * (num_bits)) + i for i in range(0, num_bits)]
         cur_user_p = p[:,user_indexes]
         sum_of_columns = cur_user_p.sum(dim=1, keepdim=True)
         fourth_column = 1 - sum_of_columns
         cur_user_p_out = torch.cat((cur_user_p, fourth_column), dim=1)
         output_symbols[:,user] = torch.argmax(cur_user_p_out, dim=1)
     return output_symbols
-    # for user in range(N_USERS):
 
 
 

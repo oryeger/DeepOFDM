@@ -1,5 +1,13 @@
-snr: 40 # validation SNR value. values: float.
-num_snrs: 1
+snr: 0 # validation SNR value. values: float.
+num_snrs: 20
+n_users: 1
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+num_res: 12
+cfo:  0
+epochs: 100
+iterations: 1
+pilot_size: 500   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+kernel_size: 1
 
 # general
 seed: 0 # run seed
@@ -9,14 +17,13 @@ fading_in_channel: False # If the channel is fading/non-fading. values: [True, F
 spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
 delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 clip_percentage_in_tx: 100
-cfo:  0
 cfo_in_rx: True
+
+
 go_to_td: False
 
 
 # validation phase protocol
-pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(MOD_PILOT)
-block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(MOD_PILOT)
+block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
-kernel_size: 1
 

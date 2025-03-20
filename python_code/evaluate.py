@@ -2,7 +2,6 @@ import os
 import time
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
-from python_code.utils.constants import NUM_REs
 from typing import List
 
 import numpy as np
@@ -10,8 +9,7 @@ import torch
 from python_code import DEVICE, conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import (IS_COMPLEX, MOD_PILOT, EPOCHS, NUM_BITS, N_USERS, TRAIN_PERCENTAGE,
-                                         ITERATIONS, INTERF_FACTOR,
+from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, INTERF_FACTOR,
                                          GENIE_CFO, FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
 import commpy.modulation as mod
@@ -34,11 +32,11 @@ def entropy_with_bin_width(data, bin_width):
     return entropy(hist, base=2) # Compute entropy
 
 
-def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
+def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits: int, n_users: int, num_res: int) -> np.ndarray:
     llr_1 = llrs_mat[:, :, :, :].squeeze(-1)
-    llr_2 = llr_1.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS, NUM_BITS, NUM_REs)
+    llr_2 = llr_1.reshape(int(tx_data.shape[0] / num_bits), n_users, num_bits, num_res)
     llr_3 = llr_2.swapaxes(1, 2)
-    llr_4 = llr_3.reshape(tx_data.shape[0], N_USERS, NUM_REs)
+    llr_4 = llr_3.reshape(tx_data.shape[0], n_users, num_res)
     llr_for_mi = llr_4.flatten()
     tx_data_for_mi = tx_data.flatten()
 
@@ -65,11 +63,11 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray) -> np.ndarray:
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
 
-def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_res, detector, kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie):
-
+def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie):
+    num_res = conf.num_res
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
     epochs_vect = list(range(1, len(train_loss_vect) + 1))
-    axes[0].plot(epochs_vect[0::num_res], train_loss_vect[0::conf.num_res], linestyle='-', color='b',
+    axes[0].plot(epochs_vect[0::conf.num_res], train_loss_vect[0::num_res], linestyle='-', color='b',
                  label='Training Loss')
     axes[0].plot(epochs_vect[0::num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r',
                  label='Validation Loss')
@@ -77,9 +75,9 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, num_re
     axes[0].set_ylabel('Loss')
     title_string = (detector + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(
-        N_USERS) + '\n ' +
-                    cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(
-                ITERATIONS) + ', CNN kernel size=' + str(kernel_size))
+        conf.n_users) + '\n ' +
+                    cfo_str + ', Epochs=' + str(conf.epochs) + ', #Iterations=' + str(
+                conf.iterations) + ', CNN kernel size=' + str(kernel_size))
 
     axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()
@@ -112,12 +110,19 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         plt.close(fig_num)
     plt.close('all')
 
-    if MOD_PILOT == 2:
+    num_res = conf.num_res
+    mod_pilot = conf.mod_pilot
+    num_bits = int(np.log2(mod_pilot))
+    n_users = conf.n_users
+    iterations = conf.iterations
+    epochs = conf.epochs
+
+    if mod_pilot == 2:
         mod_text = 'BPSK'
-    elif MOD_PILOT == 4:
+    elif mod_pilot == 4:
         mod_text = 'QPSK'
     else:
-        mod_text = [str(MOD_PILOT) + 'QAM']
+        mod_text = [str(mod_pilot) + 'QAM']
         mod_text = mod_text[0]
 
     total_ber = []
@@ -130,7 +135,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     SNR_range = [conf.snr + i for i in range(conf.num_snrs)]
     total_mi = []
     total_mi_deeprx = []
-    total_mi_legacy = []
+    if mod_pilot == 4:
+        total_mi_legacy = []
     Final_SNR = conf.snr + conf.num_snrs - 1
     for snr_cur in SNR_range:
         ber_sum = 0
@@ -138,12 +144,11 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         ber_sum_legacy = 0
         ber_sum_legacy_ce_on_data = 0
         ber_sum_legacy_genie = 0
-        deepsic_trainer._initialize_detector(NUM_REs)  # For reseting the weights
-        deeprx_trainer._initialize_detector(NUM_REs)
+        deepsic_trainer._initialize_detector(num_bits, n_users)  # For reseting the weights
+        deeprx_trainer._initialize_detector(num_bits, n_users)
 
-        pilot_size = get_next_divisible(conf.pilot_size,NUM_BITS*NUM_SYMB_PER_SLOT)
-        pilot_chunk = int(pilot_size / np.log2(MOD_PILOT))
-        conf.num_res = NUM_REs
+        pilot_size = get_next_divisible(conf.pilot_size,num_bits*NUM_SYMB_PER_SLOT)
+        pilot_chunk = int(pilot_size / np.log2(mod_pilot))
         channel_dataset = ChannelModelDataset(block_length=conf.block_length,
                                                    pilots_length=pilot_size,
                                                    blocks_num=conf.blocks_num,
@@ -155,9 +160,11 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                                                    cfo=conf.cfo,
                                                    go_to_td=conf.go_to_td,
                                                    cfo_in_rx=conf.cfo_in_rx,
-                                                   kernel_size=conf.kernel_size)
+                                                   kernel_size=conf.kernel_size,
+                                                   n_users=n_users)
 
-        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(snr_list=[snr_cur])
+        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(snr_list=[snr_cur], num_bits=num_bits, n_users
+                                                                                =n_users, mod_pilot=mod_pilot, iterations=iterations)
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
         # REs = np.arange(conf.num_res)
@@ -222,27 +229,27 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
             # online training main function
             if deepsic_trainer.is_online_training:
-                train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot)
+                train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
                 # Zero CNN weights
-                detected_word, llrs_mat = deepsic_trainer._forward(rx_data)
+                detected_word, llrs_mat = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations)
 
             if deeprx_trainer.is_online_training:
-                train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot)
+                train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
                 # Zero CNN weights
-                detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data)
+                detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users, iterations)
 
 
 
             # CE Based
-            # train_loss_vect = [0] * EPOCHS
-            # val_loss_vect = [0] * EPOCHS
+            # train_loss_vect = [0] * epochs
+            # val_loss_vect = [0] * epochs
             rx_data_c = rx[pilot_chunk:].cpu()
-            llrs_mat_legacy = torch.zeros([rx_data_c.shape[0],NUM_BITS*N_USERS,NUM_REs,1])
+            llrs_mat_legacy = torch.zeros([rx_data_c.shape[0],num_bits*n_users,num_res,1])
 
             for re in range(conf.num_res):
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
-                for user in range(N_USERS):
+                for user in range(n_users):
                     s_orig_pilot = s_orig[:pilot_chunk, user, re]
                     rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
                     H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
@@ -255,9 +262,9 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 equalized = torch.zeros(rx_data_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
                 for i in range(rx_data_c.shape[0]):
                     equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :, re])
-                detected_word_legacy = torch.zeros(int(equalized.shape[0] * np.log2(MOD_PILOT)), equalized.shape[1])
-                if MOD_PILOT > 2:
-                    qam = mod.QAMModem(MOD_PILOT)
+                detected_word_legacy = torch.zeros(int(equalized.shape[0] * np.log2(mod_pilot)), equalized.shape[1])
+                if mod_pilot > 2:
+                    qam = mod.QAMModem(mod_pilot)
                     for i in range(equalized.shape[1]):
                         detected_word_legacy[:, i] = torch.from_numpy(qam.demodulate(equalized[:, i].numpy(), 'hard'))
                 else:
@@ -265,12 +272,12 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                         detected_word_legacy[:, i] = torch.from_numpy(
                             BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
 
-                for user in range(N_USERS):
+                for user in range(n_users):
                     llrs_mat_legacy[:,(user*2):((user+1)*2),re, :] = torch.view_as_real(equalized[:,user]).unsqueeze(2)
 
                 H = torch.zeros_like(rx_ce[:, pilot_chunk:, :, re])
                 H_pilot = torch.zeros_like(rx_ce[:, :pilot_chunk, :, re])
-                for user in range(N_USERS):
+                for user in range(n_users):
                     s_orig_data_pilot = s_orig[:pilot_chunk, user, re]
                     rx_data_ce_cur_pilot = rx_ce[user, :pilot_chunk, :, re]
                     H_pilot[user, :, :] = (s_orig_data_pilot[:, None].conj() / (
@@ -289,10 +296,10 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                     H_Ht_inv = np.linalg.pinv(H_Ht)
                     H_pi = torch.tensor(H_cur.T.conj() @ H_Ht_inv)
                     equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :, re])
-                detected_word_legacy_ce_on_data = torch.zeros(int(equalized.shape[0] * np.log2(MOD_PILOT)),
+                detected_word_legacy_ce_on_data = torch.zeros(int(equalized.shape[0] * np.log2(mod_pilot)),
                                                               equalized.shape[1])
-                if MOD_PILOT > 2:
-                    qam = mod.QAMModem(MOD_PILOT)
+                if mod_pilot > 2:
+                    qam = mod.QAMModem(mod_pilot)
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_ce_on_data[:, i] = torch.from_numpy(
                             qam.demodulate(equalized[:, i].numpy(), 'hard'))
@@ -317,10 +324,10 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                     H_Ht_inv = np.linalg.pinv(H_Ht)
                     H_pi = torch.tensor(H_genie.T.conj() @ H_Ht_inv)
                     equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :, re])
-                detected_word_legacy_genie = torch.zeros(int(equalized.shape[0] * np.log2(MOD_PILOT)),
+                detected_word_legacy_genie = torch.zeros(int(equalized.shape[0] * np.log2(mod_pilot)),
                                                          equalized.shape[1])
-                if MOD_PILOT > 2:
-                    qam = mod.QAMModem(MOD_PILOT)
+                if mod_pilot > 2:
+                    qam = mod.QAMModem(mod_pilot)
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_genie[:, i] = torch.from_numpy(
                             qam.demodulate(equalized[:, i].numpy(), 'hard'))
@@ -356,21 +363,21 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
                 detected_word_cur_re = detected_word[:, :, re, :]
                 detected_word_cur_re = detected_word_cur_re.squeeze(-1)
-                detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS,
-                                                                    NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0],
-                                                                                                     N_USERS)
+                detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                    num_bits).swapaxes(1, 2).reshape(tx_data.shape[0],
+                                                                                                     n_users)
 
                 detected_word_cur_re_deeprx = detected_word_deeprx[:, :, re, :]
                 detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.squeeze(-1)
-                detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.reshape(int(tx_data.shape[0] / NUM_BITS), N_USERS,
-                                                                    NUM_BITS).swapaxes(1, 2).reshape(tx_data.shape[0],
-                                                                                                     N_USERS)
+                detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                    num_bits).swapaxes(1, 2).reshape(tx_data.shape[0],
+                                                                                                     n_users)
 
-                ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu())
-                ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu())
-                ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu())
-                ber_legacy_ce_on_data = calculate_ber(detected_word_legacy_ce_on_data.cpu(), target.cpu())
-                ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu())
+                ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(),num_bits)
+                ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(),num_bits)
+                ber_legacy = calculate_ber(detected_word_legacy.cpu(), target.cpu(),num_bits)
+                ber_legacy_ce_on_data = calculate_ber(detected_word_legacy_ce_on_data.cpu(), target.cpu(),num_bits)
+                ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu(),num_bits)
 
                 ber_sum += ber
                 ber_sum_deeprx += ber_deeprx
@@ -378,17 +385,18 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 ber_sum_legacy_ce_on_data += ber_legacy_ce_on_data
                 ber_sum_legacy_genie += ber_legacy_genie
 
-            mi = calc_mi(tx_data.cpu(), llrs_mat.cpu())
+            mi = calc_mi(tx_data.cpu(), llrs_mat.cpu(), num_bits, n_users, num_res)
             total_mi.append(mi)
-            mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu())
+            mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits, n_users, num_res)
             total_mi_deeprx.append(mi_deeprx)
-            mi_legacy = calc_mi(tx_data.cpu(), llrs_mat_legacy)
-            total_mi_legacy.append(mi_legacy)
-            ber = ber_sum/NUM_REs
-            ber_deeprx = ber_sum_deeprx/NUM_REs
-            ber_legacy = ber_sum_legacy/NUM_REs
-            ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data/NUM_REs
-            ber_legacy_genie = ber_sum_legacy_genie/NUM_REs
+            if mod_pilot == 4:
+                mi_legacy = calc_mi(tx_data.cpu(), llrs_mat_legacy, num_bits, n_users, num_res)
+                total_mi_legacy.append(mi_legacy)
+            ber = ber_sum/num_res
+            ber_deeprx = ber_sum_deeprx/num_res
+            ber_legacy = ber_sum_legacy/num_res
+            ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data/num_res
+            ber_legacy_genie = ber_sum_legacy_genie/num_res
 
             total_ber.append(ber_sum)
             total_ber_deeprx.append(ber_sum_deeprx)
@@ -398,7 +406,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, ber, mi}')
             print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
-            if MOD_PILOT == 4:
+            if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy, mi_legacy}')
             else:
                 print(f'current legacy: {block_ind, ber_legacy}')
@@ -413,17 +421,13 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         else:
             cfo_str = 'cfo=0'
 
-        plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, conf.num_res, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
-        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, conf.num_res, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
-        if MOD_PILOT == 4:
-            plot_loss_and_LLRs([0] * len(train_loss_vect_deeprx), [0] * len(val_loss_vect_deeprx), llrs_mat_legacy, snr_cur, conf.num_res, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy, ber_legacy_genie)
+        if mod_pilot == 4:
+            plot_loss_and_LLRs([0] * len(train_loss_vect_deeprx), [0] * len(val_loss_vect_deeprx), llrs_mat_legacy, snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy, ber_legacy_genie)
+        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie)
+        plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie)
 
-
-
-        np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
-        np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
-        pass
-
+        # np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
+        # np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
 
     plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx')
@@ -434,9 +438,9 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
-        conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(N_USERS) + '\n ' +
-                    cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(
-                ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+        conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
+                    cfo_str + ', Epochs=' + str(epochs) + ', #Iterations=' + str(
+                iterations) + ', CNN kernel size=' + str(conf.kernel_size))
     plt.title(title_string, fontsize=10)
     plt.legend()
     plt.grid()
@@ -445,14 +449,14 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
     plt.semilogy(SNR_range, total_mi, '-x', color='g', label='DeeSIC')
     plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
-    if MOD_PILOT == 4:
+    if mod_pilot == 4:
         plt.semilogy(SNR_range, total_mi_legacy, '-o', color='r', label='Legacy')
     plt.xlabel('SNR (dB)')
     plt.ylabel('MI')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
-        conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(N_USERS) + '\n ' +
-                    cfo_str + ', Epochs=' + str(EPOCHS) + ', #Iterations=' + str(
-                ITERATIONS) + ', CNN kernel size=' + str(conf.kernel_size))
+        conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
+                    cfo_str + ', Epochs=' + str(epochs) + ', #Iterations=' + str(
+                iterations) + ', CNN kernel size=' + str(conf.kernel_size))
     plt.title(title_string, fontsize=10)
     plt.legend()
     plt.grid()
@@ -473,8 +477,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
 if __name__ == '__main__':
     start_time = time.time()
-    deepsic_trainer = DeepSICTrainer(NUM_REs)
-    deeprx_trainer = DeepRxTrainer(NUM_REs)
+    deepsic_trainer = DeepSICTrainer(conf.num_res, conf.n_users)
+    deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
     print(deepsic_trainer)
     run_evaluate(deepsic_trainer,deeprx_trainer)
     end_time = time.time()

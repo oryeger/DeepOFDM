@@ -4,7 +4,7 @@ from python_code import conf
 
 from python_code.utils.constants import N_ANTS
 
-HIDDEN_BASE_SIZE = 16*12
+HIDDEN_BASE_SIZE = 16
 
 class DeepSICDetector(nn.Module):
     def __init__(self, num_bits, n_users):

@@ -82,7 +82,7 @@ class DeepSICTrainer(Trainer):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_prob, num_bits, n_users) # This is after the weights and biases have been updated
             # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
-            tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec)
+            tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec, n_users)
             # Training the DeepSIC networks for the iteration>1
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs)
             if SHOW_ALL_ITERATIONS:

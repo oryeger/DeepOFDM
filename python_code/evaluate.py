@@ -164,7 +164,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                                                    n_users=n_users)
 
         transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(snr_list=[snr_cur], num_bits=num_bits, n_users
-                                                                                =n_users, mod_pilot=mod_pilot, iterations=iterations)
+                                                                                =n_users, mod_pilot=mod_pilot)
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
         # REs = np.arange(conf.num_res)

@@ -55,7 +55,7 @@ class ChannelModelDataset(Dataset):
 
         database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full))
 
-    def __getitem__(self, snr_list: List[float], num_bits: int, n_users: int, mod_pilot: int, iterations: int) -> Tuple[torch.Tensor, torch.complex, torch.complex]:
+    def __getitem__(self, snr_list: List[float], num_bits: int, n_users: int, mod_pilot: int) -> Tuple[torch.Tensor, torch.complex, torch.complex]:
         database = []
         # do not change max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:

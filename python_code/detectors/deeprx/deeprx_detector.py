@@ -76,6 +76,7 @@ class DeepRxDetector(nn.Module):
         super(DeepRxDetector, self).__init__()
         in_planes = n_ants * 2
         planes = num_bits
+        torch.manual_seed(42)
         self.conv1 = nn.Conv2d(in_channels=in_planes, out_channels=n_chan, kernel_size=3, dilation=(1, 1), padding=1, bias=False)
         self.rs1 = ResBlock(n_chan, out_chan=n_chan, padding=1, dilation=(1, 1), groups=n_chan)
         self.rs2 = ResBlock(n_chan * 2, out_chan=n_chan * 2, padding=(2, 3), dilation=(2, 3), groups=n_chan * 2)

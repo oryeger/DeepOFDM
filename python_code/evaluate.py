@@ -19,6 +19,8 @@ import pandas as pd
 
 from python_code.channel.channel_dataset import  ChannelModelDataset
 from scipy.stats import entropy
+from scipy.interpolate import interp1d
+
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -429,14 +431,12 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         # np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
         # np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
 
-    plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeeSIC')
-    plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx')
-    plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy')
-    plt.semilogy(SNR_range, total_ber_legacy_ce_on_data, '-o', color='b', label='Legacy CE on data')
-
-    # plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
+    plt.semilogy(SNR_range, total_mi, '-x', color='g', label='DeeSIC')
+    plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
+    if mod_pilot == 4:
+        plt.semilogy(SNR_range, total_mi_legacy, '-o', color='r', label='Legacy')
     plt.xlabel('SNR (dB)')
-    plt.ylabel('BER')
+    plt.ylabel('MI')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
         conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(epochs) + ', #Iterations=' + str(
@@ -447,12 +447,24 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     plt.tight_layout()
     plt.show()
 
-    plt.semilogy(SNR_range, total_mi, '-x', color='g', label='DeeSIC')
-    plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
-    if mod_pilot == 4:
-        plt.semilogy(SNR_range, total_mi_legacy, '-o', color='r', label='Legacy')
+    bler_target = 0.01
+    interp_func = interp1d(total_ber, SNR_range, kind='linear', fill_value="extrapolate")
+    snr_at_target = np.round(interp_func(bler_target), 1)
+    interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
+    snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
+    interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
+    snr_at_target_legacy = np.round(interp_func(bler_target), 1)
+    interp_func = interp1d(total_ber_legacy_ce_on_data, SNR_range, kind='linear', fill_value="extrapolate")
+    snr_at_target_legacy_ce_on_data = np.round(interp_func(bler_target), 1)
+
+    plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeepSIC, SNR @1%='+str(snr_at_target))
+    plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx,  SNR @1%='+str(snr_at_target_deeprx))
+    plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,   SNR @1%='+str(snr_at_target_legacy))
+    plt.semilogy(SNR_range, total_ber_legacy_ce_on_data, '-o', color='b', label='CE Data,  SNR @1%='+str(snr_at_target_legacy_ce_on_data))
+
+    # plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='g', label='Legacy Genie')
     plt.xlabel('SNR (dB)')
-    plt.ylabel('MI')
+    plt.ylabel('BER')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
         conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(epochs) + ', #Iterations=' + str(

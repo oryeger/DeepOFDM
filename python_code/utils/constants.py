@@ -4,12 +4,13 @@ import numpy as np
 NUM_SNRs = 20
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
-N_ANTS = 4 # number of antennas
+N_ANTS = 6 # number of antennas
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
 PHASE_OFFSET = 0 # np.pi / 3
 SHOW_ALL_ITERATIONS = True
-GENIE_CFO = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
+CFO_COMP = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
+GENIE_CFO = False
 INTERF_FACTOR = 1
 NOISE_TO_CE = True
 

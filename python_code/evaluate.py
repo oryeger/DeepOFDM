@@ -9,8 +9,8 @@ import torch
 from python_code import DEVICE, conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, INTERF_FACTOR,
-                                         GENIE_CFO, FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
+from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, INTERF_FACTOR, CFO_COMP, GENIE_CFO,
+                                         FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
 import commpy.modulation as mod
 
@@ -190,30 +190,47 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
             tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
             received_words_ce[block_ind], s_orig_words[block_ind]
 
-            if (conf.cfo != 0) & (GENIE_CFO != 'NONE'):
+            if (conf.cfo != 0) & (CFO_COMP != 'NONE'):
                 pointer = 0
                 NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
-                if (GENIE_CFO == 'ON_CE'):
-                    cfo_phase = 2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
+                if GENIE_CFO:
+                    cfo_est =  conf.cfo
                 else:
-                    cfo_phase = -2 * np.pi * conf.cfo * n / FFT_size  # CFO phase shift
-                cfo_genie_vect = np.array([])
+                    cfo_est_vect = np.zeros(n_users)
+                    for user in range(n_users):
+                        grad_sum = 0
+                        for re in range(conf.num_res):
+                            s_orig_pilot = s_orig[:pilot_chunk, user, re]
+                            rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+                            cur_ce = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                    torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
+                            cur_ce = cur_ce.cpu().numpy()
+                            grad_sum = grad_sum + np.sum(np.sum(cur_ce[:-1, :] * np.conj(cur_ce[1:, :]), axis=0))
+                        cfo_est_vect[user] = -np.angle(grad_sum)*FFT_size/(2*np.pi*(FFT_size+CP))
+                    cfo_est = np.mean(cfo_est_vect)
+
+
+                if (CFO_COMP == 'ON_CE'):
+                    cfo_phase = 2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
+                else:
+                    cfo_phase = -2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
+                cfo_comp_vect = np.array([])
                 for slot_num in range(NUM_SLOTS):
                     cp_length = FIRST_CP
                     for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
                         pointer += (cp_length + int(FFT_size / 2))
-                        cfo_genie_vect = np.concatenate(
-                            (cfo_genie_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
+                        cfo_comp_vect = np.concatenate(
+                            (cfo_comp_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
                         pointer += int(FFT_size / 2)
                         cp_length = CP
 
-                if (GENIE_CFO == 'ON_CE'):
-                    cfo_genie_vect = cfo_genie_vect[pilot_chunk:]
+                if (CFO_COMP == 'ON_CE'):
+                    cfo_comp_vect = cfo_comp_vect[pilot_chunk:]
                 else:  # 'ON_Y'
                     for i in range(s_orig.shape[0]):
-                        rx[i, :, :] = rx[i, :, :] * cfo_genie_vect[i]
-                        rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_genie_vect[i]
+                        rx[i, :, :] = rx[i, :, :] * cfo_comp_vect[i]
+                        rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
             # Interleave real and imaginary partsos Rx into a real tensor
             if IS_COMPLEX:
@@ -312,7 +329,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
                 # plot phases:
                 # plt.plot(np.unwrap(np.angle(H[0,:,0])), linestyle='-', color='g', label='Channel Estimation')
-                # plt.plot(np.unwrap(np.angle(cfo_genie_vect)), linestyle='-', color='b', label='cfo_genie_vect')
+                # plt.plot(np.unwrap(np.angle(cfo_comp_vect)), linestyle='-', color='b', label='cfo_comp_vect')
                 # plt.legend()
                 # plt.show()
 
@@ -320,8 +337,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 equalized = torch.zeros(rx_data_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
                 for i in range(rx_data_c.shape[0]):
                     H_genie = h[:, :, re].cpu().numpy()
-                    if (conf.cfo != 0) & (GENIE_CFO == 'ON_CE'):
-                        H_genie = H_genie * cfo_genie_vect[i]
+                    if (conf.cfo != 0) & (CFO_COMP == 'ON_CE'):
+                        H_genie = H_genie * cfo_comp_vect[i]
                     H_Ht = H_genie @ H_genie.T.conj()
                     H_Ht_inv = np.linalg.pinv(H_Ht)
                     H_pi = torch.tensor(H_genie.T.conj() @ H_Ht_inv)

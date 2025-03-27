@@ -1,7 +1,6 @@
 from enum import Enum
 import numpy as np
 
-NUM_SNRs = 20
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
 N_ANTS = 6 # number of antennas

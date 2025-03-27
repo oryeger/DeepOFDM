@@ -3,7 +3,7 @@ num_snrs: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 6
-cfo:  0.2
+cfo:  0.1
 epochs: 300
 iterations: 1
 pilot_size: 500   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)

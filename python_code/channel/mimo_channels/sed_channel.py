@@ -113,8 +113,9 @@ class SEDChannel:
                     st_full[user,rx, :] = st_one_antenna
 
             if (cfo != 0):
-                n = np.arange(st_full.shape[2])
+                n = np.arange(NUM_SAMPLES_PER_SLOT)
                 cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
+                cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
                 st_full = st_full * np.exp(1j * cfo_phase)
 
             # OFDM demodulation:

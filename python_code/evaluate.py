@@ -216,14 +216,14 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                 else:
                     cfo_phase = -2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
                 cfo_comp_vect = np.array([])
-                for slot_num in range(NUM_SLOTS):
-                    cp_length = FIRST_CP
-                    for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                        pointer += (cp_length + int(FFT_size / 2))
-                        cfo_comp_vect = np.concatenate(
-                            (cfo_comp_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
-                        pointer += int(FFT_size / 2)
-                        cp_length = CP
+                cp_length = FIRST_CP
+                for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                    pointer += (cp_length + int(FFT_size / 2))
+                    cfo_comp_vect = np.concatenate(
+                        (cfo_comp_vect, np.array([np.exp(1j * cfo_phase[pointer])])))
+                    pointer += int(FFT_size / 2)
+                    cp_length = CP
+                cfo_comp_vect = np.tile(cfo_comp_vect,NUM_SLOTS)
 
                 if (CFO_COMP == 'ON_CE'):
                     cfo_comp_vect = cfo_comp_vect[pilot_chunk:]
@@ -232,7 +232,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                         rx[i, :, :] = rx[i, :, :] * cfo_comp_vect[i]
                         rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
-            # Interleave real and imaginary partsos Rx into a real tensor
+            # Interleave real and imaginary parts of Rx into a real tensor
             if IS_COMPLEX:
                 real_part = rx.real
                 imag_part = rx.imag

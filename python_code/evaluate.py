@@ -464,15 +464,21 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     plt.tight_layout()
     plt.show()
 
-    bler_target = 0.01
-    interp_func = interp1d(total_ber, SNR_range, kind='linear', fill_value="extrapolate")
-    snr_at_target = np.round(interp_func(bler_target), 1)
-    interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
-    snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
-    interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
-    snr_at_target_legacy = np.round(interp_func(bler_target), 1)
-    interp_func = interp1d(total_ber_legacy_ce_on_data, SNR_range, kind='linear', fill_value="extrapolate")
-    snr_at_target_legacy_ce_on_data = np.round(interp_func(bler_target), 1)
+    if len(SNR_range) > 1:
+        bler_target = 0.01
+        interp_func = interp1d(total_ber, SNR_range, kind='linear', fill_value="extrapolate")
+        snr_at_target = np.round(interp_func(bler_target), 1)
+        interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
+        snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
+        interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
+        snr_at_target_legacy = np.round(interp_func(bler_target), 1)
+        interp_func = interp1d(total_ber_legacy_ce_on_data, SNR_range, kind='linear', fill_value="extrapolate")
+        snr_at_target_legacy_ce_on_data = np.round(interp_func(bler_target), 1)
+    else:
+        snr_at_target = float('inf')
+        snr_at_target_deeprx =  float('inf')
+        snr_at_target_legacy =  float('inf')
+        snr_at_target_legacy_ce_on_data =  float('inf')
 
     plt.semilogy(SNR_range, total_ber, '-x', color='g', label='DeepSIC, SNR @1%='+str(snr_at_target))
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx,  SNR @1%='+str(snr_at_target_deeprx))

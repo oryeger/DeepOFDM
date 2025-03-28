@@ -67,11 +67,12 @@ def get_next_divisible(num, divisor):
 
 def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie,iteration):
     num_res = conf.num_res
+    p_len = conf.epochs*(iteration+1)
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
     epochs_vect = list(range(1, len(train_loss_vect) + 1))
-    axes[0].plot(epochs_vect[0::conf.num_res], train_loss_vect[0::num_res], linestyle='-', color='b',
+    axes[0].plot(epochs_vect[:p_len], train_loss_vect[:p_len], linestyle='-', color='b',
                  label='Training Loss')
-    axes[0].plot(epochs_vect[0::num_res], val_loss_vect[0::conf.num_res], linestyle='-', color='r',
+    axes[0].plot(epochs_vect[:p_len], val_loss_vect[:p_len], linestyle='-', color='r',
                  label='Validation Loss')
     axes[0].set_xlabel('Epochs')
     axes[0].set_ylabel('Loss')
@@ -87,7 +88,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
 
     axes[1].hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
     if detector == 'DeepSIC':
-        axes[1].set_xlabel('LLRs iteration '+str(iteration))
+        axes[1].set_xlabel('LLRs iteration '+str(iteration+1))
     else:
         axes[1].set_xlabel('LLRs')
     axes[1].set_ylabel('#Values')
@@ -380,7 +381,6 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
 
                 # calculate accuracy
                 target = tx_data[:, :rx.shape[1], re]
-                ber_sum = np.zeros(iterations)
                 for iteration in range(iterations):
                     detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
@@ -418,19 +418,19 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
             ber_list = [None] * iterations
             for iteration in range(iterations):
                 ber_list[iteration] = ber_sum[iteration]/num_res
-                total_ber_list[iteration].append(ber_sum[iteration])
+                total_ber_list[iteration].append(ber_list[iteration])
             ber_deeprx = ber_sum_deeprx/num_res
             ber_legacy = ber_sum_legacy/num_res
             ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data/num_res
             ber_legacy_genie = ber_sum_legacy_genie/num_res
 
 
-            total_ber_deeprx.append(ber_sum_deeprx)
-            total_ber_legacy.append(ber_sum_legacy)
-            total_ber_legacy_ce_on_data.append(ber_sum_legacy_ce_on_data)
-            total_ber_legacy_genie.append(ber_sum_legacy_genie)
+            total_ber_deeprx.append(ber_deeprx)
+            total_ber_legacy.append(ber_legacy)
+            total_ber_legacy_ce_on_data.append(ber_legacy_ce_on_data)
+            total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            print(f'current DeepSIC: {block_ind, ber, mi}')
+            print(f'current DeepSIC: {block_ind, ber_list[iterations-1], mi}')
             print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy, mi_legacy}')
@@ -448,8 +448,8 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
             cfo_str = 'cfo=0'
 
         if mod_pilot == 4:
-            plot_loss_and_LLRs([0] * len(train_loss_vect_deeprx), [0] * len(val_loss_vect_deeprx), llrs_mat_legacy, snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy, ber_legacy_genie, 1)
-        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie , 1)
+            plot_loss_and_LLRs([0] * len(train_loss_vect_deeprx), [0] * len(val_loss_vect_deeprx), llrs_mat_legacy, snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy, ber_legacy_genie, 0)
+        plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie , 0)
         for iteration in range(iterations):
             plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration], ber_legacy, ber_legacy_genie, iteration)
 
@@ -457,7 +457,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
         # np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
         # np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
 
-    markers = ['*','x','D','+','o','o']
+    markers = ['o','*','x','D','+','o']
     dashes = [':','-.', '--','-','-','-']
     for iteration in range(iterations):
         plt.semilogy(SNR_range, total_mi_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='g', label='DeeSIC'+str(iteration))

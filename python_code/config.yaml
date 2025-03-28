@@ -5,8 +5,8 @@ mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 6
 cfo:  0.15
 epochs: 500
-iterations: 3
-pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+iterations: 4
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 
 

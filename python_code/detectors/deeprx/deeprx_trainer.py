@@ -114,7 +114,7 @@ class DeepRxTrainer(Trainer):
             tx_all.append(cur_tx)
         return tx_all, rx_all
 
-    def _calculate_posteriors(self, model: List[List[nn.Module]], rx: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], rx: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """

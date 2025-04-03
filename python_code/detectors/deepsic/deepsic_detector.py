@@ -16,8 +16,10 @@ class DeepSICDetector(nn.Module):
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),
                             padding='same')
-        self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),
+        self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),
                             padding='same')
+        # self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),
+        #                     padding='same')
         self.activation1 = nn.ReLU()
         self.activation2 = nn.Sigmoid()
 

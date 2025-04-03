@@ -13,6 +13,7 @@ import numpy as np
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 
 import commpy.modulation as mod
+import matplotlib.pyplot as plt
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -56,7 +57,7 @@ class DeepSICTrainer(Trainer):
         val_loss_vect_user = []
         for user in range(n_users):
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs)
-            if user == 0:
+            if user == 2:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
         return train_loss_vect_user , val_loss_vect_user
@@ -108,8 +109,15 @@ class DeepSICTrainer(Trainer):
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
         for i in range(iterations):
             rx_prob = torch.cat((rx.to('cuda').unsqueeze(-1), probs_vec), dim=1)
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx_prob, num_bits, n_users)
+            if i != 100:
+                probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx_prob, num_bits, n_users)
+            else:
+                probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, 2, rx_prob, num_bits, n_users)
             detected_word_list[i] = self._compute_output(probs_vec)
+
+
+        # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
+        # pass
 
         return detected_word_list, llrs_mat_list
 
@@ -144,7 +152,8 @@ class DeepSICTrainer(Trainer):
         dim1 = num_bits * n_users
         dim2 = conf.num_res
         dim3 = 1
-        rnd_init = torch.from_numpy(np.random.choice([0, 1], size=(dim0,dim1,dim2,dim3)).astype(np.float32))
+        # rnd_init = torch.from_numpy(np.random.choice([0, 1], size=(dim0,dim1,dim2,dim3)).astype(np.float32))
+        rnd_init = HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32)
         return rnd_init
 
     def _calculate_posteriors(self, model: List[List[nn.Module]], i: int, rx_prob: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:

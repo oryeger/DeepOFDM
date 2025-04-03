@@ -11,7 +11,8 @@ HIDDEN_BASE_SIZE = 16
 class DeepSICDetector(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSICDetector, self).__init__()
-        conv_num_channels =  num_bits*n_users+N_ANTS*2
+        conv_num_channels =  int(num_bits/2)*n_users+N_ANTS*2
+        # conv_num_channels =  num_bits*n_users+N_ANTS*2
         hidden_size = HIDDEN_BASE_SIZE * num_bits
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),

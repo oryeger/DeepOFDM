@@ -41,8 +41,8 @@ class DeepSICTrainer(Trainer):
         val_loss_vect = []
         for _ in range(epochs):
             soft_estimation, llrs = single_model(rx_prob)
-            tx_cure_bit_type =tx[bit_type::int(num_bits/2),:]
-            tx_reshaped = tx_cure_bit_type.reshape(int(tx_cure_bit_type.shape[0] // int(num_bits/2)), int(num_bits/2),tx_cure_bit_type.shape[1])
+            tx_cur_bit_type =tx[bit_type::int(num_bits/2),:]
+            tx_reshaped = tx_cur_bit_type.reshape(int(tx_cur_bit_type.shape[0] // int(num_bits/2)), int(num_bits/2),tx_cur_bit_type.shape[1])
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
             val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
@@ -73,21 +73,23 @@ class DeepSICTrainer(Trainer):
         """
 
         initial_probs = self._initialize_probs(tx, num_bits, n_users)
-        tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
+
         # Training the DeepSIC network for each user for iteration=1
         for bit_type in range(0, int(num_bits / 2)):
+            tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits, bit_type)
             train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
-        rx_prob = torch.cat((rx_real.to('cuda').unsqueeze(-1), probs_vec), dim=1)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iterations):
-            # Generating soft symbols for training purposes
-            probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_prob, num_bits, n_users) # This is after the weights and biases have been updated
-            # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
-            tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec, n_users)
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, int(num_bits / 2)):
+                # Generating soft symbols for training purposes
+                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to('cuda').unsqueeze(-1), probs_vec, num_bits,
+                                                                 n_users)  # This is after the weights and biases have been updated
+                # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
+                tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec, n_users,
+                                                                      num_bits, bit_type)
                 train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
                 if SHOW_ALL_ITERATIONS:
                     train_loss_vect = train_loss_vect + train_loss_cur
@@ -111,8 +113,7 @@ class DeepSICTrainer(Trainer):
         llrs_mat_list = [None] * iterations
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
         for i in range(iterations):
-            rx_prob = torch.cat((rx.to('cuda').unsqueeze(-1), probs_vec), dim=1)
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx_prob, num_bits, n_users)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users)
             detected_word_list[i] = self._compute_output(probs_vec)
         # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
         # pass
@@ -126,15 +127,14 @@ class DeepSICTrainer(Trainer):
         detected_word = BPSKModulator.demodulate(symbols_word)
         return detected_word
 
-    def _prepare_data_for_training(self, tx: torch.Tensor, rx: torch.Tensor, probs_vec: torch.Tensor, n_users: int) -> [
-        torch.Tensor, torch.Tensor]:
+    def _prepare_data_for_training(self, tx: torch.Tensor, rx: torch.Tensor, probs_vec: torch.Tensor, n_users: int, num_bits: int, bit_type: int) -> [torch.Tensor, torch.Tensor]:
         """
         Generates the data for each user
         """
         tx_all = []
         rx_prob_all = []
         for user in range(n_users):
-            rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+            rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,bit_type::int(num_bits/2),:,:]), dim=1))
             tx_all.append(tx[:, user, :])
         return tx_all, rx_prob_all
 
@@ -154,14 +154,17 @@ class DeepSICTrainer(Trainer):
         rnd_init = HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32)
         return rnd_init
 
-    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], i: int, rx_prob: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], i: int, rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(rx_prob.shape[0],num_bits*n_users,rx_prob.shape[2],rx_prob.shape[3]).to(DEVICE)
+        next_probs_vec = torch.zeros(prob.shape[0],num_bits*n_users,prob.shape[2],prob.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
             for bit_type in range(0, int(num_bits / 2)):
+
+                rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:,:]), dim=1)
+
                 with torch.no_grad():
                     output, llrs = model[bit_type][user][i - 1](rx_prob)
                 index_start = user*num_bits+bit_type

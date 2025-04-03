@@ -447,7 +447,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
                     total_ber_legacy_ce_on_data.append(ber_legacy_ce_on_data)
             total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            print(f'current DeepSIC: {block_ind, ber_list[iterations-1], mi}')
+            print(f'current DeepSIC: {block_ind, float(ber_list[iterations-1]), mi}')
             print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy, mi_legacy}')

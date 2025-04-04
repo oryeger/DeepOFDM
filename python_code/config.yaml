@@ -1,13 +1,15 @@
-snr: 29
-num_snrs: 1
+snr: 8
+num_snrs: 20
 n_users: 4
-mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 6
-cfo:  0.05
-epochs: 300
+cfo:  0
+clip_percentage_in_tx: 50
+epochs: 100
 iterations: 3
-pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 500   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
+seperate_nns: False
 
 
 
@@ -30,7 +32,6 @@ seed: 0 # run seed
 fading_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
 delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
-clip_percentage_in_tx: 100
 cfo_in_rx: True
 
 

@@ -3,7 +3,7 @@ import numpy as np
 
 BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
-N_ANTS = 4 # number of antennas
+N_ANTS = 5 # number of antennas
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
 PHASE_OFFSET = 0 # np.pi / 3

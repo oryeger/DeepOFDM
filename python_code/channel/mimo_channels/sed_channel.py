@@ -77,7 +77,7 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, num_res, n_users) -> np.ndarray:
+    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, clip_percentage_in_tx, num_res, n_users) -> np.ndarray:
         if go_to_td | (cfo != 0): # if cfo != 0 we must go to td
             if td_in_rx:
                 if y_in.ndim == 4:
@@ -96,7 +96,7 @@ class SEDChannel:
                 n_users_int = n_users
                 y = np.expand_dims(y_in, axis=1)
 
-            st_full = np.zeros((n_users_int, N_ANTS, NUM_SAMPLES_TOTAL), dtype=complex)
+            st_full = np.zeros((n_users_int, y.shape[1], NUM_SAMPLES_TOTAL), dtype=complex)
 
             # OFDM modulation:
             for user in range(n_users_int):
@@ -117,6 +117,22 @@ class SEDChannel:
                 cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
                 cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
                 st_full = st_full * np.exp(1j * cfo_phase)
+
+            if clip_percentage_in_tx<100:
+                rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+                clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
+                clip_level = (clip_percentage_in_tx / 100) * clip_level_12dB  # Scale by percentage
+
+                magnitude = np.abs(st_full)  # Compute magnitude
+                phase = np.angle(st_full)  # Compute phase
+
+                # Apply clipping to magnitude
+                magnitude_clipped = np.minimum(magnitude, clip_level)
+
+                # Reconstruct clipped signal with original phase
+                st_full = magnitude_clipped * np.exp(1j * phase)
+                new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+                st_full = st_full*rms_value/new_rms_value
 
             # OFDM demodulation:
             y_out_pre = np.zeros_like(y)
@@ -171,9 +187,9 @@ class SEDChannel:
                 conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
                 y_ce[user, :, :, re_index] = conv_ce
 
-        if cfo_in_rx:
-            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, num_res, n_users)
-            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, num_res, n_users)
+        if cfo_in_rx and cfo>0:
+            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, 100, num_res, n_users)
+            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, 100, num_res, n_users)
 
         for re_index in range(num_res):
             w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))

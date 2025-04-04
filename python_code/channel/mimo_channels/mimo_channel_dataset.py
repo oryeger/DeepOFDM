@@ -55,8 +55,8 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        if not(self.cfo_in_rx):
-            s = SEDChannel.apply_td_and_impairments(s, False, self.go_to_td, self.cfo, num_res, n_users)
+        if not(self.cfo_in_rx) or (self.clip_percentage_in_tx<100):
+            s = SEDChannel.apply_td_and_impairments(s, False, self.go_to_td, self.cfo, self.clip_percentage_in_tx, num_res, n_users)
 
         show_impair = False
         if show_impair:
@@ -66,29 +66,6 @@ class MIMOChannel:
             plt.ylabel('Before Impair')
             plt.grid()
             plt.title('Impairment effect')
-
-        if self.clip_percentage_in_tx<100:
-            s_t = np.fft.ifft(s, axis=2, n=1024)
-            # rms_value = np.abs(s_t) ** 2
-            # rms_value = np.mean(rms_value, axis=2)
-            # rms_value = np.sqrt(rms_value)
-            rms_value = np.mean(np.sqrt(np.mean(np.abs(s_t) ** 2, axis=2)))  # Compute RMS of the signal
-            clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
-            clip_level = (self.clip_percentage_in_tx / 100) * clip_level_12dB  # Scale by percentage
-
-            magnitude = np.abs(s_t)  # Compute magnitude
-            phase = np.angle(s_t)  # Compute phase
-
-            # Apply clipping to magnitude
-            magnitude_clipped = np.minimum(magnitude, clip_level)
-
-            # Reconstruct clipped signal with original phase
-            s_t = magnitude_clipped * np.exp(1j * phase)
-            new_rms_value = np.mean(np.sqrt(np.mean(np.abs(s_t) ** 2, axis=2)))  # Compute RMS of the signal
-            s_t = s_t*rms_value/new_rms_value
-            s = np.fft.fft(s_t, axis=2, n=1024)
-            s = s[:,:,:num_res]
-
 
         if show_impair:
             plt.subplot(2,1,2)

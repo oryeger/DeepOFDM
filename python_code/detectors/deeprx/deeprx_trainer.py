@@ -58,7 +58,7 @@ class DeepRxTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_ext: int, epochs: int):
         """
         Main training function for DeepSIC trainer.
         """
@@ -78,7 +78,7 @@ class DeepRxTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> torch.Tensor:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_ext: int) -> torch.Tensor:
         # detect and decode
         rx_in = rx.to('cuda').unsqueeze(-1)
         probs_vec, llrs = self._calculate_posteriors(self.detector, rx_in, num_bits, n_users)

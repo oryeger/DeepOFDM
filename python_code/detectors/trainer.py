@@ -56,7 +56,7 @@ class Trainer(object):
 
     # def _initialize_dataloader(self, num_res, pilot_size):
     #     """
-    #     Sets up the data loader - a generator from which we draw batches, in iterations
+    #     Sets up the data loader - a generator from which we draw batches, in iters_ext
     #     """
     #     conf.num_res = num_res
     #     self.channel_dataset = ChannelModelDataset(block_length=conf.block_length,
@@ -72,13 +72,13 @@ class Trainer(object):
     #                                                cfo_in_rx=conf.cfo_in_rx,
     #                                                kernel_size=conf.kernel_size)
 
-    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iterations: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iters_ext: int, epochs: int):
         """
         Every detector trainer must have some function to adapt it online
         """
         pass
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_ext: int) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Every trainer must have some forward pass for its detector
         """

@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 
 Softmax = torch.nn.Softmax(dim=1)
 
-class DeepSICTrainer(Trainer):
+class DeepSICe2eTrainer(Trainer):
 
     def __init__(self, num_res: int, n_users: int):
         self.lr = 5e-3

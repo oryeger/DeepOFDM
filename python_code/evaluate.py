@@ -538,7 +538,7 @@ def run_evaluate(deepsic_trainer, deeprx_trainer) -> List[float]:
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
         conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(epochs) + ', #iters_ext=' + str(
-                iters_ext) + ', CNN kernel size=' + str(conf.kernel_size))
+                iters_ext) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip='+str(conf.clip_percentage_in_tx)+'%')
     plt.title(title_string, fontsize=10)
     plt.legend()
     plt.grid()

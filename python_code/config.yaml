@@ -1,13 +1,13 @@
-snr: 30
-num_snrs: 1
-n_users: 3
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+snr: 8
+num_snrs: 20
+n_users: 4
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 1
-cfo:  0.15
+cfo:  0.1
 clip_percentage_in_tx: 100
-epochs: 100
+epochs: 300
 iters_ext: 3
-pilot_size: 200   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 seperate_nns: False
 iters_int: 3

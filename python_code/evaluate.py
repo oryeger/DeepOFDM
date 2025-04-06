@@ -543,6 +543,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
         snr_at_target_legacy = np.round(interp_func(bler_target), 1)
+        interp_func = interp1d(total_ber_legacy_genie, SNR_range, kind='linear', fill_value="extrapolate")
+        snr_at_target_legacy_genie = np.round(interp_func(bler_target), 1)
         if PLOT_CE_ON_DATA:
             interp_func = interp1d(total_ber_legacy_ce_on_data, SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_legacy_ce_on_data = np.round(interp_func(bler_target), 1)
@@ -552,6 +554,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         snr_at_target_e2e =  float('inf')
         snr_at_target_deeprx =  float('inf')
         snr_at_target_legacy =  float('inf')
+        snr_at_target_legacy_genie =  float('inf')
         snr_at_target_legacy_ce_on_data =  float('inf')
 
     for iteration in range(iters_ext):
@@ -562,7 +565,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     if PLOT_CE_ON_DATA:
         plt.semilogy(SNR_range, total_ber_legacy_ce_on_data, '-o', color='b', label='CE Data,   SNR @1%='+str(snr_at_target_legacy_ce_on_data))
 
-    plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie')
+    plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie, SNR @1%='+str(snr_at_target_legacy_genie))
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(

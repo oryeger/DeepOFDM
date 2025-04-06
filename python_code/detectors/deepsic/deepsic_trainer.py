@@ -68,7 +68,7 @@ class DeepSICTrainer(Trainer):
         val_loss_vect_user = []
         for user in range(n_users):
             train_loss_vect , val_loss_vect = self._train_model(model[bit_type][user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, bit_type)
-            if user == 2:
+            if user == 0:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
         return train_loss_vect_user , val_loss_vect_user

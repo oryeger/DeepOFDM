@@ -46,8 +46,8 @@ class DeepSICe2eTrainer(Trainer):
         for _ in range(epochs):
             soft_estimation, llrs = single_model(rx_prob,num_bits,bit_type)
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx[:train_samples])
-            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx[train_samples:])
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx[:train_samples].to(DEVICE))
+            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx[train_samples:].to(DEVICE))
             val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)
@@ -70,7 +70,16 @@ class DeepSICe2eTrainer(Trainer):
 
         # Training the DeepSIC network for each user for iteration=1
         for bit_type in range(0, num_nns):
-            tx_cur = tx.view(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
+            tx_cur_1 = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
+            tx_cur = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
+            for i in range(rx_real.shape[0]):
+                for user in range(n_users):
+                    index_start_get = i*num_bits
+                    index_end_get = (i + 1) * num_bits
+                    index_start_put = user*num_bits
+                    index_end_put = (user + 1) * num_bits
+                    tx_cur[i,index_start_put:index_end_put,:] = tx[index_start_get:index_end_get,user,:]
+
             rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1
             train_loss_vect , val_loss_vect = self._train_model(self.detector[bit_type], tx_cur, rx_prob, num_bits, epochs, bit_type)
         # Initializing the probabilities
@@ -81,8 +90,7 @@ class DeepSICe2eTrainer(Trainer):
         """
         Cross Entropy loss - distribution over states versus the gt state label
         """
-        est_rs = est.squeeze(-1)
-        return self.criterion(input=est_rs, target=tx)
+        return self.criterion(input=est, target=tx)
 
     @staticmethod
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:

@@ -69,6 +69,13 @@ def get_next_divisible(num, divisor):
 def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples, val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie,iteration):
     num_res = conf.num_res
     p_len = conf.epochs*(iteration+1)
+    if detector == 'DeepSIC':
+        iters_txt = ', #iters_ext=' + str(conf.iters_ext)
+    elif detector == 'DeepSICe2e':
+        iters_txt = ', #iters_int=' + str(conf.iters_int)
+    else:
+        iters_txt = ''
+
     fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
     epochs_vect = list(range(1, len(train_loss_vect) + 1))
     axes[0].plot(epochs_vect[:p_len], train_loss_vect[:p_len], linestyle='-', color='b',
@@ -80,8 +87,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     title_string = (detector + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
-                    cfo_str + ', Epochs=' + str(conf.epochs) + ', #iters_ext=' + str(
-                conf.iters_ext) + ', CNN kernel size=' + str(kernel_size))
+                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size))
 
     axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()

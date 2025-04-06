@@ -15,6 +15,10 @@ torch.manual_seed(conf.seed)
 torch.cuda.manual_seed(conf.seed)
 np.random.seed(conf.seed)
 
+
+torch.autograd.set_detect_anomaly(True)
+
+
 class Trainer(object):
     """
     Implements the meta-trainer class. Every trainer must inherent from this base class.

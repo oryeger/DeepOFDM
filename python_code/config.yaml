@@ -1,16 +1,16 @@
-snr: 8
+snr: 0
 num_snrs: 20
 n_users: 4
-mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 1
-cfo:  0.1
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+num_res: 6
+cfo:  0.15
 clip_percentage_in_tx: 100
 epochs: 300
-iters_ext: 3
-pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+iters_ext: 2
+pilot_size: 2000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 seperate_nns: False
-iters_int: 3
+iters_int: 2
 
 
 #snr: 0 # validation SNR value. values: float.

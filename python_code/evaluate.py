@@ -523,8 +523,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         plt.ylabel('MI')
         title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
             conf.num_res) + ', Interf=' + str(INTERF_FACTOR) + ', #UEs=' + str(n_users) + '\n ' +
-                        cfo_str + ', Epochs=' + str(epochs) + ', #iters_ext=' + str(
-                    iters_ext) + ', CNN kernel size=' + str(conf.kernel_size))
+                        cfo_str + ', Epochs=' + str(epochs) + ', #iters_int=' + str(
+                    conf.iters_int) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
         plt.legend()
         plt.grid()
@@ -559,7 +559,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
     for iteration in range(iters_ext):
         plt.semilogy(SNR_range, total_ber_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='g', label='DeepSIC'+str(iteration+1)+', SNR @1%='+str(snr_at_target_list[iteration]))
-    plt.semilogy(SNR_range, total_ber_e2e, '-o', color='m', label='DeepRxe2e,   SNR @1%='+str(snr_at_target_e2e))
+    plt.semilogy(SNR_range, total_ber_e2e, '-o', color='m', label='DeepRxe2e'+str(conf.iters_int) + ', SNR @1%='+str(snr_at_target_e2e))
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx,   SNR @1%='+str(snr_at_target_deeprx))
     plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,    SNR @1%='+str(snr_at_target_legacy))
     if PLOT_CE_ON_DATA:

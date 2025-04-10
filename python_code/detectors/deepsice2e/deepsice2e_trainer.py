@@ -113,7 +113,7 @@ class DeepSICe2eTrainer(Trainer):
                                                                            num_bits, epochs, i)
                         if SHOW_ALL_ITERATIONS:
                             train_loss_vect = train_loss_vect + train_loss_cur
-                            val_loss_vect = val_loss_vect + train_loss_cur
+                            val_loss_vect = val_loss_vect + val_loss_cur
 
             else:
                 tx_cur = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])

@@ -33,8 +33,12 @@ class DeepSICe2eDetector(nn.Module):
     def forward(self, rx_prob, num_bits, bit_type):
         n_users = conf.n_users
         iters_int = conf.iters_int
-        llrs_mat = torch.zeros(rx_prob.shape[0], n_users * num_bits, rx_prob.shape[2], rx_prob.shape[3],
-                               device=rx_prob.device)
+        if conf.seperate_nns:
+            llrs_mat = torch.zeros(rx_prob.shape[0], n_users * int(num_bits/2), rx_prob.shape[2], rx_prob.shape[3],
+                                   device=rx_prob.device)
+        else:
+            llrs_mat = torch.zeros(rx_prob.shape[0], n_users * num_bits, rx_prob.shape[2], rx_prob.shape[3],
+                                   device=rx_prob.device)
 
         # Use a list to accumulate outputs and avoid in-place modification
         rx_prob_new = rx_prob.clone()  # Ensure it's a copy for updates
@@ -48,14 +52,14 @@ class DeepSICe2eDetector(nn.Module):
                 out3 = self.activation2(llrs)
 
                 if conf.seperate_nns:
-                    index_start = N_ANTS * 2 + user * num_bits + bit_type
-                    index_end = N_ANTS * 2 + (user + 1) * num_bits + bit_type
+                    index_start = N_ANTS * 2 + user * int(num_bits/2)
+                    index_end = N_ANTS * 2 + (user + 1) * int(num_bits/2)
                     # Instead of in-place modification, use slicing and assignment outside the loop
                     rx_prob_new = rx_prob_new.clone()
                     rx_prob_new[:, index_start:index_end, :, :] = out3
-                    index_start = user * num_bits + bit_type
-                    index_end = (user + 1) * num_bits + bit_type
-                    llrs_mat[:, index_start:index_end:int(num_bits / 2), :, :] = llrs
+                    index_start = user * int(num_bits/2)
+                    index_end = (user + 1) * int(num_bits/2)
+                    llrs_mat[:, index_start:index_end, :, :] = llrs
                 else:
                     index_start = N_ANTS * 2 + user * num_bits
                     index_end = N_ANTS * 2 + (user + 1) * num_bits

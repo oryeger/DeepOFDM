@@ -19,9 +19,9 @@ Softmax = torch.nn.Softmax(dim=1)
 
 class DeepSICTrainer(Trainer):
 
-    def __init__(self, num_res: int, n_users: int):
+    def __init__(self, num_bits: int, n_users: int):
         self.lr = 5e-3
-        super().__init__(num_res, n_users)
+        super().__init__(num_bits, n_users)
 
     def __str__(self):
         return 'DeepSIC'

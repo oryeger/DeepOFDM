@@ -592,8 +592,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
 if __name__ == '__main__':
     start_time = time.time()
-    deepsic_trainer = DeepSICTrainer(conf.num_res, conf.n_users)
-    deepsice2e_trainer = DeepSICe2eTrainer(conf.num_res, conf.n_users)
+    num_bits = int(np.log2(conf.mod_pilot))
+    deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users)
+    deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
     print(deepsic_trainer)
     run_evaluate(deepsic_trainer,deepsice2e_trainer, deeprx_trainer)

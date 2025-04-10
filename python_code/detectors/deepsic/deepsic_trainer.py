@@ -9,11 +9,8 @@ from python_code.detectors.deepsic.deepsic_detector import DeepSICDetector
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
-import numpy as np
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
-
-import commpy.modulation as mod
-import matplotlib.pyplot as plt
+from python_code.utils.probs_utils import ensure_tensor_iterable
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -27,7 +24,7 @@ class DeepSICTrainer(Trainer):
         return 'DeepSIC'
 
     def _initialize_detector(self, num_bits, n_users):
-        if conf.seperate_nns:
+        if conf.separate_nns:
             num_nns = int(num_bits/2)
         else:
             num_nns = 1
@@ -46,7 +43,7 @@ class DeepSICTrainer(Trainer):
         val_loss_vect = []
         for _ in range(epochs):
             soft_estimation, llrs = single_model(rx_prob)
-            if conf.seperate_nns:
+            if conf.separate_nns:
                 tx_cur =tx[bit_type::int(num_bits/2),:]
                 tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // int(num_bits / 2)), int(num_bits / 2),tx_cur.shape[1])
             else:
@@ -83,7 +80,7 @@ class DeepSICTrainer(Trainer):
         """
 
         initial_probs = self._initialize_probs(tx, num_bits, n_users)
-        if conf.seperate_nns:
+        if conf.separate_nns:
             num_nns = int(num_bits / 2)
         else:
             num_nns = 1
@@ -99,9 +96,7 @@ class DeepSICTrainer(Trainer):
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes
-                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to('cuda').unsqueeze(-1), probs_vec, num_bits,
-                                                                 n_users)  # This is after the weights and biases have been updated
-                # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
+                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to('cuda').unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
                 tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec, n_users,
                                                                       num_bits, bit_type)
                 train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
@@ -126,8 +121,12 @@ class DeepSICTrainer(Trainer):
         detected_word_list = [None] * iters_ext
         llrs_mat_list = [None] * iters_ext
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
+        if conf.separate_nns:
+            nns = torch.arange(int(num_bits / 2))
+        else:
+            nns = 0
         for i in range(iters_ext):
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns)
             detected_word_list[i] = self._compute_output(probs_vec)
         # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
         # pass
@@ -148,7 +147,7 @@ class DeepSICTrainer(Trainer):
         tx_all = []
         rx_prob_all = []
         for user in range(n_users):
-            if conf.seperate_nns:
+            if conf.separate_nns:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,bit_type::int(num_bits/2),:,:]), dim=1))
             else:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
@@ -171,26 +170,22 @@ class DeepSICTrainer(Trainer):
         rnd_init = HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32)
         return rnd_init
 
-    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], i: int, rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], i: int, rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int, nns: torch.Tensor) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """
         next_probs_vec = torch.zeros(prob.shape[0],num_bits*n_users,prob.shape[2],prob.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
-        if conf.seperate_nns:
-            num_nns = int(num_bits / 2)
-        else:
-            num_nns = 1
         for user in range(n_users):
-            for bit_type in range(0, num_nns):
-                if conf.seperate_nns:
+            for bit_type in ensure_tensor_iterable(nns):
+                if conf.separate_nns:
                     rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:,:]), dim=1)
                 else:
                     rx_prob = torch.cat((rx_real, prob), dim=1)
 
                 with torch.no_grad():
                     output, llrs = model[bit_type][user][i - 1](rx_prob)
-                if conf.seperate_nns:
+                if conf.separate_nns:
                     index_start = user*num_bits+bit_type
                     index_end = (user+1) * num_bits+bit_type
                     next_probs_vec[:, index_start:index_end:int(num_bits/2),:,:] = output

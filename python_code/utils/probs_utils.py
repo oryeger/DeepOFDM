@@ -32,4 +32,11 @@ def prob_to_QAM_index(p: torch.Tensor, num_bits: int, n_users: int) -> torch.Ten
     return output_symbols
 
 
+def ensure_tensor_iterable(x):
+    if isinstance(x, torch.Tensor):
+        return x.flatten()
+    elif isinstance(x, int):
+        return torch.tensor([x])
+    else:
+        raise TypeError("Input must be an int or a torch.Tensor")
 

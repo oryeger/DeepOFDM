@@ -9,11 +9,9 @@ from python_code.detectors.deepsice2e.deepsice2e_detector import DeepSICe2eDetec
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
-import numpy as np
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
+from python_code.utils.probs_utils import ensure_tensor_iterable
 
-import commpy.modulation as mod
-import matplotlib.pyplot as plt
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -27,14 +25,17 @@ class DeepSICe2eTrainer(Trainer):
         return 'DeepSICe2e'
 
     def _initialize_detector(self, num_bits, n_users):
-        if conf.seperate_nns:
+        if conf.separate_nns:
             num_nns = int(num_bits/2)
         else:
             num_nns = 1
 
-        self.detector = [DeepSICe2eDetector(num_bits, n_users).to(DEVICE) for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
+        if conf.full_e2e:
+            self.detector = [[DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(1)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
+        else:
+            self.detector = [[DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(conf.iters_int)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits: int, epochs: int, bit_type: int) -> Tuple[List[float], List[float]]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits: int, epochs: int, iters_vec: torch.Tensor) -> Tuple[List[float], List[float]]:
         """
         Trains a DeepSIC Network and returns the total training loss.
         """
@@ -44,7 +45,7 @@ class DeepSICe2eTrainer(Trainer):
         train_loss_vect = []
         val_loss_vect = []
         for _ in range(epochs):
-            soft_estimation, llrs = single_model(rx_prob,num_bits,bit_type)
+            soft_estimation, llrs = single_model(rx_prob,num_bits,iters_vec)
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(soft_estimation[:train_samples], tx[:train_samples].to(DEVICE))
             val_loss = self._calculate_loss(soft_estimation[train_samples:], tx[train_samples:].to(DEVICE))
@@ -54,23 +55,35 @@ class DeepSICe2eTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
+    def _train_models(self, model: List[DeepSICe2eDetector], tx_cur: torch.Tensor, rx_prob: torch.Tensor, num_bits: int, n_users: int, epochs: int):
+        train_loss_vect_user = []
+        val_loss_vect_user = []
+        for user in range(n_users):
+            index_start = user*num_bits
+            index_end = (user+1)*num_bits
+            tx_cur_user = tx_cur[:,index_start:index_end,:]
+            train_loss_vect , val_loss_vect = self._train_model(model[user], tx_cur_user, rx_prob.to(DEVICE), num_bits, epochs, user)
+            if user == 0:
+                train_loss_vect_user = train_loss_vect
+                val_loss_vect_user = val_loss_vect
+        return train_loss_vect_user , val_loss_vect_user
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_ext: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_int: int, epochs: int):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
         initial_probs = self._initialize_probs(tx, num_bits, n_users)
-        if conf.seperate_nns:
+        if conf.separate_nns:
             num_nns = int(num_bits / 2)
         else:
             num_nns = 1
 
         # Training the DeepSIC network for each user for iteration=1
         for bit_type in range(0, num_nns):
-            if conf.seperate_nns:
+            if conf.separate_nns:
                 tx_cur = torch.zeros(int(tx.shape[0]/num_bits), int(num_bits/2)*tx.shape[1], tx.shape[2])
                 for i in range(rx_real.shape[0]):
                     for user in range(n_users):
@@ -80,6 +93,27 @@ class DeepSICe2eTrainer(Trainer):
                         index_end_put = (user + 1) * int(num_bits/2)
                         tx_cur[i,index_start_put:index_end_put,:] = tx[index_start_get:index_end_get:int(num_bits/2),user,:]
                 rx_prob = torch.cat((rx_real, initial_probs[:,bit_type::int(num_bits/2),:]), dim=1).unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1
+
+                if conf.full_e2e:
+                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,
+                                                                       num_bits, epochs, torch.arange(0, iters_int))
+                else:
+                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,
+                                                                       num_bits, epochs, 0)
+                    probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
+                    # Training the DeepSICNet for each user-symbol/iteration
+                    for i in range(1, iters_int):
+                        probs_vec, llrs_mat = self._calculate_posteriors(self.detector,
+                                                                         rx_real.to('cuda').unsqueeze(-1), probs_vec,
+                                                                         num_bits, n_users, bit_type, i)
+                        # Training the DeepSIC networks for the iteration>1
+                        rx_prob = torch.cat((rx_real.to('cuda'), probs_vec[:, bit_type::int(num_bits / 2), :]), dim=1).unsqueeze(-1)
+
+                        train_loss_cur, val_loss_cur = self._train_model(self.detector[bit_type][i], tx_cur, rx_prob,
+                                                                           num_bits, epochs, i)
+                        if SHOW_ALL_ITERATIONS:
+                            train_loss_vect = train_loss_vect + train_loss_cur
+                            val_loss_vect = val_loss_vect + train_loss_cur
 
             else:
                 tx_cur = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
@@ -92,9 +126,22 @@ class DeepSICe2eTrainer(Trainer):
                         tx_cur[i, index_start_put:index_end_put, :] = tx[index_start_get:index_end_get,user, :]
                 rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)
 
-            train_loss_vect , val_loss_vect = self._train_model(self.detector[bit_type], tx_cur, rx_prob, num_bits, epochs, bit_type)
-        # Initializing the probabilities
-        probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
+                if conf.full_e2e:
+                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,num_bits, epochs, torch.arange(0, iters_int))
+                else:
+                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,num_bits, epochs, 0)
+                    probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
+                    # Training the DeepSICNet for each user-symbol/iteration
+                    for i in range(1, iters_int):
+                        probs_vec, llrs_mat = self._calculate_posteriors(self.detector, rx_real.to('cuda').unsqueeze(-1), probs_vec,num_bits, n_users,num_nns,i)
+                        # Training the DeepSIC networks for the iteration>1
+                        rx_prob = torch.cat((rx_real.to('cuda'), probs_vec), dim=1).unsqueeze(-1)
+
+                        train_loss_cur, val_loss_cur = self._train_model(self.detector[bit_type][i], tx_cur, rx_prob,num_bits, epochs, i)
+                        if SHOW_ALL_ITERATIONS:
+                            train_loss_vect = train_loss_vect + train_loss_cur
+                            val_loss_vect = val_loss_vect + val_loss_cur
+
         return train_loss_vect , val_loss_vect
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:
@@ -107,13 +154,25 @@ class DeepSICe2eTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_ext: int) -> tuple[List, List]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_int: int) -> tuple[List, List]:
         # detect and decode
-        detected_word_list = [None] * iters_ext
-        llrs_mat_list = [None] * iters_ext
+        if conf.full_e2e:
+            iters_inference = 1
+            detected_word_list = [None]
+            llrs_mat_list = [None]
+        else:
+            iters_inference = iters_int
+            detected_word_list = [None] * iters_int
+            llrs_mat_list = [None] * iters_int
+        if conf.separate_nns:
+            nns = torch.arange(int(num_bits / 2))
+        else:
+            nns = 0
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
-        probs_vec, llrs_mat_list = self._calculate_posteriors(self.detector, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users)
-        detected_word_list = self._compute_output(probs_vec)
+
+        for i in range(iters_inference):
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns, i)
+            detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list
 
@@ -124,17 +183,18 @@ class DeepSICe2eTrainer(Trainer):
         detected_word = BPSKModulator.demodulate(symbols_word)
         return detected_word
 
-    def _prepare_data_for_training(self, rx: torch.Tensor, probs_vec: torch.Tensor, n_users: int, num_bits: int, bit_type: int) -> [torch.Tensor, torch.Tensor]:
+    def _prepare_data_for_training(self, tx: torch.Tensor, rx: torch.Tensor, probs_vec: torch.Tensor, n_users: int, num_bits: int, bit_type: int) -> [torch.Tensor, torch.Tensor]:
         """
         Generates the data for each user
         """
         tx_all = []
         rx_prob_all = []
         for user in range(n_users):
-            if conf.seperate_nns:
+            if conf.separate_nns:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,bit_type::int(num_bits/2),:,:]), dim=1))
             else:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+            tx_all.append(tx[:, user, :])
         return tx_all, rx_prob_all
 
 
@@ -152,18 +212,17 @@ class DeepSICe2eTrainer(Trainer):
         rnd_init = HALF * torch.ones(dim0,dim1,dim2, dtype=torch.float32)
         return rnd_init
 
-    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int, nns: int, i) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """
         probs_mat = torch.zeros(prob.shape).to(DEVICE)
         llrs_mat = torch.zeros(prob.shape).to(DEVICE)
-        if conf.seperate_nns:
-            num_nns = int(num_bits / 2)
-            for bit_type in range(0, num_nns):
+        if conf.separate_nns:
+            for bit_type in ensure_tensor_iterable(nns):
                 rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:].unsqueeze(-1)), dim=1)
                 with torch.no_grad():
-                    output, llrs = model[bit_type](rx_prob,num_bits, bit_type)
+                    output, llrs = model[bit_type][i](rx_prob,num_bits, bit_type)
                 index_start = bit_type
                 index_end = num_bits*n_users+bit_type
                 probs_mat[:, index_start:index_end:int(num_bits/2),:] = output
@@ -171,7 +230,7 @@ class DeepSICe2eTrainer(Trainer):
         else:
             rx_prob = torch.cat((rx_real, prob.unsqueeze(-1)), dim=1)
             with torch.no_grad():
-                output, llrs = model[0](rx_prob,num_bits, 0)
+                output, llrs = model[0][i](rx_prob,num_bits, 0)
             probs_mat = output
             llrs_mat = llrs
         return probs_mat, llrs_mat

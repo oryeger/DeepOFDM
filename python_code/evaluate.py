@@ -146,7 +146,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
 
     total_ber_list = [[] for _ in range(iters_ext)]
-    total_ber_list_e2e = [[] for _ in range(iters_int_disp)]
+    total_ber_e2e_list = [[] for _ in range(iters_int_disp)]
     total_ber_deeprx = []
     total_ber_legacy = []
     if PLOT_CE_ON_DATA:
@@ -156,14 +156,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
     SNR_range = [conf.snr + i for i in range(conf.num_snrs)]
     total_mi_list = [[] for _ in range(iters_ext)]
-    total_mi_list_e2e = [[] for _ in range(iters_int)]
+    total_mi_e2e_list = [[] for _ in range(iters_int_disp)]
     total_mi_deeprx = []
     if mod_pilot == 4:
         total_mi_legacy = []
     Final_SNR = conf.snr + conf.num_snrs - 1
     for snr_cur in SNR_range:
         ber_sum = np.zeros(iters_ext)
-        ber_sum_e2e = np.zeros(iters_int)
+        ber_sum_e2e = np.zeros(iters_int_disp)
         ber_sum_deeprx = 0
         ber_sum_legacy = 0
         if PLOT_CE_ON_DATA:
@@ -277,7 +277,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
             if deepsice2e_trainer.is_online_training:
                 train_loss_vect_e2e, val_loss_vect_e2e = deepsice2e_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iters_int, epochs)
-                detected_word_list_e2e, llrs_mat_list_e2e = deepsice2e_trainer._forward(rx_data, num_bits, n_users, iters_ext)
+                detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users, iters_int)
                 
             if deeprx_trainer.is_online_training:
                 train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iters_ext, epochs)
@@ -420,7 +420,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(),num_bits)
                     ber_sum[iteration] += ber
                 for iteration in range(iters_int_disp):
-                    detected_word_cur_re_e2e = detected_word_list_e2e[iteration][:, :, re]
+                    detected_word_cur_re_e2e = detected_word_e2e_list[iteration][:, :, re]
                     detected_word_cur_re_e2e = detected_word_cur_re_e2e.squeeze(-1)
                     detected_word_cur_re_e2e = detected_word_cur_re_e2e.reshape(int(tx_data.shape[0] / num_bits), n_users,
                                                                         num_bits).swapaxes(1, 2).reshape(tx_data.shape[0],
@@ -453,8 +453,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                 mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits, n_users, num_res)
                 total_mi_deeprx.append(mi_deeprx)
                 for iteration in range(iters_int_disp):
-                    mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_list_e2e[iteration].cpu(), num_bits, n_users, num_res)
-                    total_mi_list_e2e[iteration].append(mi_e2e)
+                    mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_e2e_list[iteration].cpu(), num_bits, n_users, num_res)
+                    total_mi_e2e_list[iteration].append(mi_e2e)
                 mi_legacy = calc_mi(tx_data.cpu(), llrs_mat_legacy, num_bits, n_users, num_res)
                 total_mi_legacy.append(mi_legacy)
             else:
@@ -468,10 +468,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                 ber_list[iteration] = ber_sum[iteration]/num_res
                 total_ber_list[iteration].append(ber_list[iteration])
 
-            ber_list_e2e = [None] * iters_int
+            ber_e2e_list = [None] * iters_int_disp
             for iteration in range(iters_int_disp):
-                ber_list_e2e[iteration] = ber_sum_e2e[iteration]/num_res
-                total_ber_list_e2e[iteration].append(ber_list_e2e[iteration])
+                ber_e2e_list[iteration] = ber_sum_e2e[iteration]/num_res
+                total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
 
             ber_deeprx = ber_sum_deeprx/num_res
             ber_legacy = ber_sum_legacy/num_res
@@ -486,7 +486,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, float(ber_list[iters_ext-1]), mi}')
-            print(f'curr DeepSICe2e: {block_ind, float(ber_list_e2e[iters_int_disp-1]), mi_e2e}')
+            print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_int_disp-1]), mi_e2e}')
             print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy, mi_legacy}')
@@ -507,7 +507,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         plot_loss_and_LLRs([0] * len(train_loss_vect_deeprx), [0] * len(val_loss_vect_deeprx), torch.from_numpy(llrs_mat_legacy), snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy, ber_legacy_genie, 0)
         plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3, train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie , 0)
         for iteration in range(iters_int_disp):
-            plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_list_e2e[iteration], snr_cur, "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list_e2e[iteration], ber_legacy, ber_legacy_genie, iteration)
+            plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration], snr_cur, "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_e2e_list[iteration], ber_legacy, ber_legacy_genie, iteration)
         for iteration in range(iters_ext):
             plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration], ber_legacy, ber_legacy_genie, iteration)
 
@@ -551,7 +551,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             interp_func = interp1d(total_ber_list[iteration], SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_list[iteration] = np.round(interp_func(bler_target), 1)
         for iteration in range(iters_int_disp):
-            interp_func = interp1d(total_ber_list_e2e[iteration], SNR_range, kind='linear', fill_value="extrapolate")
+            interp_func = interp1d(total_ber_e2e_list[iteration], SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_e2e_list[iteration] = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
         snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
@@ -566,7 +566,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         for iteration in range(iters_ext):
             snr_at_target_list[iteration] = float('inf')
         for iteration in range(iters_int_disp):
-            snr_at_target_list[iteration] = float('inf')
+            snr_at_target_e2e_list[iteration] = float('inf')
         snr_at_target_e2e =  float('inf')
         snr_at_target_deeprx =  float('inf')
         snr_at_target_legacy =  float('inf')
@@ -576,7 +576,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     for iteration in range(iters_ext):
         plt.semilogy(SNR_range, total_ber_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='g', label='DeepSIC'+str(iteration+1)+', SNR @1%='+str(snr_at_target_list[iteration]))
     for iteration in range(iters_int_disp):
-        plt.semilogy(SNR_range, total_ber_list_e2e[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='m', label='Deepe2e'+str(iteration+1)+', SNR @1%='+str(snr_at_target_list[iteration]))
+        plt.semilogy(SNR_range, total_ber_e2e_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='m', label='Deepe2e'+str(iteration+1)+', SNR @1%='+str(snr_at_target_e2e_list[iteration]))
     plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx,   SNR @1%='+str(snr_at_target_deeprx))
     plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,    SNR @1%='+str(snr_at_target_legacy))
     if PLOT_CE_ON_DATA:

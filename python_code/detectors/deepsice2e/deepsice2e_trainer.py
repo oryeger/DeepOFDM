@@ -171,7 +171,7 @@ class DeepSICe2eTrainer(Trainer):
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
 
         for i in range(iters_inference):
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns, i)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns, i+1)
             detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list

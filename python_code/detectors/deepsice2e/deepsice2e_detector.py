@@ -18,7 +18,11 @@ class DeepSICe2eDetector(nn.Module):
             conv_num_channels =  num_bits*n_users+N_ANTS*2
         hidden_size = HIDDEN_BASE_SIZE * num_bits
 
-        self.num_layers = int(conf.n_users*conf.iters_int)
+        if conf.full_e2e:
+            self.num_layers = int(conf.n_users*conf.iters_int)
+        else:
+            self.num_layers = conf.n_users
+
         self.fc1 = nn.ModuleList([
             nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same') for _ in range(self.num_layers)])
         if conf.separate_nns:

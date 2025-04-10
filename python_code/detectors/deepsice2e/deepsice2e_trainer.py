@@ -72,28 +72,25 @@ class DeepSICe2eTrainer(Trainer):
         for bit_type in range(0, num_nns):
             if conf.seperate_nns:
                 tx_cur = torch.zeros(int(tx.shape[0]/num_bits), int(num_bits/2)*tx.shape[1], tx.shape[2])
-            else:
-                tx_cur = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
-
-            for i in range(rx_real.shape[0]):
-                for user in range(n_users):
-                    if conf.seperate_nns:
+                for i in range(rx_real.shape[0]):
+                    for user in range(n_users):
                         index_start_get = bit_type + i * num_bits
                         index_end_get = bit_type + (i + 1) * num_bits
                         index_start_put = user*int(num_bits/2)
                         index_end_put = (user + 1) * int(num_bits/2)
-                    else:
+                        tx_cur[i,index_start_put:index_end_put,:] = tx[index_start_get:index_end_get:int(num_bits/2),user,:]
+                rx_prob = torch.cat((rx_real, initial_probs[:,bit_type::int(num_bits/2),:]), dim=1).unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1
+
+            else:
+                tx_cur = torch.zeros(int(tx.shape[0]/num_bits), num_bits*tx.shape[1], tx.shape[2])
+                for i in range(rx_real.shape[0]):
+                    for user in range(n_users):
                         index_start_get = i * num_bits
                         index_end_get = (i + 1) * num_bits
-                        index_start_put = user*num_bits
+                        index_start_put = user * num_bits
                         index_end_put = (user + 1) * num_bits
-
-                    tx_cur[i,index_start_put:index_end_put,:] = tx[index_start_get:index_end_get:int(num_bits/2),user,:]
-
-                if conf.seperate_nns:
-                    rx_prob = torch.cat((rx_real, initial_probs[:,bit_type::int(num_bits/2),:]), dim=1).unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1
-                else:
-                    rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)
+                        tx_cur[i, index_start_put:index_end_put, :] = tx[index_start_get:index_end_get,user, :]
+                rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)
 
             train_loss_vect , val_loss_vect = self._train_model(self.detector[bit_type], tx_cur, rx_prob, num_bits, epochs, bit_type)
         # Initializing the probabilities
@@ -136,14 +133,8 @@ class DeepSICe2eTrainer(Trainer):
         for user in range(n_users):
             if conf.seperate_nns:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,bit_type::int(num_bits/2),:,:]), dim=1))
-                # tx_cur = tx[bit_type::int(num_bits / 2), :]  #OryEGer
-                # tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // int(num_bits / 2)), int(num_bits / 2),tx_cur.shape[1])
-                # tx_all.append(tx_reshaped)
             else:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
-                # tx_cur = tx
-                # tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
-                # tx_all.append(tx_reshaped)
         return tx_all, rx_prob_all
 
 
@@ -165,30 +156,24 @@ class DeepSICe2eTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-
         probs_mat = torch.zeros(prob.shape).to(DEVICE)
         llrs_mat = torch.zeros(prob.shape).to(DEVICE)
         if conf.seperate_nns:
             num_nns = int(num_bits / 2)
-        else:
-            num_nns = 1
-        for bit_type in range(0, num_nns):
-            if conf.seperate_nns:
+            for bit_type in range(0, num_nns):
                 rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:].unsqueeze(-1)), dim=1)
-            else:
-                rx_prob = torch.cat((rx_real, prob.unsqueeze(-1)), dim=1)
-
-            with torch.no_grad():
-                output, llrs = model[bit_type](rx_prob,num_bits, bit_type)
-            if conf.seperate_nns:
+                with torch.no_grad():
+                    output, llrs = model[bit_type](rx_prob,num_bits, bit_type)
                 index_start = bit_type
                 index_end = num_bits*n_users+bit_type
                 probs_mat[:, index_start:index_end:int(num_bits/2),:] = output
                 llrs_mat[:, index_start:index_end:int(num_bits/2),:] = llrs
-            else:
-                probs_mat = output
-                llrs_mat = llrs
-
+        else:
+            rx_prob = torch.cat((rx_real, prob.unsqueeze(-1)), dim=1)
+            with torch.no_grad():
+                output, llrs = model[0](rx_prob,num_bits, 0)
+            probs_mat = output
+            llrs_mat = llrs
         return probs_mat, llrs_mat
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):

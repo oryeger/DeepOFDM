@@ -110,7 +110,7 @@ class DeepSICe2eTrainer(Trainer):
                         rx_prob = torch.cat((rx_real.to('cuda'), probs_vec[:, bit_type::int(num_bits / 2), :]), dim=1).unsqueeze(-1)
 
                         train_loss_cur, val_loss_cur = self._train_model(self.detector[bit_type][i], tx_cur, rx_prob,
-                                                                           num_bits, epochs, i)
+                                                                           num_bits, epochs, 0)
                         if SHOW_ALL_ITERATIONS:
                             train_loss_vect = train_loss_vect + train_loss_cur
                             val_loss_vect = val_loss_vect + val_loss_cur

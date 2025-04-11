@@ -418,6 +418,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                         num_bits).swapaxes(1, 2).reshape(tx_data.shape[0],
                                                                                                          n_users)
                     ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(),num_bits)
+                    # detected_word_cur_re[:,0] target[:, 0]
                     ber_sum[iteration] += ber
                 for iteration in range(iters_int_disp):
                     detected_word_cur_re_e2e = detected_word_e2e_list[iteration][:, :, re]

@@ -93,6 +93,7 @@ class DeepSICTrainer(Trainer):
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iters_ext):
+            pass
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes
@@ -174,7 +175,7 @@ class DeepSICTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(prob.shape[0],num_bits*n_users,prob.shape[2],prob.shape[3]).to(DEVICE)
+        next_probs_vec = prob
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
             for bit_type in ensure_tensor_iterable(nns):

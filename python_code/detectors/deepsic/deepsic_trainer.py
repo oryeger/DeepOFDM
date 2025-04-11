@@ -93,7 +93,6 @@ class DeepSICTrainer(Trainer):
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iters_ext):
-            pass
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes

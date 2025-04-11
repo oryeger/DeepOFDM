@@ -174,7 +174,8 @@ class DeepSICTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = prob
+        next_probs_vec = prob.clone()
+        # next_probs_vec = torch.zeros_like(prob)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
             for bit_type in ensure_tensor_iterable(nns):

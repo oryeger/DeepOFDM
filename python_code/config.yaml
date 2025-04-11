@@ -1,17 +1,19 @@
-snr: 30
+snr: 25
 num_snrs: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 1
-cfo:  0
+num_res: 6
+cfo:  0.15
 clip_percentage_in_tx: 100
-epochs: 200
-iters_ext: 2
+epochs: 300
+iters_ext: 1
 iters_int: 1
-pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
-separate_nns: True # just for 16QAM
+separate_nns: False # just for 16QAM
 full_e2e: False
+
+run_deeprx: False
 
 
 

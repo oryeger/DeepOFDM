@@ -216,7 +216,7 @@ class DeepSICe2eTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        probs_mat = prob
+        probs_mat = prob.clone()
         llrs_mat = torch.zeros(prob.shape).to(DEVICE)
         if conf.separate_nns:
             for bit_type in ensure_tensor_iterable(nns):

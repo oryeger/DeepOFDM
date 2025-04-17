@@ -33,7 +33,7 @@ class DeepSICe2eTrainer(Trainer):
         if conf.full_e2e:
             self.detector = [[DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(1)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
         else:
-            self.detector = [[DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(conf.iters_int)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
+            self.detector = [[DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(conf.iters_e2e)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits: int, epochs: int, iters_vec: torch.Tensor) -> Tuple[List[float], List[float]]:
         """
@@ -69,7 +69,7 @@ class DeepSICe2eTrainer(Trainer):
         return train_loss_vect_user , val_loss_vect_user
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_int: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
@@ -96,13 +96,13 @@ class DeepSICe2eTrainer(Trainer):
 
                 if conf.full_e2e:
                     train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,
-                                                                       num_bits, epochs, torch.arange(0, iters_int))
+                                                                       num_bits, epochs, torch.arange(0, iters_e2e))
                 else:
                     train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,
                                                                        num_bits, epochs, 0)
                     probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
                     # Training the DeepSICNet for each user-symbol/iteration
-                    for i in range(1, iters_int):
+                    for i in range(1, iters_e2e):
                         probs_vec, llrs_mat = self._calculate_posteriors(self.detector,
                                                                          rx_real.to('cuda').unsqueeze(-1), probs_vec,
                                                                          num_bits, n_users, bit_type, i)
@@ -127,12 +127,12 @@ class DeepSICe2eTrainer(Trainer):
                 rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)
 
                 if conf.full_e2e:
-                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,num_bits, epochs, torch.arange(0, iters_int))
+                    train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,num_bits, epochs, torch.arange(0, iters_e2e))
                 else:
                     train_loss_vect, val_loss_vect = self._train_model(self.detector[bit_type][0], tx_cur, rx_prob,num_bits, epochs, 0)
                     probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
                     # Training the DeepSICNet for each user-symbol/iteration
-                    for i in range(1, iters_int):
+                    for i in range(1, iters_e2e):
                         probs_vec, llrs_mat = self._calculate_posteriors(self.detector, rx_real.to('cuda').unsqueeze(-1), probs_vec,num_bits, n_users,num_nns,i)
                         # Training the DeepSIC networks for the iteration>1
                         rx_prob = torch.cat((rx_real.to('cuda'), probs_vec), dim=1).unsqueeze(-1)
@@ -154,16 +154,16 @@ class DeepSICe2eTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_int: int) -> tuple[List, List]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int) -> tuple[List, List]:
         # detect and decode
         if conf.full_e2e:
             iters_inference = 1
             detected_word_list = [None]
             llrs_mat_list = [None]
         else:
-            iters_inference = iters_int
-            detected_word_list = [None] * iters_int
-            llrs_mat_list = [None] * iters_int
+            iters_inference = iters_e2e
+            detected_word_list = [None] * iters_e2e
+            llrs_mat_list = [None] * iters_e2e
         if conf.separate_nns:
             nns = torch.arange(int(num_bits / 2))
         else:

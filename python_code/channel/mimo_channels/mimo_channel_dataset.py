@@ -34,6 +34,22 @@ class MIMOChannel:
     def _transmit(self, h: np.ndarray, snr: float, num_res: int, n_users: int, mod_pilot: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
         tx_data = self._bits_generator.integers(0, 2, size=(self._block_length - self._pilots_length, n_users, num_res))
+
+        # OryEger - Just the inner constellation of 16QAM:
+
+        if conf.mod_pilot>4:
+            value = 1
+            # if conf.ber_on_one_user>=0:
+            #     tx_data[1::2, conf.ber_on_one_user] = value
+            #     tx_pilots[1::2, conf.ber_on_one_user] = value
+
+            users_list = list(range(0, n_users))
+            filtered_users_list = [user for user in users_list if user != conf.ber_on_one_user]
+            for user in filtered_users_list:
+                tx_pilots[1::2, user] = value
+                tx_data[1::2, user] = value
+
+
         tx = np.concatenate([tx_pilots, tx_data])
 
         # modulation

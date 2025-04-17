@@ -19,7 +19,7 @@ class DeepSICe2eDetector(nn.Module):
         hidden_size = HIDDEN_BASE_SIZE * num_bits
 
         if conf.full_e2e:
-            self.num_layers = int(conf.n_users*conf.iters_int)
+            self.num_layers = int(conf.n_users*conf.iters_e2e)
         else:
             self.num_layers = conf.n_users
 
@@ -35,7 +35,7 @@ class DeepSICe2eDetector(nn.Module):
         self.activation1 = nn.ReLU()
         self.activation2 = nn.Sigmoid()
 
-    def forward(self, rx_prob, num_bits, iters_int):
+    def forward(self, rx_prob, num_bits, iters_e2e):
         n_users = conf.n_users
         if conf.separate_nns:
             llrs_mat = torch.zeros(rx_prob.shape[0], n_users * int(num_bits/2), rx_prob.shape[2], rx_prob.shape[3],
@@ -46,7 +46,7 @@ class DeepSICe2eDetector(nn.Module):
 
         rx_prob_new = rx_prob.clone()  # Ensure it's a copy for updates
 
-        for iteration in ensure_tensor_iterable(iters_int):
+        for iteration in ensure_tensor_iterable(iters_e2e):
             for user in range(n_users):
                 cur_index = iteration * n_users + user
                 out1 = self.fc1[cur_index](rx_prob_new)

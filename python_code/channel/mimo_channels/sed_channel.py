@@ -32,7 +32,6 @@ class SEDChannel:
                 H_real[0,0] = 1
 
 
-                # OryEger - adding more interference
         H_real = H_real * conf.interf_factor
         for i in range(H_real.shape[1]):
             H_real[0,i] = 1

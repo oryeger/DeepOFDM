@@ -1,7 +1,7 @@
 import numpy as np
 
 from python_code import conf
-from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, INTERF_FACTOR, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
+from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
                                          CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
 H_COEF = 0.8
@@ -33,7 +33,7 @@ class SEDChannel:
 
 
                 # OryEger - adding more interference
-        H_real = H_real * INTERF_FACTOR
+        H_real = H_real * conf.interf_factor
         for i in range(H_real.shape[1]):
             H_real[0,i] = 1
 

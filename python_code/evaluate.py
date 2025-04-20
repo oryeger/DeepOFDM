@@ -614,8 +614,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     for iteration in range(iters_ext):
         plt.semilogy(SNR_range, total_ber_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='g', label='DeepSIC'+str(iteration+1)+', SNR @1%='+str(snr_at_target_list[iteration]))
     if conf.run_e2e:
+        if conf.no_probs_e2e:
+            e2e_text = 'NoProbs'
+        else:
+            e2e_text = 'Deepe2e'
+
         for iteration in range(iters_e2e_disp):
-            plt.semilogy(SNR_range, total_ber_e2e_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='m', label='Deepe2e'+str(iteration+1)+', SNR @1%='+str(snr_at_target_e2e_list[iteration]))
+            plt.semilogy(SNR_range, total_ber_e2e_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='m', label=e2e_text+str(iteration+1)+', SNR @1%='+str(snr_at_target_e2e_list[iteration]))
     if conf.run_deeprx:
         plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c', label='DeepRx,   SNR @1%='+str(snr_at_target_deeprx))
     plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,    SNR @1%='+str(snr_at_target_legacy))
@@ -649,6 +654,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
 if __name__ == '__main__':
     assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
+    assert not (conf.no_probs_e2e and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
+
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))
     deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users)

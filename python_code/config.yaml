@@ -10,13 +10,11 @@ iters_ext: 3
 pilot_size: 20000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM
-full_e2e: False
+full_e2e: True
 interf_factor: 1
 ber_on_one_user: 0
 
-
-
-run_deeprx: False
+run_deeprx: True
 run_e2e: False
 iters_e2e: 1
 

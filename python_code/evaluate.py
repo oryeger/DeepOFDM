@@ -446,7 +446,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                     num_bits).swapaxes(1, 2).reshape(tx_data.shape[0],
                                                                                                      n_users)
                     if conf.ber_on_one_user >= 0:
-                        ber_deeprx = calculate_ber(detected_word_cur_re_deeprx[:,conf.ber_on_one_user].cpu(), target[:,conf.ber_on_one_user].cpu(),num_bits)
+                        ber_deeprx = calculate_ber(detected_word_cur_re_deeprx[:,conf.ber_on_one_user].unsqueeze(-1).cpu(), target[:,conf.ber_on_one_user].unsqueeze(-1).cpu(),num_bits)
                     else:
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(),num_bits)
 

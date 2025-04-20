@@ -43,11 +43,11 @@ class MIMOChannel:
             #     tx_data[1::2, conf.ber_on_one_user] = value
             #     tx_pilots[1::2, conf.ber_on_one_user] = value
 
-            users_list = list(range(0, n_users))
-            filtered_users_list = [user for user in users_list if user != conf.ber_on_one_user]
-            for user in filtered_users_list:
-                tx_pilots[1::2, user] = value
-                tx_data[1::2, user] = value
+            # users_list = list(range(0, n_users))
+            # filtered_users_list = [user for user in users_list if user != conf.ber_on_one_user]
+            # for user in filtered_users_list:
+            #     tx_pilots[1::2, user] = value
+            #     tx_data[1::2, user] = value
 
 
         tx = np.concatenate([tx_pilots, tx_data])

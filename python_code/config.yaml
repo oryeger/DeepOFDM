@@ -13,6 +13,7 @@ separate_nns: False # just for 16QAM
 full_e2e: False
 interf_factor: 1
 ber_on_one_user: 0
+half_probs: True
 
 run_deeprx: False
 run_e2e: False

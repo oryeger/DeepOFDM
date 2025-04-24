@@ -150,7 +150,13 @@ class DeepSICTrainer(Trainer):
             if conf.separate_nns:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,bit_type::int(num_bits/2),:,:]), dim=1))
             else:
-                rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+                if conf.half_probs:
+                    indexes_half = torch.arange(0, num_bits * n_users, 2)
+                    indexes_user = torch.arange(user * num_bits, (user + 1) * num_bits)
+                    indexes_comb = torch.cat((indexes_half, indexes_user)).unique(sorted=True)
+                    rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,indexes_comb,:,:]), dim=1))
+                else:
+                    rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
             tx_all.append(tx[:, user, :])
         return tx_all, rx_prob_all
 
@@ -182,7 +188,13 @@ class DeepSICTrainer(Trainer):
                 if conf.separate_nns:
                     rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:,:]), dim=1)
                 else:
-                    rx_prob = torch.cat((rx_real, prob), dim=1)
+                    if conf.half_probs:
+                        indexes_half = torch.arange(0, num_bits*n_users, 2)
+                        indexes_user = torch.arange(user * num_bits, (user + 1) * num_bits)
+                        indexes_comb = torch.cat((indexes_half, indexes_user)).unique(sorted=True)
+                        rx_prob = torch.cat((rx_real, prob[:,indexes_comb,:,:]), dim=1)
+                    else:
+                        rx_prob = torch.cat((rx_real, prob), dim=1)
 
                 with torch.no_grad():
                     output, llrs = model[bit_type][user][i - 1](rx_prob)

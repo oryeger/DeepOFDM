@@ -14,7 +14,10 @@ class DeepSICDetector(nn.Module):
         if conf.separate_nns:
             conv_num_channels =  int(num_bits/2)*n_users+N_ANTS*2
         else:
-            conv_num_channels =  num_bits*n_users+N_ANTS*2
+            if conf.half_probs:
+                conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+N_ANTS*2)
+            else:
+                conv_num_channels =  int(num_bits*n_users+N_ANTS*2)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 import time
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
@@ -25,6 +26,9 @@ from scipy.interpolate import interp1d
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+
+base_dir = Path.home() / "Projects" / "Scratchpad"
+
 
 def entropy_with_bin_width(data, bin_width):
     """Estimate entropy using histogram binning with a specified bin width."""
@@ -546,12 +550,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
 
 
-        for iteration in range(iters_ext):
-            np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))
-        if conf.run_deeprx:
-            np.save('C:\\Projects\\Misc\\total_ber_deeprx.npy', np.array(total_ber_deeprx))
-        np.save('C:\\Projects\\Misc\\total_ber_legacy.npy', np.array(total_ber_legacy))
-        np.save('C:\\Projects\\Misc\\total_ber_legacy_genie.npy', np.array(total_ber_legacy_genie))
+        # for iteration in range(iters_ext):
+        #     np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))
+        # if conf.run_deeprx:
+        #     np.save('C:\\Projects\\Misc\\total_ber_deeprx.npy', np.array(total_ber_deeprx))
+        # np.save('C:\\Projects\\Misc\\total_ber_legacy.npy', np.array(total_ber_legacy))
+        # np.save('C:\\Projects\\Misc\\total_ber_legacy_genie.npy', np.array(total_ber_legacy_genie))
 
 
         # np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
@@ -644,8 +648,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                        "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
     # print('\n'+title_string)
     title_string = title_string.replace("\n", "")
-    df.to_csv("C:\\Projects\\Scatchpad\\" + title_string + ".csv", index=False)
-    # Look at teh weights:
+    output_dir = os.path.join(os.getcwd(), '..', '..', 'Scratchpad')
+    file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
+    df.to_csv(file_path, index=False)
+    # Look at the weights:
     # print(deepsic_trainer.detector[0][0].shared_backbone.fc.weight)
     # print(deepsic_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
 

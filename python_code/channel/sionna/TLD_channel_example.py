@@ -55,17 +55,17 @@ from sionna.utils.metrics import compute_ber
 
 num_ut = 1
 num_bs = 1
-num_ut_ant = 2
-num_bs_ant = 16
+num_ut_ant = 1
+num_bs_ant = 4
 num_streams_per_tx = num_ut_ant
 rx_tx_association = np.array([[1]])
 sm = StreamManagement(rx_tx_association, num_streams_per_tx)
 rg = ResourceGrid(num_ofdm_symbols=14,
-                  fft_size=76,
+                  fft_size=1024,
                   subcarrier_spacing=15e3,
                   num_tx=1,
                   num_streams_per_tx=num_streams_per_tx,
-                  cyclic_prefix_length=6,
+                  cyclic_prefix_length=20,
                   num_guard_carriers=[5,6],
                   dc_null=True,
                   pilot_pattern="kronecker",
@@ -92,7 +92,7 @@ direction = "uplink"  # The `direction` determines if the UT or BS is transmitti
                       # In the `uplink`, the UT is transmitting.
 cdl_model = "B"       # Suitable values are ["A", "B", "C", "D", "E"]
 
-speed = 10            # UT speed [m/s]. BSs are always assumed to be fixed.
+speed = 100            # UT speed [m/s]. BSs are always assumed to be fixed.
                       # The direction of travel will chosen randomly within the x-y plane.
 
 # Configure a channel impulse reponse (CIR) generator for the CDL model.
@@ -103,7 +103,8 @@ tdl = TDL(model="A",
                   delay_spread=delay_spread,
                   carrier_frequency=carrier_frequency,
                   num_tx_ant=num_ut_ant,
-                  num_rx_ant=num_bs_ant)
+                  num_rx_ant=num_bs_ant,
+                  min_speed=speed)
 
 l_min, l_max = time_lag_discrete_time_channel(rg.bandwidth)
 l_tot = l_max-l_min+1
@@ -118,8 +119,6 @@ k = int(n*coderate) # Number of information bits
 # The binary source will create batches of information bits
 binary_source = BinarySource()
 
-# The encoder maps information bits to coded bits
-encoder = LDPC5GEncoder(k, n)
 
 # The mapper maps blocks of information bits to constellation symbols
 mapper = Mapper("qam", num_bits_per_symbol)
@@ -138,18 +137,16 @@ demodulator = OFDMDemodulator(rg.fft_size, l_min, rg.cyclic_prefix_length)
 num_bits_per_symbol = 2 # QPSK modulation
 coderate = 0.5 # Code rate
 n = int(rg.num_data_symbols*num_bits_per_symbol) # Number of coded bits
-k = int(n*coderate) # Number of information bits
 binary_source = BinarySource()
 
 
 batch_size = 8 # We pick a small batch_size as executing this code in Eager mode could consume a lot of memory
-ebno_db = 30
+ebno_db = 100
 perfect_csi = True
 
 no = ebnodb2no(ebno_db, num_bits_per_symbol, coderate, rg)
-b = binary_source([batch_size, 1, rg.num_streams_per_tx, encoder.k])
-c = encoder(b)
-x = mapper(c)
+b = binary_source([batch_size, 1, rg.num_streams_per_tx, n])
+x = mapper(b)
 x_rg = rg_mapper(x)
 
 # The CIR needs to be sampled every 1/bandwith [s].
@@ -157,7 +154,12 @@ x_rg = rg_mapper(x)
 # that the channel can change over the duration of a single
 # OFDM symbol. We now also need to simulate more
 # time steps.
-cir = cdl(batch_size, rg.num_time_samples+l_tot-1, rg.bandwidth)
+# cir = cdl(batch_size, rg.num_time_samples+l_tot-1, rg.bandwidth)
+
+cir = tdl(batch_size, rg.num_time_samples+l_tot-1, rg.bandwidth)
+
+# OryEger
+x_rg = tf.complex(tf.abs(tf.math.real(x_rg)), tf.abs(tf.math.imag(x_rg)))
 
 # OFDM modulation with cyclic prefix insertion
 x_time = modulator(x_rg)
@@ -173,6 +175,20 @@ h_time = cir_to_time_channel(rg.bandwidth, *cir, l_min, l_max, normalize=True)
 # is in contrast to frequency-domain modeling which imposes
 # no inter-symbol interfernce.
 y_time = channel_time([x_time, h_time, no])
-print(y_time.shape)
+y_rg = demodulator(y_time)
+print(h_time.shape)
+
+# plt.plot(tf.abs(y_rg[0,0,0,0,:]), '-', color='b', label='Batch 0, Symbol 0')
+# plt.plot(tf.abs(y_rg[0,0,0,13,:]), '-', color='k', label='Batch 0, Symbol 13')
+plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,0,:].numpy())), '-', color='g', label='Batch 1, Symbol 0')
+plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,13,:].numpy())), '-', color='r', label='Batch 1, Symbol 13')
+plt.xlabel('RE')
+plt.ylabel('Amp')
+plt.title('channel', fontsize=10)
+plt.legend()
+plt.grid()
+plt.tight_layout()
+plt.show()
+
 pass
 

@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="WebServers">
+    <option name="servers">
+      <webServer id="8c9cdb86-96e4-4354-bd7f-3c8f8fabdf3a" name="egero@132.72.66.43">
+        <fileTransfer accessType="SFTP" host="132.72.66.43" port="22" sshConfigId="e38ab809-d0d2-4d3f-a69b-eb7b44652329" sshConfig="egero@132.72.66.43">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="49be4f56-68e2-42b1-9b0c-5b27b9e41ab7" name="egero@132.72.65.249">
+        <fileTransfer accessType="SFTP" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+    </option>
+  </component>
+</project>

@@ -189,7 +189,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                    clip_percentage_in_tx=conf.clip_percentage_in_tx,
                                                    cfo=conf.cfo,
                                                    go_to_td=conf.go_to_td,
-                                                   cfo_in_rx=conf.cfo_in_rx,
+                                                   cfo_and_clip_in_rx=conf.cfo_and_clip_in_rx,
                                                    kernel_size=conf.kernel_size,
                                                    n_users=n_users)
 
@@ -532,7 +532,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             print(
                 f'current legacy genie: {block_ind, ber_legacy_genie}')
         if conf.cfo != 0:
-            if conf.cfo_in_rx:
+            if conf.cfo_and_clip_in_rx:
                 cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
             else:
                 cfo_str = 'cfo in Tx=' + str(conf.cfo) + ' scs'

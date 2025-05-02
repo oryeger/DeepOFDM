@@ -1,10 +1,13 @@
 import numpy as np
+from sympy import false
 
 from python_code import conf
 from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
                                          CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
 H_COEF = 0.8
+
+from python_code.channel.sionna.TLD_channel import TDLChannel
 
 
 class SEDChannel:
@@ -76,94 +79,94 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, go_to_td, cfo, clip_percentage_in_tx, num_res, n_users) -> np.ndarray:
-        if go_to_td | (cfo != 0): # if cfo != 0 we must go to td
-            if td_in_rx:
-                if y_in.ndim == 4:
-                    NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
-                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                    n_users_int = n_users
-                    y = y_in
-                else:
-                    NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
-                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                    n_users_int = 1
-                    y = np.expand_dims(y_in, axis=0)
+    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool) -> np.ndarray:
+        if td_in_rx:
+            if y_in.ndim == 4:
+                NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
+                NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                n_users_int = n_users
+                y = y_in
             else:
                 NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
                 NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                n_users_int = n_users
-                y = np.expand_dims(y_in, axis=1)
-
-            st_full = np.zeros((n_users_int, y.shape[1], NUM_SAMPLES_TOTAL), dtype=complex)
-
-            # OFDM modulation:
-            for user in range(n_users_int):
-                for rx in range(y.shape[1]):
-                    st_one_antenna = np.array([])
-                    for slot_num in range(NUM_SLOTS):
-                        cp_length = FIRST_CP
-                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                            cur_index = slot_num * NUM_SYMB_PER_SLOT + ofdm_symbol
-                            s_t = np.fft.ifft(y[user, rx, cur_index, :], n=FFT_size)
-                            s_t_with_cp = np.concatenate((s_t[-cp_length:], s_t))
-                            st_one_antenna = np.concatenate((st_one_antenna, s_t_with_cp))
-                            cp_length = CP
-                    st_full[user,rx, :] = st_one_antenna
-
-            if (cfo != 0):
-                n = np.arange(NUM_SAMPLES_PER_SLOT)
-                cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
-                cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
-                st_full = st_full * np.exp(1j * cfo_phase)
-
-            if clip_percentage_in_tx<100:
-                rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
-                clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
-                clip_level = (clip_percentage_in_tx / 100) * clip_level_12dB  # Scale by percentage
-
-                magnitude = np.abs(st_full)  # Compute magnitude
-                phase = np.angle(st_full)  # Compute phase
-
-                # Apply clipping to magnitude
-                magnitude_clipped = np.minimum(magnitude, clip_level)
-
-                # Reconstruct clipped signal with original phase
-                st_full = magnitude_clipped * np.exp(1j * phase)
-                new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
-                st_full = st_full*rms_value/new_rms_value
-
-            # OFDM demodulation:
-            y_out_pre = np.zeros_like(y)
-            for user in range(n_users_int):
-                for rx in range(y.shape[1]):
-                    pointer = 0
-                    index = 0
-                    for slot_num in range(NUM_SLOTS):
-                        cp_length = FIRST_CP
-                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
-                            s_t_no_cp = st_full[user, rx, pointer + cp_length:pointer + cp_length + FFT_size]
-                            S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
-                            y_out_pre[user, rx, index, :] = S_no_cp[:num_res]
-                            pointer += (cp_length + FFT_size)
-                            cp_length = CP
-                            index += 1
-            if td_in_rx:
-                if y_in.ndim == 4: # Multiple users
-                    y_out = y_out_pre
-                else:
-                    y_out = np.squeeze(y_out_pre, axis=0)
-            else:
-                y_out = np.squeeze(y_out_pre, axis=1)
+                n_users_int = 1
+                y = np.expand_dims(y_in, axis=0)
         else:
-            y_out = y_in
+            NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
+            NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+            n_users_int = n_users
+            y = np.expand_dims(y_in, axis=1)
+
+        st_full = np.zeros((n_users_int, y.shape[1], NUM_SAMPLES_TOTAL), dtype=complex)
+
+        # OFDM modulation:
+        for user in range(n_users_int):
+            for rx in range(y.shape[1]):
+                st_one_antenna = np.array([])
+                for slot_num in range(NUM_SLOTS):
+                    cp_length = FIRST_CP
+                    for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                        cur_index = slot_num * NUM_SYMB_PER_SLOT + ofdm_symbol
+                        s_t = np.fft.ifft(y[user, rx, cur_index, :], n=FFT_size)
+                        s_t_with_cp = np.concatenate((s_t[-cp_length:], s_t))
+                        st_one_antenna = np.concatenate((st_one_antenna, s_t_with_cp))
+                        cp_length = CP
+                st_full[user,rx, :] = st_one_antenna
+
+        if (cfo != 0):
+            n = np.arange(NUM_SAMPLES_PER_SLOT)
+            cfo_phase = 2 * np.pi * cfo * n / FFT_size  # CFO phase shift
+            cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
+            st_full = st_full * np.exp(1j * cfo_phase)
+
+        if clip_percentage_in_tx<100:
+            rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+            clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
+            clip_level = (clip_percentage_in_tx / 100) * clip_level_12dB  # Scale by percentage
+
+            magnitude = np.abs(st_full)  # Compute magnitude
+            phase = np.angle(st_full)  # Compute phase
+
+            # Apply clipping to magnitude
+            magnitude_clipped = np.minimum(magnitude, clip_level)
+
+            # Reconstruct clipped signal with original phase
+            st_full = magnitude_clipped * np.exp(1j * phase)
+            new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+            st_full = st_full*rms_value/new_rms_value
+
+        if tdl_channel:
+            st_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0)
+            st_full = st_out
+
+        y_out_pre = np.zeros((y.shape[0],st_full.shape[1],y.shape[2],y.shape[3]))
+        for user in range(n_users_int):
+            for rx in range(st_full.shape[1]):
+                pointer = 0
+                index = 0
+                for slot_num in range(NUM_SLOTS):
+                    cp_length = FIRST_CP
+                    for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                        s_t_no_cp = st_full[user, rx, pointer + cp_length:pointer + cp_length + FFT_size]
+                        S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
+                        y_out_pre[user, rx, index, :] = S_no_cp[:num_res]
+                        pointer += (cp_length + FFT_size)
+                        cp_length = CP
+                        index += 1
+        if td_in_rx:
+            if y_in.ndim == 4: # Multiple users
+                y_out = y_out_pre
+            else:
+                y_out = np.squeeze(y_out_pre, axis=0)
+        else:
+            y_out = np.squeeze(y_out_pre, axis=1)
+
         return y_out
 
 
 
-
     @staticmethod
-    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_in_rx: bool, n_users: int) -> np.ndarray:
+    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_and_clip_in_rx: bool, n_users: int) -> np.ndarray:
         """
         The MIMO SED Channel
         :param s: to transmit symbol words
@@ -171,32 +174,41 @@ class SEDChannel:
         :param h: channel function
         :return: received word
         """
-        y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
-        y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
         var = 10 ** (-0.1 * snr)
-        for re_index in range(num_res):
-            conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
-            y[:, :, re_index] = conv
+        if conf.TDL_model == 'None':
+            y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
+            y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
 
-            all_values = list(range(n_users))
-            for user in range(n_users):
-                idx = np.setdiff1d(all_values, user)
-                s_cur_user = s[:, :, re_index].copy()
-                s_cur_user[idx,:] = 0
-                conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
-                y_ce[user, :, :, re_index] = conv_ce
+            for re_index in range(num_res):
+                conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
+                y[:, :, re_index] = conv
 
-        if cfo_in_rx and cfo>0:
-            y = SEDChannel.apply_td_and_impairments(y, True, go_to_td, cfo, 100, num_res, n_users)
-            y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, go_to_td, cfo, 100, num_res, n_users)
-
-        for re_index in range(num_res):
-            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
-            y[:, :, re_index] = y[:, :, re_index] + w
-            if NOISE_TO_CE:
+                all_values = list(range(n_users))
                 for user in range(n_users):
-                    # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
-                    y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
+                    idx = np.setdiff1d(all_values, user)
+                    s_cur_user = s[:, :, re_index].copy()
+                    s_cur_user[idx,:] = 0
+                    conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
+                    y_ce[user, :, :, re_index] = conv_ce
+
+            if cfo_and_clip_in_rx and ((cfo!=0) or (conf.clip_percentage_in_tx<100) or go_to_td ):
+                y = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False)
+                y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False)
+
+            for re_index in range(num_res):
+                w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+                y[:, :, re_index] = y[:, :, re_index] + w
+                if NOISE_TO_CE:
+                    for user in range(n_users):
+                        # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+                        y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
+        else:
+            y = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True)
+            y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
+            for user in range(n_users):
+                conv_ce = SEDChannel.apply_td_and_impairments(s[user,:,:], True, cfo, 100, num_res, 1, True)
+                y_ce[user, :, :, :] = conv_ce
+
         return y,y_ce
 
     @staticmethod

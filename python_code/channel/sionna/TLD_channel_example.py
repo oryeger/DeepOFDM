@@ -1,4 +1,6 @@
 import os
+
+
 if os.getenv("CUDA_VISIBLE_DEVICES") is None:
     gpu_num = 0 # Use "" to use the CPU
     os.environ["CUDA_VISIBLE_DEVICES"] = f"{gpu_num}"
@@ -14,6 +16,7 @@ except ImportError as e:
     import sionna
 
 import tensorflow as tf
+
 gpus = tf.config.list_physical_devices('GPU')
 if gpus:
     try:
@@ -55,7 +58,7 @@ from sionna.utils.metrics import compute_ber
 
 num_ut = 1
 num_bs = 1
-num_ut_ant = 1
+num_ut_ant = 2
 num_bs_ant = 4
 num_streams_per_tx = num_ut_ant
 rx_tx_association = np.array([[1]])
@@ -140,7 +143,7 @@ n = int(rg.num_data_symbols*num_bits_per_symbol) # Number of coded bits
 binary_source = BinarySource()
 
 
-batch_size = 8 # We pick a small batch_size as executing this code in Eager mode could consume a lot of memory
+batch_size = 12 # We pick a small batch_size as executing this code in Eager mode could consume a lot of memory
 ebno_db = 100
 perfect_csi = True
 

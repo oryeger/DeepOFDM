@@ -73,7 +73,7 @@ class Trainer(object):
     #                                                clip_percentage_in_tx=conf.clip_percentage_in_tx,
     #                                                cfo=conf.cfo,
     #                                                go_to_td=conf.go_to_td,
-    #                                                cfo_in_rx=conf.cfo_in_rx,
+    #                                                cfo_and_clip_in_rx=conf.cfo_and_clip_in_rx,
     #                                                kernel_size=conf.kernel_size)
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iters_ext: int, epochs: int):

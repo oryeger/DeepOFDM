@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 
 class MIMOChannel:
     def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool,
-                 clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_in_rx: bool, n_users: int):
+                 clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, n_users: int):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
@@ -27,7 +27,7 @@ class MIMOChannel:
         self.delayspread_in_channel = delayspread_in_channel
         self.clip_percentage_in_tx = clip_percentage_in_tx
         self.cfo = cfo
-        self.cfo_in_rx = cfo_in_rx
+        self.cfo_and_clip_in_rx = cfo_and_clip_in_rx
         self.go_to_td = go_to_td
 
 
@@ -71,8 +71,8 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        if not(self.cfo_in_rx) or (self.clip_percentage_in_tx<100):
-            s = SEDChannel.apply_td_and_impairments(s, False, self.go_to_td, self.cfo, self.clip_percentage_in_tx, num_res, n_users)
+        if not(self.cfo_and_clip_in_rx) and ((self.cfo!=0) or (self.clip_percentage_in_tx<100) or (self.go_to_td) ):
+            s = SEDChannel.apply_td_and_impairments(s, False, self.cfo, self.clip_percentage_in_tx, num_res, n_users, False)
 
         show_impair = False
         if show_impair:
@@ -100,7 +100,7 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_in_rx=self.cfo_in_rx, n_users=n_users)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users)
 
         rx = np.transpose(rx, (1, 0, 2))
         rx_ce_t = np.zeros((n_users,rx.shape[0],rx.shape[1],rx.shape[2]),dtype=complex)

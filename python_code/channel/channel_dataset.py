@@ -17,7 +17,7 @@ class ChannelModelDataset(Dataset):
     """
 
     def __init__(self, block_length: int, pilots_length: int, blocks_num: int, num_res: int, fading_in_channel: bool, spatial_in_channel: bool,
-                 delayspread_in_channel: bool, clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_in_rx: bool, kernel_size: int, n_users: int):
+                 delayspread_in_channel: bool, clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, kernel_size: int, n_users: int):
         """
         Initialzes the relevant hyperparameters
         :param block_length: number of pilots + data bits
@@ -31,7 +31,7 @@ class ChannelModelDataset(Dataset):
             self.block_length = block_length
         else:
             self.block_length = pilots_length*BLOCK_LENGTH_FACTOR
-        self.channel_type = MIMOChannel(self.block_length, pilots_length, fading_in_channel, spatial_in_channel, delayspread_in_channel, clip_percentage_in_tx, cfo, go_to_td, cfo_in_rx, n_users)
+        self.channel_type = MIMOChannel(self.block_length, pilots_length, fading_in_channel, spatial_in_channel, delayspread_in_channel, clip_percentage_in_tx, cfo, go_to_td, cfo_and_clip_in_rx, n_users)
         self.num_res = num_res
         self.kernel_size = kernel_size
 

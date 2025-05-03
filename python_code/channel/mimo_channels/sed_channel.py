@@ -5,6 +5,8 @@ from python_code import conf
 from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
                                          CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
+import matplotlib.pyplot as plt
+
 H_COEF = 0.8
 
 from python_code.channel.sionna.TLD_channel import TDLChannel
@@ -213,11 +215,27 @@ class SEDChannel:
                         # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
                         y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         else:
+
+            # OryEger
+            # s = np.abs(s.real) + 1j * np.abs(s.imag)
+
             y = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True)
             y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
             for user in range(n_users):
                 conv_ce = SEDChannel.apply_td_and_impairments(np.expand_dims(s[user,:,:], axis=0), True, cfo, 100, num_res, 1, True)
                 y_ce[user, :, :, :] = conv_ce
+
+        plt.plot(20 * np.log10(np.abs(y[0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
+        plt.plot(20 * np.log10(np.abs(y[1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
+        plt.plot(20 * np.log10(np.abs(y[2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
+        plt.plot(20 * np.log10(np.abs(y[3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
+        plt.xlabel('RE')
+        plt.ylabel('Amp')
+        plt.title('Channel, delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        plt.legend()
+        plt.grid()
+        plt.tight_layout()
+        plt.show()
 
         return y,y_ce
 

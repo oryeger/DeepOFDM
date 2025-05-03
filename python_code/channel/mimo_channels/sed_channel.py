@@ -81,27 +81,35 @@ class SEDChannel:
     @staticmethod
     def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool) -> np.ndarray:
         if td_in_rx:
-            if y_in.ndim == 4:
-                NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
-                NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                n_users_int = n_users
-                y = y_in
+            if not(tdl_channel):
+                if y_in.ndim == 4:
+                    NUM_SLOTS = int(y_in.shape[2] / NUM_SYMB_PER_SLOT)
+                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                    n_users_int = n_users
+                    y = y_in
+                else:
+                    NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
+                    NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
+                    n_users_int = 1
+                    y = np.expand_dims(y_in, axis=0)
+                n_input_rx_int = y.shape[1]
             else:
                 NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
                 NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                n_users_int = 1
+                n_users_int = n_users
                 y = np.expand_dims(y_in, axis=0)
+                n_input_rx_int = 1
         else:
             NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
             n_users_int = n_users
             y = np.expand_dims(y_in, axis=1)
 
-        st_full = np.zeros((n_users_int, y.shape[1], NUM_SAMPLES_TOTAL), dtype=complex)
+        st_full = np.zeros((n_users_int, n_input_rx_int, NUM_SAMPLES_TOTAL), dtype=complex)
 
         # OFDM modulation:
         for user in range(n_users_int):
-            for rx in range(y.shape[1]):
+            for rx in range(n_input_rx_int):
                 st_one_antenna = np.array([])
                 for slot_num in range(NUM_SLOTS):
                     cp_length = FIRST_CP
@@ -139,7 +147,7 @@ class SEDChannel:
             st_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0)
             st_full = st_out
 
-        y_out_pre = np.zeros((y.shape[0],st_full.shape[1],y.shape[2],y.shape[3]))
+        y_out_pre = np.zeros((y.shape[0],st_full.shape[1],y.shape[2],y.shape[3]), dtype=np.complex64)
         for user in range(n_users_int):
             for rx in range(st_full.shape[1]):
                 pointer = 0

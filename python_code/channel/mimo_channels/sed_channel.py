@@ -93,12 +93,14 @@ class SEDChannel:
                     n_users_int = 1
                     y = np.expand_dims(y_in, axis=0)
                 n_input_rx_int = y.shape[1]
+                n_users_out_int = n_users_int
             else:
                 NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
                 NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
-                n_users_int = n_users
-                y = np.expand_dims(y_in, axis=0)
+                n_users_int = y_in.shape[0]
+                y = np.expand_dims(y_in, axis=1)
                 n_input_rx_int = 1
+                n_users_out_int = 1
         else:
             NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
@@ -147,8 +149,8 @@ class SEDChannel:
             st_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0)
             st_full = st_out
 
-        y_out_pre = np.zeros((y.shape[0],st_full.shape[1],y.shape[2],y.shape[3]), dtype=np.complex64)
-        for user in range(n_users_int):
+        y_out_pre = np.zeros((n_users_out_int,st_full.shape[1],y.shape[2],y.shape[3]), dtype=np.complex64)
+        for user in range(n_users_out_int):
             for rx in range(st_full.shape[1]):
                 pointer = 0
                 index = 0
@@ -214,7 +216,7 @@ class SEDChannel:
             y = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True)
             y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
             for user in range(n_users):
-                conv_ce = SEDChannel.apply_td_and_impairments(s[user,:,:], True, cfo, 100, num_res, 1, True)
+                conv_ce = SEDChannel.apply_td_and_impairments(np.expand_dims(s[user,:,:], axis=0), True, cfo, 100, num_res, 1, True)
                 y_ce[user, :, :, :] = conv_ce
 
         return y,y_ce

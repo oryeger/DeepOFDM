@@ -15,10 +15,10 @@ interf_factor: 1
 ber_on_one_user: 0
 half_probs: True
 
-TDL_model: 'None' # 'None', 'A', 'B', 'C'
+TDL_model: 'A' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
-speed: 100 # in m/s
+speed: 0 # in m/s
 
 
 run_deeprx: False

@@ -66,7 +66,7 @@ class TDLChannel:
         tdl = TDL(model="A",
                           delay_spread=float(conf.delay_spread),
                           carrier_frequency=float(conf.carrier_frequency),
-                          num_tx_ant=conf.n_users,
+                          num_tx_ant=y_in.shape[0],
                           num_rx_ant=N_ANTS,
                           min_speed=conf.speed)
 
@@ -82,7 +82,7 @@ class TDLChannel:
 
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)
-        y_reshaped = tf.reshape(y_tf, [batch_size, 1, conf.n_users, NUM_SAMPLES_PER_SLOT])
+        y_reshaped = tf.reshape(y_tf, [batch_size, 1, y_in.shape[0], NUM_SAMPLES_PER_SLOT])
         y_reshaped = tf.cast(y_reshaped, h_time.dtype)
 
         no = tf.convert_to_tensor(float(noise_var))

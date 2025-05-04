@@ -63,7 +63,7 @@ from sionna.utils.metrics import compute_ber
 class TDLChannel:
     @staticmethod
     def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float) -> np.ndarray:
-        tdl = TDL(model="A",
+        tdl = TDL(model=conf.TDL_model,
                           delay_spread=float(conf.delay_spread),
                           carrier_frequency=float(conf.carrier_frequency),
                           num_tx_ant=y_in.shape[0],

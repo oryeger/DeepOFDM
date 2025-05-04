@@ -231,7 +231,7 @@ class SEDChannel:
         plt.plot(20 * np.log10(np.abs(y[3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
         plt.xlabel('RE')
         plt.ylabel('Amp')
-        plt.title('Channel, delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
         plt.legend()
         plt.grid()
         plt.tight_layout()

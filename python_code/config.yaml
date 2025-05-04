@@ -16,7 +16,7 @@ ber_on_one_user: 0
 half_probs: True
 
 TDL_model: 'A' # 'None', 'A', 'B', 'C'
-delay_spread: 300e-9 # in Seconds
+delay_spread: 30e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 

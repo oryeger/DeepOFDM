@@ -70,6 +70,11 @@ class MIMOChannel:
 
         s = np.concatenate([s_pilots, s_data], axis=1)
 
+        # OryEger - constant tx symbol
+        # s = np.abs(s.real) + 1j * np.abs(s.imag)
+        s = np.abs(s.real)
+
+
         s_orig = np.copy(s)
 
         if not(self.cfo_and_clip_in_rx) and ((self.cfo!=0) or (self.clip_percentage_in_tx<100) or (self.go_to_td) ):

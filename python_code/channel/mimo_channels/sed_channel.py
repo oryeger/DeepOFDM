@@ -193,12 +193,9 @@ class SEDChannel:
         :return: received word
         """
 
-        # OryEger
-        # s = np.abs(s.real) + 1j * np.abs(s.imag)
-
         var = 10 ** (-0.1 * snr)
         empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-        if conf.TDL_model == 'None':
+        if conf.TDL_model[0] == 'N':
             y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
             y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
 
@@ -238,17 +235,49 @@ class SEDChannel:
                 conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used)
                 y_ce[user, :, :, :] = conv_ce
 
-        plt.plot(20 * np.log10(np.abs(y[0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
-        plt.plot(20 * np.log10(np.abs(y[1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
-        plt.plot(20 * np.log10(np.abs(y[2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
-        plt.plot(20 * np.log10(np.abs(y[3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
-        plt.xlabel('RE')
-        plt.ylabel('Amp')
-        plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-        plt.legend()
-        plt.grid()
-        plt.tight_layout()
+        fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
+        axes[0].plot(20 * np.log10(np.abs(y[0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y[1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y[2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y[3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
+        axes[0].set_xlabel('RE')
+        axes[0].set_ylabel('Amp')
+        axes[0].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        axes[0].legend()
+        axes[0].grid()
+
+        axes[1].plot(20 * np.unwrap(np.angle(y[0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y[1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y[2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y[3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
+        axes[1].set_xlabel('RE')
+        axes[1].set_ylabel('Phase')
+        axes[1].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        axes[1].legend()
+        axes[1].grid()
+
+        fig.tight_layout()
         plt.show()
+
+        axes[0].plot(20 * np.log10(np.abs(y_ce[0,0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y_ce[0,1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y_ce[0,2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
+        axes[0].plot(20 * np.log10(np.abs(y_ce[0,3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
+        axes[0].set_xlabel('RE')
+        axes[0].set_ylabel('Amp')
+        axes[0].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        axes[0].legend()
+        axes[0].grid()
+
+        axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,1, 3, :])), '-', color='r', label='Ant 1, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,2, 3, :])), '-', color='k', label='Ant 2, Symbol 0')
+        axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,3, 3, :])), '-', color='b', label='Ant 3, Symbol 0')
+        axes[1].set_xlabel('RE')
+        axes[1].set_ylabel('Phase')
+        axes[1].set_title('CE TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        axes[1].legend()
+        axes[1].grid()
 
         return y,y_ce
 

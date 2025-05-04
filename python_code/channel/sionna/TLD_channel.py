@@ -2,7 +2,7 @@ import os
 from python_code import conf
 
 from python_code.utils.constants import N_ANTS, NUM_SAMPLES_PER_SLOT, SAMPLING_RATE
-
+import matplotlib.pyplot as plt
 
 
 if os.getenv("CUDA_VISIBLE_DEVICES") is None:
@@ -69,6 +69,13 @@ class TDLChannel:
         else:
             h_time = external_channel
 
+        h_cur = abs(h_time[0, 0, 0, 0, 0, 0, :])
+        plt.plot(np.abs(h_cur), linestyle='-', color='b', label='h_time, peak@ '+str(np.argmax(h_cur)))
+        plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+        plt.legend()
+        plt.grid()
+        plt.show()
+
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)
         y_reshaped = tf.reshape(y_tf, [batch_size, 1, y_in.shape[0], NUM_SAMPLES_PER_SLOT])
@@ -76,7 +83,8 @@ class TDLChannel:
 
         no = tf.convert_to_tensor(float(noise_var))
         y_out = channel_time([y_reshaped, h_time, no])
-        y_out = y_out[:,:,:,:-l_tot+1]
+        TA = np.argmax(h_cur)
+        y_out = y_out[:,:,:,TA:-l_tot+1+TA]
         y_out = tf.reshape(y_out, (1, N_ANTS, int(batch_size*NUM_SAMPLES_PER_SLOT)))
         y_out = y_out.numpy()
         return y_out, h_time

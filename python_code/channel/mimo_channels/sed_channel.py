@@ -152,7 +152,7 @@ class SEDChannel:
             st_full = st_full*rms_value/new_rms_value
 
         if tdl_channel:
-            st_out, chan_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0, external_chan)
+            st_out, chan_out = TDLChannel.conv_and_noise(st_full,1,0, NUM_SLOTS, external_chan)
             st_full = st_out
         else:
             chan_out = tf.zeros([0], dtype=tf.float32)

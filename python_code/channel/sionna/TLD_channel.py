@@ -47,7 +47,7 @@ from typing import Tuple
 
 class TDLChannel:
     @staticmethod
-    def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, external_channel: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
+    def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
         tdl = TDL(model=conf.TDL_model,
                           delay_spread=float(conf.delay_spread),
                           carrier_frequency=float(conf.carrier_frequency),
@@ -56,7 +56,7 @@ class TDLChannel:
                           min_speed=conf.speed)
 
 
-        num_time_samples = NUM_SAMPLES_PER_SLOT
+        num_time_samples = NUM_SAMPLES_PER_SLOT * num_slots
         bandwidth  = SAMPLING_RATE
 
 
@@ -78,14 +78,14 @@ class TDLChannel:
 
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)
-        y_reshaped = tf.reshape(y_tf, [batch_size, 1, y_in.shape[0], NUM_SAMPLES_PER_SLOT])
+        y_reshaped = tf.reshape(y_tf, [batch_size, 1, y_in.shape[0], num_time_samples])
         y_reshaped = tf.cast(y_reshaped, h_time.dtype)
 
         no = tf.convert_to_tensor(float(noise_var))
         y_out = channel_time([y_reshaped, h_time, no])
         TA = np.argmax(h_cur)
         y_out = y_out[:,:,:,TA:-l_tot+1+TA]
-        y_out = tf.reshape(y_out, (1, N_ANTS, int(batch_size*NUM_SAMPLES_PER_SLOT)))
+        y_out = tf.reshape(y_out, (1, N_ANTS, int(num_time_samples)))
         y_out = y_out.numpy()
         return y_out, h_time
 

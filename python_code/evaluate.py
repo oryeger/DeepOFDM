@@ -631,7 +631,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     if PLOT_CE_ON_DATA:
         plt.semilogy(SNR_range, total_ber_legacy_ce_on_data, '-o', color='b', label='CE Data,   SNR @1%='+str(snr_at_target_legacy_ce_on_data))
 
-    plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie, SNR @1%='+str(snr_at_target_legacy_genie))
+    # plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k', label='Legacy Genie, SNR @1%='+str(snr_at_target_legacy_genie))
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
     title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(

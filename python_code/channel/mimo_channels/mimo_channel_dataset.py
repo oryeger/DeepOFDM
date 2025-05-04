@@ -72,7 +72,7 @@ class MIMOChannel:
 
         # OryEger - constant tx symbol
         # s = np.abs(s.real) + 1j * np.abs(s.imag)
-        s = np.abs(s.real)
+        # s = np.abs(s.real)
 
 
         s_orig = np.copy(s)

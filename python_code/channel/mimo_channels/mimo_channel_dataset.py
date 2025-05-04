@@ -9,6 +9,7 @@ from python_code.channel.modulator import BPSKModulator
 from python_code.utils.constants import N_ANTS
 import commpy.modulation as mod
 import matplotlib.pyplot as plt
+import tensorflow as tf
 
 
 
@@ -72,7 +73,8 @@ class MIMOChannel:
         s_orig = np.copy(s)
 
         if not(self.cfo_and_clip_in_rx) and ((self.cfo!=0) or (self.clip_percentage_in_tx<100) or (self.go_to_td) ):
-            s = SEDChannel.apply_td_and_impairments(s, False, self.cfo, self.clip_percentage_in_tx, num_res, n_users, False)
+            empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
+            s, _ = SEDChannel.apply_td_and_impairments(s, False, self.cfo, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor)
 
         show_impair = False
         if show_impair:

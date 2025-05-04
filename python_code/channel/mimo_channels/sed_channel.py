@@ -6,6 +6,10 @@ from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, NUM_SYMB_PER_SLO
                                          CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
 import matplotlib.pyplot as plt
+import tensorflow as tf
+from typing import Tuple
+
+
 
 H_COEF = 0.8
 
@@ -81,7 +85,7 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool) -> np.ndarray:
+    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
         if td_in_rx:
             if not(tdl_channel):
                 if y_in.ndim == 4:
@@ -148,8 +152,10 @@ class SEDChannel:
             st_full = st_full*rms_value/new_rms_value
 
         if tdl_channel:
-            st_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0)
+            st_out, chan_out = TDLChannel.conv_and_noise(st_full,NUM_SLOTS,0, external_chan)
             st_full = st_out
+        else:
+            chan_out = tf.zeros([0], dtype=tf.float32)
 
         y_out_pre = np.zeros((n_users_out_int,st_full.shape[1],y.shape[2],y.shape[3]), dtype=np.complex64)
         for user in range(n_users_out_int):
@@ -173,7 +179,7 @@ class SEDChannel:
         else:
             y_out = np.squeeze(y_out_pre, axis=1)
 
-        return y_out
+        return y_out, chan_out
 
 
 
@@ -186,7 +192,12 @@ class SEDChannel:
         :param h: channel function
         :return: received word
         """
+
+        # OryEger
+        # s = np.abs(s.real) + 1j * np.abs(s.imag)
+
         var = 10 ** (-0.1 * snr)
+        empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
         if conf.TDL_model == 'None':
             y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
             y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
@@ -204,8 +215,8 @@ class SEDChannel:
                     y_ce[user, :, :, re_index] = conv_ce
 
             if cfo_and_clip_in_rx and ((cfo!=0) or (conf.clip_percentage_in_tx<100) or go_to_td ):
-                y = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False)
-                y_ce = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False)
+                y , _ = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
+                y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
 
             for re_index in range(num_res):
                 w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
@@ -216,13 +227,15 @@ class SEDChannel:
                         y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         else:
 
-            # OryEger
-            # s = np.abs(s.real) + 1j * np.abs(s.imag)
 
-            y = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True)
+            y, channel_used = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True, empty_tf_tensor)
             y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
+            all_values = list(range(n_users))
             for user in range(n_users):
-                conv_ce = SEDChannel.apply_td_and_impairments(np.expand_dims(s[user,:,:], axis=0), True, cfo, 100, num_res, 1, True)
+                idx = np.setdiff1d(all_values, user)
+                s_cur_user = s.copy()
+                s_cur_user[idx, :, :] = 0
+                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used)
                 y_ce[user, :, :, :] = conv_ce
 
         plt.plot(20 * np.log10(np.abs(y[0, 3, :])), '-', color='g', label='Ant 0, Symbol 0')

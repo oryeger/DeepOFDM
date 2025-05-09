@@ -29,7 +29,7 @@ class DeepSICTrainer(Trainer):
         else:
             num_nns = 1
 
-        self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iters_ext)] for _ in
+        self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, bit_type: int) -> list[float]:
@@ -73,7 +73,7 @@ class DeepSICTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_ext: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
@@ -92,7 +92,7 @@ class DeepSICTrainer(Trainer):
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSICNet for each user-symbol/iteration
-        for i in range(1, iters_ext):
+        for i in range(1, iterations):
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes
@@ -116,16 +116,16 @@ class DeepSICTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_ext: int) -> tuple[List, List]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> tuple[List, List]:
         # detect and decode
-        detected_word_list = [None] * iters_ext
-        llrs_mat_list = [None] * iters_ext
+        detected_word_list = [None] * iterations
+        llrs_mat_list = [None] * iterations
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
         if conf.separate_nns:
             nns = torch.arange(int(num_bits / 2))
         else:
             nns = 0
-        for i in range(iters_ext):
+        for i in range(iterations):
             probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns)
             detected_word_list[i] = self._compute_output(probs_vec)
         # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')

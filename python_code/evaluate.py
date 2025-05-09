@@ -617,11 +617,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
     # OryEger - plot only the last iterations
     if not(conf.plot_only_last_iteration):
-        iterations_for_plot = iterations
+        iterations_for_plot = list(range(iterations))
     else:
-        iterations_for_plot = iterations(-1)
+        iterations_for_plot = [iterations-1]
 
-    for iteration in range(iterations_for_plot):
+    for iteration in iterations_for_plot:
         plt.semilogy(SNR_range, total_ber_list[iteration], linestyle=dashes[iteration],marker=markers[iteration], color='g', label='DeepSIC'+str(iteration+1)+', SNR @1%='+str(snr_at_target_list[iteration]))
     if conf.run_e2e:
         if conf.no_probs_e2e:

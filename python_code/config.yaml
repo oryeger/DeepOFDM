@@ -1,4 +1,4 @@
-snr: 40
+snr: 0
 num_snrs: 18
 n_users: 4
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
@@ -12,12 +12,12 @@ kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
 interf_factor: 1
-ber_on_one_user: 0
-half_probs: True
+ber_on_one_user: -1
+half_probs: False
 
 plot_only_last_iteration: True
 
-TDL_model: 'A' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s

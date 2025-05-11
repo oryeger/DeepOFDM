@@ -56,7 +56,8 @@ class TDLChannel:
                           min_speed=conf.speed)
 
 
-        num_time_samples = NUM_SAMPLES_PER_SLOT * num_slots
+        # num_time_samples = NUM_SAMPLES_PER_SLOT * num_slots
+        num_time_samples = NUM_SAMPLES_PER_SLOT
         bandwidth  = SAMPLING_RATE
 
 
@@ -78,14 +79,19 @@ class TDLChannel:
 
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)
-        y_reshaped = tf.reshape(y_tf, [batch_size, 1, y_in.shape[0], num_time_samples])
-        y_reshaped = tf.cast(y_reshaped, h_time.dtype)
-
-        no = tf.convert_to_tensor(float(noise_var))
-        y_out = channel_time([y_reshaped, h_time, no])
         TA = np.argmax(h_cur)
-        y_out = y_out[:,:,:,TA:-l_tot+1+TA]
-        y_out = tf.reshape(y_out, (1, N_ANTS, int(num_time_samples)))
-        y_out = y_out.numpy()
+        no = tf.convert_to_tensor(float(noise_var))
+        y_out = np.zeros([1,1,N_ANTS,NUM_SAMPLES_PER_SLOT*num_slots],dtype=np.complex128)
+        for slot in range(num_slots):
+            y_reshaped = tf.reshape(y_tf[:,:,slot*num_time_samples:(slot+1)*num_time_samples], [batch_size, 1, y_in.shape[0], num_time_samples])
+            y_reshaped = tf.cast(y_reshaped, h_time.dtype)
+            y_out_cur_slot = channel_time([y_reshaped, h_time, no])
+            y_out_cur_slot = y_out_cur_slot[:,:,:,TA:-l_tot+1+TA]
+            y_out[:,:,:,slot*num_time_samples:(slot+1)*num_time_samples] = y_out_cur_slot.numpy()
+        y_out = np.reshape(y_out, (1, N_ANTS, int(NUM_SAMPLES_PER_SLOT*num_slots)))
+        # y_out = y_out.numpy()
+        # np.save('C:\\Projects\\Scratchpad\\output.npy', y_out)
+        # y_out_2 = np.load('C:\\Projects\\Scratchpad\\output.npy')
+
         return y_out, h_time
 

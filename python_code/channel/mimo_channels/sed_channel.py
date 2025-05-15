@@ -215,13 +215,6 @@ class SEDChannel:
                 y , _ = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
                 y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
 
-            for re_index in range(num_res):
-                w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
-                y[:, :, re_index] = y[:, :, re_index] + w
-                if NOISE_TO_CE:
-                    for user in range(n_users):
-                        # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
-                        y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
         else:
 
 
@@ -234,6 +227,15 @@ class SEDChannel:
                 s_cur_user[idx, :, :] = 0
                 conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used)
                 y_ce[user, :, :, :] = conv_ce
+
+        for re_index in range(num_res):
+            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+            y[:, :, re_index] = y[:, :, re_index] + w
+            if NOISE_TO_CE:
+                for user in range(n_users):
+                    # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+                    y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
+
 
         if conf.plot_channel:
             symbol_to_plot = 0

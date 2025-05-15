@@ -71,11 +71,12 @@ class TDLChannel:
             h_time = external_channel
 
         h_cur = abs(h_time[0, 0, 0, 0, 0, 0, :])
-        plt.plot(np.abs(h_cur), linestyle='-', color='b', label='h_time, peak@ '+str(np.argmax(h_cur)))
-        plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-        plt.legend()
-        plt.grid()
-        plt.show()
+        if conf.plot_channel:
+            plt.plot(np.abs(h_cur), linestyle='-', color='b', label='h_time, peak@ '+str(np.argmax(h_cur)))
+            plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+            plt.legend()
+            plt.grid()
+            plt.show()
 
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)

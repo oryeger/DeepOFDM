@@ -161,8 +161,8 @@ x_rg = rg_mapper(x)
 
 cir = tdl(batch_size, rg.num_time_samples+l_tot-1, rg.bandwidth)
 
-# OryEger
-x_rg = tf.complex(tf.abs(tf.math.real(x_rg)), tf.abs(tf.math.imag(x_rg)))
+# Constant Tx symbols
+# x_rg = tf.complex(tf.abs(tf.math.real(x_rg)), tf.abs(tf.math.imag(x_rg)))
 
 # OFDM modulation with cyclic prefix insertion
 x_time = modulator(x_rg)
@@ -181,17 +181,18 @@ y_time = channel_time([x_time, h_time, no])
 y_rg = demodulator(y_time)
 print(h_time.shape)
 
-# plt.plot(tf.abs(y_rg[0,0,0,0,:]), '-', color='b', label='Batch 0, Symbol 0')
-# plt.plot(tf.abs(y_rg[0,0,0,13,:]), '-', color='k', label='Batch 0, Symbol 13')
-plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,0,:].numpy())), '-', color='g', label='Batch 1, Symbol 0')
-plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,13,:].numpy())), '-', color='r', label='Batch 1, Symbol 13')
-plt.xlabel('RE')
-plt.ylabel('Amp')
-plt.title('channel', fontsize=10)
-plt.legend()
-plt.grid()
-plt.tight_layout()
-plt.show()
+if conf.plot_channel:
+    # plt.plot(tf.abs(y_rg[0,0,0,0,:]), '-', color='b', label='Batch 0, Symbol 0')
+    # plt.plot(tf.abs(y_rg[0,0,0,13,:]), '-', color='k', label='Batch 0, Symbol 13')
+    plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,0,:].numpy())), '-', color='g', label='Batch 1, Symbol 0')
+    plt.plot(20*np.log10(tf.abs(y_rg[5,0,0,13,:].numpy())), '-', color='r', label='Batch 1, Symbol 13')
+    plt.xlabel('RE')
+    plt.ylabel('Amp')
+    plt.title('channel', fontsize=10)
+    plt.legend()
+    plt.grid()
+    plt.tight_layout()
+    plt.show()
 
 pass
 

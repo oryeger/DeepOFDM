@@ -1,13 +1,13 @@
 snr: 30
 num_snrs: 1
-n_users: 3
+n_users: 4
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 6
 cfo:  0
 clip_percentage_in_tx: 100
-epochs: 100
+epochs: 300
 iterations: 3
-pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
@@ -15,7 +15,8 @@ interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
 
-plot_only_last_iteration: True
+plot_only_last_iteration: False
+plot_channel: False
 
 TDL_model: 'A' # 'None', 'A', 'B', 'C'
 delay_spread: 30e-9 # in Seconds

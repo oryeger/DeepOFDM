@@ -337,6 +337,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                 else:
                     print('Unknown modulator')
 
+
                 # Sphere:
                 if conf.sphere_radius == 'inf':
                     radius = np.inf
@@ -349,6 +350,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     detected_word_sphere = SphereDecoder(H,rx_data_c[:,:,re].numpy(),radius)
                 else:
                     detected_word_sphere = np.zeros_like(detected_word_legacy)
+
 
                 if PLOT_CE_ON_DATA:
                     # CE on data
@@ -413,7 +415,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_genie[:, i] = torch.from_numpy(
                             BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
-
 
 
                 ###############################################################

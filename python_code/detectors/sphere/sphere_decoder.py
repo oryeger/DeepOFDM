@@ -44,15 +44,28 @@ def SphereDecoder(H, y, radius_in):
     bits_out = np.zeros((y.shape[0]*num_bits, y.shape[1]))
     for i in range(y.shape[0]):
         radius = radius_in
-        if i == 54:
-            pass
         y_tilde = Q.conj().T @ y[i,:]
 
         # Initialize variables
-        best_distance = float('inf')
-        best_x = np.ones((conf.n_users),dtype='complex128')*candidates[0]
+        best_distance_good = float('inf')
+        best_s_good = np.ones((conf.n_users),dtype='complex128')*candidates[0]
+
+        # distances_list = []
+        # for s3 in candidates:
+        #     for s2 in candidates:
+        #         for s1 in candidates:
+        #             for s0 in candidates:
+        #                 current_s = np.array([s0, s1, s2, s3])
+        #                 dist = np.sum(np.abs(y[i] -  current_s@H) ** 2)
+        #                 distances_list.append(dist)
+        #                 if (dist < best_distance_good):
+        #                     best_distance_good = dist
+        #                     best_s_good = current_s
 
         # Start with the last layer (layer 3)
+        best_distance = float('inf')
+        best_s = np.ones((conf.n_users),dtype='complex128')*candidates[0]
+
         for s3 in candidates:
             dist3 = abs(y_tilde[3] - R[3, 3] * s3) ** 2
             if dist3 > radius:
@@ -79,10 +92,14 @@ def SphereDecoder(H, y, radius_in):
 
                         if total_dist < best_distance:
                             best_distance = total_dist
-                            best_x = np.array([s0, s1, s2, s3])
+                            best_s = np.array([s0, s1, s2, s3])
                             radius = best_distance  # Update radius
-        bits_matrix = np.array([bit_combinations[np.where(candidates == s)[0][0]] for s in best_x]).T
+                            # radius = radius_in
+        bits_matrix = np.array([bit_combinations[np.where(candidates == s)[0][0]] for s in best_s]).T
+        # bits_matrix = np.array([bit_combinations[np.where(candidates == s)[0][0]] for s in best_s_good]).T
         bits_out[i*num_bits:(i+1)*num_bits,:] = bits_matrix
+        # if not(np.array_equal(np.round(np.unique(best_s_good - best_s)), np.array([0. + 0.j]))):
+        #     pass
     return bits_out
 
 

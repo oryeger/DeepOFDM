@@ -43,7 +43,7 @@ class SEDChannel:
 
         H_real = H_real * conf.interf_factor
         for i in range(H_real.shape[1]):
-            H_real[0,i] = 1
+            H_real[i,i] = 1
 
         # np.random.seed(42)
         # real_part = np.random.normal(0, 1, (n_ant, n_user))

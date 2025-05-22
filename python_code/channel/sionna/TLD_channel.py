@@ -36,8 +36,6 @@ if gpus:
         print(e)
 tf.get_logger().setLevel('ERROR')
 
-# Set random seed for reproducibility
-sionna.config.seed = 42
 import numpy as np
 from sionna.channel.tr38901 import TDL
 from sionna.channel import cir_to_time_channel, time_lag_discrete_time_channel
@@ -48,6 +46,9 @@ from typing import Tuple
 class TDLChannel:
     @staticmethod
     def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
+        # Set random seed for reproducibility
+        sionna.config.seed = 42
+
         tdl = TDL(model=conf.TDL_model,
                           delay_spread=float(conf.delay_spread),
                           carrier_frequency=float(conf.carrier_frequency),
@@ -74,6 +75,8 @@ class TDLChannel:
         if conf.plot_channel:
             plt.plot(np.abs(h_cur), linestyle='-', color='b', label='h_time, peak@ '+str(np.argmax(h_cur)))
             plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+            plt.xlabel('time (samples)', fontsize=10)
+            plt.ylabel('h', fontsize=10)
             plt.legend()
             plt.grid()
             plt.show()

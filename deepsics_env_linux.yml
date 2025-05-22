@@ -1,0 +1,17 @@
+name: DeepOFDMs
+channels:
+  - defaults
+dependencies:
+  - ca-certificates=2023.01.10
+  - openssl=1.1.1t
+  - pip=23.0.1
+  - python=3.9.16
+  - setuptools=66.0.0
+  - sqlite=3.41.2
+  - tzdata=2023c=h04d1e81_0
+  - wheel=0.38.4
+  - pip:
+      - numpy==1.24.3
+      - pyyaml==6.0
+      - typing-extensions==4.5.0
+prefix: /home/egero/miniconda3/envs/DeepOFDMs

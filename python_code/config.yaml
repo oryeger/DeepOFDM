@@ -16,6 +16,8 @@ ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
 
+dot_product: False
+
 plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False

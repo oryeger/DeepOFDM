@@ -575,7 +575,20 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         for iteration in range(iterations):
             plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration], ber_legacy, ber_legacy_genie, iteration)
 
+        df = pd.DataFrame(
+            {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber": total_ber_list[-1], "total_ber_deeprx": total_ber_deeprx,
+             "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
+        # print('\n'+title_string)
+        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
+            conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
+                        cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
+                    iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
+                    conf.clip_percentage_in_tx) + '%')
 
+        title_string = title_string.replace("\n", "")
+        output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
+        file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
+        df.to_csv(file_path, index=False)
 
         # for iteration in range(iterations):
         #     np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))
@@ -683,13 +696,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     plt.tight_layout()
     plt.show()
 
-    df = pd.DataFrame({"SNR_range": SNR_range, "total_ber": total_ber_list[-1], "total_ber_deeprx": total_ber_deeprx,
-                       "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
-    # print('\n'+title_string)
-    title_string = title_string.replace("\n", "")
-    output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
-    file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
-    df.to_csv(file_path, index=False)
     # Look at the weights:
     # print(deepsic_trainer.detector[0][0].shared_backbone.fc.weight)
     # print(deepsic_trainer.detector[1][0].instance_heads[0].fc1.weight[0])

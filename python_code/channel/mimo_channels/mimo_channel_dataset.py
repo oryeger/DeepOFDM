@@ -71,8 +71,9 @@ class MIMOChannel:
         s = np.concatenate([s_pilots, s_data], axis=1)
 
         # OryEger - constant tx symbol
-        s = np.abs(s.real) + 1j * np.abs(s.imag)
-        s = np.abs(s.real)
+        # s = np.abs(s.real) + 1j * np.abs(s.imag)
+        # s = np.abs(s.real)
+        # assert not (True), "constant tx symbol"
 
 
         s_orig = np.copy(s)

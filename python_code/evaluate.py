@@ -687,7 +687,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                        "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
     # print('\n'+title_string)
     title_string = title_string.replace("\n", "")
-    output_dir = os.path.join(os.getcwd(), '..', '..', 'Scratchpad')
+    output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
     file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
     df.to_csv(file_path, index=False)
     # Look at the weights:

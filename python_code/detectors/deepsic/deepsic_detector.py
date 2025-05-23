@@ -23,7 +23,7 @@ class DeepSICDetector(nn.Module):
         self.fc0 = nn.Linear(matrix_size, matrix_size, bias=False)
 
         with torch.no_grad():
-            self.fc0.weight.copy_(torch.eye(matrix_size) + 1e-6)
+            self.fc0.weight.copy_(torch.eye(matrix_size) + 1e-6 * torch.ones(matrix_size, matrix_size))
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')
         if conf.separate_nns:

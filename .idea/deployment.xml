@@ -1,9 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="egero@132.72.66.213:22 password" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
       <paths name="132.72.66.213">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/egero/Projects/DeepOFDM " local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="132.72.66.59">
         <serverdata>
           <mappings>
             <mapping deploy="/home/egero/Projects/DeepOFDM " local="$PROJECT_DIR$" web="/" />
@@ -102,6 +109,13 @@
           </mappings>
         </serverdata>
       </paths>
+      <paths name="egero@132.72.66.59:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/egero/Projects/DeepOFDM" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="egero@132.72.67.224:22 password">
         <serverdata>
           <mappings>
@@ -110,6 +124,13 @@
         </serverdata>
       </paths>
       <paths name="egero@132.72.67.227:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/egero/Projects/DeepOFDM" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="egero@132.72.67.227:22 password (2)">
         <serverdata>
           <mappings>
             <mapping deploy="/home/egero/Projects/DeepOFDM" local="$PROJECT_DIR$" />

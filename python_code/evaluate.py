@@ -576,8 +576,19 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration], ber_legacy, ber_legacy_genie, iteration)
 
         df = pd.DataFrame(
-            {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber": total_ber_list[-1], "total_ber_deeprx": total_ber_deeprx,
+            {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
+             "total_ber_deeprx": total_ber_deeprx,
              "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
+        if conf.iterations == 2:
+            df = pd.DataFrame(
+                {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0], "total_ber_2": total_ber_list[1],
+                 "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
+        elif conf.iterations == 3:
+            df = pd.DataFrame(
+                {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0], "total_ber_2": total_ber_list[1], "total_ber_3": total_ber_list[2],
+                 "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         # print('\n'+title_string)
         title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
             conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +

@@ -19,7 +19,7 @@ def calculate_ber(prediction: torch.Tensor, target: torch.Tensor, num_bits: int)
                 prediction_rs[j*num_bits+i,:] = prediction[j,index_list[i]]
         prediction   = prediction_rs
 
-    ber = 1 - torch.mean(torch.all(prediction == target, dim=1).float()).item()
+    ber = torch.mean((prediction != target).float())
     # ber = 1 - torch.mean(torch.all(prediction[1::2,:] == target[1::2,:], dim=1).float()).item()
     return ber
 

@@ -3,6 +3,13 @@
   <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
+      <paths name="132.72.65.240">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/egero/Projects/DeepOFDM " local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="132.72.66.213">
         <serverdata>
           <mappings>
@@ -50,6 +57,13 @@
         <serverdata>
           <mappings>
             <mapping deploy="/home/egero/Projects/DeepOFDM/" local="$PROJECT_DIR$" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="egero@132.72.65.240:22 password">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/tmp/pycharm_project_368" local="$PROJECT_DIR$" />
           </mappings>
         </serverdata>
       </paths>

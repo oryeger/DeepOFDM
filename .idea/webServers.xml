@@ -10,7 +10,7 @@
         </fileTransfer>
       </webServer>
       <webServer id="49be4f56-68e2-42b1-9b0c-5b27b9e41ab7" name="egero@132.72.65.249">
-        <fileTransfer accessType="SFTP" host="132.72.66.59" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+        <fileTransfer accessType="SFTP" host="132.72.65.240" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
@@ -24,21 +24,28 @@
         </fileTransfer>
       </webServer>
       <webServer id="2d1ee56c-5cf4-4cb5-ae6e-0fbb638431e5" name="132.72.67.227">
-        <fileTransfer accessType="SFTP" host="132.72.66.59" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+        <fileTransfer accessType="SFTP" host="132.72.65.240" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
       <webServer id="c63427e0-8c1b-43e7-8a74-de4f550f79a4" name="132.72.66.213">
-        <fileTransfer accessType="SFTP" host="132.72.66.59" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+        <fileTransfer accessType="SFTP" host="132.72.65.240" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>
         </fileTransfer>
       </webServer>
       <webServer id="e523324a-09a0-4c24-a77e-ea5254f87f0d" name="132.72.66.59">
-        <fileTransfer accessType="SFTP" host="132.72.66.59" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+        <fileTransfer accessType="SFTP" host="132.72.65.240" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
+          <advancedOptions>
+            <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
+          </advancedOptions>
+        </fileTransfer>
+      </webServer>
+      <webServer id="9ab21c40-b333-4449-a1e0-d507916a99a7" name="132.72.65.240">
+        <fileTransfer accessType="SFTP" host="132.72.65.240" port="22" sshConfigId="8434d334-3e20-41c8-8d33-9ced2c3a6f65" sshConfig="egero@132.72.65.249">
           <advancedOptions>
             <advancedOptions dataProtectionLevel="Private" passiveMode="true" shareSSLContext="true" />
           </advancedOptions>

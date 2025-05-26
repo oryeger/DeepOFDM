@@ -17,7 +17,10 @@ class DeepSICDetector(nn.Module):
             if conf.half_probs:
                 conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+N_ANTS*2)
             else:
-                conv_num_channels =  int(num_bits*n_users+N_ANTS*2)
+                if conf.train_on_ce:
+                    conv_num_channels = int(num_bits * n_users + N_ANTS * (1+n_users) *2)
+                else:
+                    conv_num_channels =  int(num_bits*n_users+N_ANTS*2)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:
             matrix_size = conv_num_channels*conf.num_res # N_ANTS*2*conf.num_res

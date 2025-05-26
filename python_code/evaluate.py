@@ -175,6 +175,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_deeprx = 0
         ber_sum_legacy = 0
+        ber_per_re_legacy = np.zeros((iterations,conf.num_res))
         ber_sum_sphere = 0
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
@@ -282,8 +283,37 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
             # online training main function
             if deepsic_trainer.is_online_training:
-                train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
-                detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations)
+                if conf.train_on_ce:
+                    H_all = torch.zeros(N_ANTS*conf.n_users, conf.num_res,dtype=torch.complex64)
+                    for re in range(conf.num_res):
+                        H = torch.zeros(N_ANTS,conf.n_users,dtype=torch.complex64)
+                        for user in range(n_users):
+                            s_orig_pilot = s_orig[:pilot_chunk, user, re]
+                            rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+                            H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                    torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                        H_all[:, re] = H.reshape(N_ANTS * conf.n_users)
+                    real_part = H_all.real
+                    imag_part = H_all.imag
+                    H_all_real = torch.empty((H_all.shape[0] * 2, H_all.shape[1]), dtype=torch.float32)
+                    H_all_real[0::2, :] = real_part  # Real parts in even rows
+                    H_all_real[1::2, :] = imag_part  # Imaginary parts in odd rows
+
+                    H_repeated = H_all_real.unsqueeze(0).repeat(rx_pilot.shape[0], 1, 1)
+                    rx_pilot_and_H = torch.cat((rx_pilot, H_repeated), dim=1)
+
+                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot_and_H.to('cpu'), num_bits, n_users, iterations, epochs)
+                else:
+                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
+
+
+                if conf.train_on_ce:
+                    H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)
+                    rx_data_and_H = torch.cat((rx_data, H_repeated), dim=1)
+                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users, iterations)
+                else:
+                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations)
+
 
             if conf.run_e2e:
                 if deepsice2e_trainer.is_online_training:
@@ -485,6 +515,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     ber_legacy = calculate_ber(torch.from_numpy(detected_word_legacy), target.cpu(),num_bits)
                     ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(),num_bits)
 
+                ber_per_re_legacy[iteration,re] = ber_legacy
+
+
                 if PLOT_CE_ON_DATA:
                     if conf.ber_on_one_user >= 0:
                         ber_legacy_ce_on_data = calculate_ber(detected_word_legacy_ce_on_data[:conf.ber_on_one_user].unsqueeze(-1).cpu(), target[:conf.ber_on_one_user].unsqueeze(-1).cpu(),num_bits)
@@ -607,10 +640,18 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
         plt.plot(np.arange(conf.num_res),ber_per_re[0,:], linestyle='-', color='g', label='BER '+add_text)
         plt.legend()
-        plt.title(title_string)
+        plt.title('DeepSIC, '+title_string)
         plt.tight_layout()
         plt.grid()
         plt.show()
+
+        plt.plot(np.arange(conf.num_res),ber_per_re_legacy[0,:], linestyle='-', color='g', label='BER '+add_text)
+        plt.legend()
+        plt.title('Legacy, '+title_string)
+        plt.tight_layout()
+        plt.grid()
+        plt.show()
+
 
         title_string = title_string.replace("\n", "")
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

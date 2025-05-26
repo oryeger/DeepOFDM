@@ -262,27 +262,46 @@ class SEDChannel:
             fig.tight_layout()
             plt.show()
 
-            axes[0].plot(20 * np.log10(np.abs(y_ce[0,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            axes[0].plot(20 * np.log10(np.abs(y_ce[0,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            axes[0].plot(20 * np.log10(np.abs(y_ce[0,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            axes[0].plot(20 * np.log10(np.abs(y_ce[0,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            axes[0].set_xlabel('Subcarrier')
-            axes[0].set_ylabel('Amp (dB)')
-            axes[0].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            axes[0].legend()
-            axes[0].grid()
+            colors = ['g', 'r', 'k', 'b']
+            user = max(conf.ber_on_one_user,0)
+            for ant in range(N_ANTS):
+                plt.plot(
+                    20 * np.log10(np.abs(y_ce[user, ant, symbol_to_plot, :])),
+                    '-', color=colors[ant], label=f'Ant {ant}'
+                )
 
-            axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            axes[1].plot(20 * np.unwrap(np.angle(y_ce[0,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            axes[1].set_xlabel('Subcarrier')
-            axes[1].set_ylabel('Phase (Rad)')
-            axes[1].set_title('CE TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            axes[1].legend()
-            axes[1].grid()
-            fig.tight_layout()
+            plt.xlabel('Subcarrier')
+            plt.ylabel('Amp (dB)')
+            plt.title(
+                f'User {user}, TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
+                fontsize=10)
+            plt.legend()
+            plt.grid()
+            plt.tight_layout()
             plt.show()
+            pass
+
+            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
+            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
+            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
+            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
+            # axes[0].set_xlabel('Subcarrier')
+            # axes[0].set_ylabel('Amp (dB)')
+            # axes[0].set_title('User '+ str(np.max(conf.ber_on_one_user,0)) + ', TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+            # axes[0].legend()
+            # axes[0].grid()
+            #
+            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
+            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
+            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
+            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
+            # axes[1].set_xlabel('Subcarrier')
+            # axes[1].set_ylabel('Phase (Rad)')
+            # axes[1].set_title('User '+ str(np.max(conf.ber_on_one_user,0)) + ', TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+            # axes[1].legend()
+            # axes[1].grid()
+            # fig.tight_layout()
+            # plt.show()
 
         return y,y_ce
 

@@ -171,6 +171,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     Final_SNR = conf.snr + conf.num_snrs - 1
     for snr_cur in SNR_range:
         ber_sum = np.zeros(iterations)
+        ber_per_re = np.zeros((iterations,conf.num_res))
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_deeprx = 0
         ber_sum_legacy = 0
@@ -451,6 +452,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(),num_bits)
 
                     ber_sum[iteration] += ber
+                    ber_per_re[iteration,re] = ber
                 if conf.run_e2e:
                     for iteration in range(iters_e2e_disp):
                         detected_word_cur_re_e2e = detected_word_e2e_list[iteration][:, :, re]
@@ -596,11 +598,28 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx) + '%')
 
+
+        # plot BER per RE for first iteration:
+        if conf.ber_on_one_user >= 0:
+            add_text = 'user '+ str(conf.ber_on_one_user)
+        else:
+            add_text = 'all users'
+
+        plt.plot(np.arange(conf.num_res),ber_per_re[0,:], linestyle='-', color='g', label='BER '+add_text)
+        plt.legend()
+        plt.title(title_string)
+        plt.tight_layout()
+        plt.grid()
+        plt.show()
+
         title_string = title_string.replace("\n", "")
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
         df.to_csv(file_path, index=False)
 
+
+
+        
         # for iteration in range(iterations):
         #     np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))
         # if conf.run_deeprx:

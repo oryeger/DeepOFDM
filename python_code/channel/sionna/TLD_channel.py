@@ -47,7 +47,8 @@ class TDLChannel:
     @staticmethod
     def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
-        sionna.config.seed = 731 # 42
+        sionna.config.seed = 42
+        # 42 731
 
         tdl = TDL(model=conf.TDL_model,
                           delay_spread=float(conf.delay_spread),

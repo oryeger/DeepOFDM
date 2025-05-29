@@ -1,5 +1,6 @@
 snr: 40
 num_snrs: 1
+snr_step: 2
 n_users: 4
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 24
@@ -16,9 +17,10 @@ ber_on_one_user: 0
 half_probs: False
 sphere_radius: 'inf'
 
-dot_product: True
+dot_product: False
 scale_input: False
 train_on_ce: False
+use_data_as_pilots: True
 
 plot_only_last_iteration: False
 plot_channel: False

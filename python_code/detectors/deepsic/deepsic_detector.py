@@ -17,7 +17,7 @@ class DeepSICDetector(nn.Module):
             if conf.half_probs:
                 conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+N_ANTS*2)
             else:
-                if conf.train_on_ce:
+                if conf.train_on_ce or conf.use_data_as_pilots:
                     conv_num_channels = int(num_bits * n_users + N_ANTS * (1+n_users) *2)
                 else:
                     conv_num_channels =  int(num_bits*n_users+N_ANTS*2)

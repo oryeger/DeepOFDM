@@ -287,22 +287,22 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             # online training main function
             if deepsic_trainer.is_online_training:
                 if conf.train_on_ce:
-                    H_all = torch.zeros(N_ANTS * conf.n_users, conf.num_res, dtype=torch.complex64)
+                    H_all = torch.zeros(N_ANTS, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
-                        H = torch.zeros(N_ANTS, conf.n_users, dtype=torch.complex64)
-                        for user in range(n_users):
-                            rx_pilot_cur = rx[:pilot_chunk, :, re]
-                            rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
-                            H[:, user] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
-                                    torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
+                        rx_pilot_cur = rx[:pilot_chunk, :, re]
+                        rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
+                        H_all[:, re] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
+                                torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
 
-                            H_matalb = H[:, user]
-                            rx_mean_matlab = rx_pilot_cur_mean.cpu().numpy()
-                            rx_matlab = rx_pilot_cur.cpu().numpy()
-                            savemat('tensors.mat', { 'H_matalb': H_matalb, 'rx_mean_matlab': rx_mean_matlab, 'rx_matlab': rx_matlab})
+                        # H_matlab = H[:, user]
+                            # rx_mean_matlab = rx_pilot_cur_mean.cpu().numpy()
+                            # rx_matlab = rx_pilot_cur.cpu().numpy()
+                            # savemat('tensors.mat', { 'H_matalb': H_matalb, 'rx_mean_matlab': rx_mean_matlab, 'rx_matlab': rx_matlab})
+                        # rx_pilot_cur = rx[:pilot_chunk, :, re]
+                        # rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
+                        # H[:, user] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
+                        #         torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
 
-
-                        H_all[:, re] = H.reshape(N_ANTS * conf.n_users)
                     real_part = H_all.real
                     imag_part = H_all.imag
                     H_all_real = torch.empty((H_all.shape[0] * 2, H_all.shape[1]), dtype=torch.float32)

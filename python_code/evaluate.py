@@ -26,6 +26,9 @@ from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 
+from scipy.io import savemat
+
+
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 base_dir = Path.home() / "Projects" / "Scratchpad"
@@ -162,7 +165,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         total_ber_legacy_ce_on_data = []
     total_ber_legacy_genie = []
 
-    SNR_range = [conf.snr + i for i in range(conf.num_snrs)]
+    SNR_range = list(range(conf.snr, conf.snr + conf.num_snrs, conf.snr_step))
     total_mi_list = [[] for _ in range(iterations)]
     total_mi_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_mi_deeprx = []
@@ -175,7 +178,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_deeprx = 0
         ber_sum_legacy = 0
-        ber_per_re_legacy = np.zeros((iterations, conf.num_res))
+        ber_per_re_legacy = np.zeros(conf.num_res)
         ber_sum_sphere = 0
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
@@ -288,10 +291,17 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     for re in range(conf.num_res):
                         H = torch.zeros(N_ANTS, conf.n_users, dtype=torch.complex64)
                         for user in range(n_users):
-                            s_orig_pilot = s_orig[:pilot_chunk, user, re]
-                            rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
-                            H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                                    torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                            rx_pilot_cur = rx[:pilot_chunk, :, re]
+                            rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
+                            H[:, user] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
+                                    torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
+
+                            H_matalb = H[:, user]
+                            rx_mean_matlab = rx_pilot_cur_mean.cpu().numpy()
+                            rx_matlab = rx_pilot_cur.cpu().numpy()
+                            savemat('tensors.mat', { 'H_matalb': H_matalb, 'rx_mean_matlab': rx_mean_matlab, 'rx_matlab': rx_matlab})
+
+
                         H_all[:, re] = H.reshape(N_ANTS * conf.n_users)
                     real_part = H_all.real
                     imag_part = H_all.imag
@@ -301,7 +311,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_pilot.shape[0], 1, 1)
                     rx_pilot_and_H = torch.cat((rx_pilot, H_repeated), dim=1)
-
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,
@@ -333,6 +342,21 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                                       n_users, iterations, epochs)
 
                 if conf.train_on_ce:
+                    # H_all = torch.zeros(N_ANTS * conf.n_users, conf.num_res, dtype=torch.complex64)
+                    # for re in range(conf.num_res):
+                    #     H = torch.zeros(N_ANTS, conf.n_users, dtype=torch.complex64)
+                    #     for user in range(n_users):
+                    #         rx_data_cur = rx[pilot_chunk:, :, re]
+                    #         rx_data_cur_mean = torch.mean(rx_data_cur, axis=1)
+                    #         H[:, user] = 1 / rx_data_cur_mean.shape[0] * (rx_data_cur_mean[:, None].conj() / (
+                    #                 torch.abs(rx_data_cur_mean[:, None]) ** 2) * rx_data_cur).sum(dim=0)
+                    #     H_all[:, re] = H.reshape(N_ANTS * conf.n_users)
+                    # real_part = H_all.real
+                    # imag_part = H_all.imag
+                    # H_all_real = torch.empty((H_all.shape[0] * 2, H_all.shape[1]), dtype=torch.float32)
+                    # H_all_real[0::2, :] = real_part  # Real parts in even rows
+                    # H_all_real[1::2, :] = imag_part  # Imaginary parts in odd rows
+
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)
                     rx_data_and_H = torch.cat((rx_data, H_repeated), dim=1)
                     detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,
@@ -370,8 +394,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
                 for user in range(n_users):
-                    s_orig_pilot = s_orig[:pilot_chunk, user, re]
                     rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+                    s_orig_pilot = s_orig[:pilot_chunk, user, re]
                     H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
                             torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
                 H = H.cpu().numpy()
@@ -557,7 +581,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     ber_legacy = calculate_ber(torch.from_numpy(detected_word_legacy), target.cpu(), num_bits)
                     ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits)
 
-                ber_per_re_legacy[iteration, re] = ber_legacy
+                ber_per_re_legacy[re] = ber_legacy
 
                 if PLOT_CE_ON_DATA:
                     if conf.ber_on_one_user >= 0:
@@ -629,16 +653,16 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
-                print(f'current DeepRx: {block_ind, ber_deeprx, mi_deeprx}')
+                print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
             if mod_pilot == 4:
-                print(f'current legacy: {block_ind, ber_legacy, mi_legacy}')
+                print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:
                 print(f'current legacy: {block_ind, ber_legacy}')
-            print(f'current sphere: {block_ind, ber_sphere}')
+            print(f'current sphere: {block_ind, ber_sphere.item()}')
             if PLOT_CE_ON_DATA:
                 print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
-            if conf.TDL_model[0] != 'N':
-                print(f'current legacy genie: {block_ind, ber_legacy_genie}')
+            if conf.TDL_model[0] == 'N':
+                print(f'current legacy genie: {block_ind, ber_legacy_genie.item()}')
         if conf.cfo != 0:
             if conf.cfo_and_clip_in_rx:
                 cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
@@ -693,14 +717,16 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         else:
             add_text = 'all users'
 
-        plt.plot(np.arange(conf.num_res), ber_per_re[0, :], linestyle='-', color='g', label='BER ' + add_text)
+        colors = ['g', 'r', 'k', 'b']
+        for iter in range(iterations):
+            plt.plot(np.arange(conf.num_res), ber_per_re[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))
         plt.legend()
         plt.title('DeepSIC, ' + title_string)
         plt.tight_layout()
         plt.grid()
         plt.show()
 
-        plt.plot(np.arange(conf.num_res), ber_per_re_legacy[0, :], linestyle='-', color='g', label='BER ' + add_text)
+        plt.plot(np.arange(conf.num_res), ber_per_re_legacy, linestyle='-', color='g', label='BER ' + add_text)
         plt.legend()
         plt.title('Legacy, ' + title_string)
         plt.tight_layout()

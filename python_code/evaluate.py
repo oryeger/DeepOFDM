@@ -286,22 +286,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
             # online training main function
             if deepsic_trainer.is_online_training:
-                if conf.train_on_ce:
+                if conf.train_on_ce_no_pilots:
                     H_all = torch.zeros(N_ANTS, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
                         rx_pilot_cur = rx[:pilot_chunk, :, re]
-                        rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
-                        H_all[:, re] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
-                                torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
-
-                        # H_matlab = H[:, user]
-                            # rx_mean_matlab = rx_pilot_cur_mean.cpu().numpy()
-                            # rx_matlab = rx_pilot_cur.cpu().numpy()
-                            # savemat('tensors.mat', { 'H_matalb': H_matalb, 'rx_mean_matlab': rx_mean_matlab, 'rx_matlab': rx_matlab})
-                        # rx_pilot_cur = rx[:pilot_chunk, :, re]
-                        # rx_pilot_cur_mean = torch.mean(rx_pilot_cur, axis=1)
-                        # H[:, user] = 1 / rx_pilot_cur_mean.shape[0] * (rx_pilot_cur_mean[:, None].conj() / (
-                        #         torch.abs(rx_pilot_cur_mean[:, None]) ** 2) * rx_pilot_cur).sum(dim=0)
+                        row_means = torch.mean(rx_pilot_cur, axis=1, keepdims=True)
+                        row_means[row_means == 0] = 1e-12
+                        H_all[:, re] = torch.mean(rx_pilot_cur / row_means, axis=0)
 
                     real_part = H_all.real
                     imag_part = H_all.imag
@@ -341,22 +332,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                       n_users, iterations, epochs)
 
-                if conf.train_on_ce:
-                    # H_all = torch.zeros(N_ANTS * conf.n_users, conf.num_res, dtype=torch.complex64)
-                    # for re in range(conf.num_res):
-                    #     H = torch.zeros(N_ANTS, conf.n_users, dtype=torch.complex64)
-                    #     for user in range(n_users):
-                    #         rx_data_cur = rx[pilot_chunk:, :, re]
-                    #         rx_data_cur_mean = torch.mean(rx_data_cur, axis=1)
-                    #         H[:, user] = 1 / rx_data_cur_mean.shape[0] * (rx_data_cur_mean[:, None].conj() / (
-                    #                 torch.abs(rx_data_cur_mean[:, None]) ** 2) * rx_data_cur).sum(dim=0)
-                    #     H_all[:, re] = H.reshape(N_ANTS * conf.n_users)
-                    # real_part = H_all.real
-                    # imag_part = H_all.imag
-                    # H_all_real = torch.empty((H_all.shape[0] * 2, H_all.shape[1]), dtype=torch.float32)
-                    # H_all_real[0::2, :] = real_part  # Real parts in even rows
-                    # H_all_real[1::2, :] = imag_part  # Imaginary parts in odd rows
-
+                if conf.train_on_ce_no_pilots:
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)
                     rx_data_and_H = torch.cat((rx_data, H_repeated), dim=1)
                     detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,

@@ -1,14 +1,14 @@
-snr: 40
-num_snrs: 1
+snr: 5
+num_snrs: 21
 snr_step: 1
 n_users: 4
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 24
-cfo:  0
+cfo:  0.15
 clip_percentage_in_tx: 100
 epochs: 500
 iterations: 3
-pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 10000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
@@ -17,9 +17,9 @@ ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
 
-dot_product: False
-scale_input: False
-train_on_ce_no_pilots: True
+dot_product: True
+scale_input: True
+train_on_ce_no_pilots: False
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

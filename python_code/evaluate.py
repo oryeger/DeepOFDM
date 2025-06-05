@@ -26,7 +26,9 @@ from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 
+from datetime import datetime
 from scipy.io import savemat
+
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -150,6 +152,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     else:
         mod_text = [str(mod_pilot) + 'QAM']
         mod_text = mod_text[0]
+
+    if conf.TDL_model[0] == 'N':
+        chan_text = 'Flat'
+    else:
+        chan_text = 'TDL-'+ conf.TDL_model + '-' + str(int(round(float(conf.delay_spread) * 1e9)))
+
+    now = datetime.now()
+    formatted_date = now.strftime("%Y_%m_%d_%H_%M, ")
 
     if conf.full_e2e:
         iters_e2e_disp = 1
@@ -681,7 +691,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                  "total_ber_deeprx": total_ber_deeprx,
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         # print('\n'+title_string)
-        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
+        title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
             conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
                         cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
                     iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
@@ -711,7 +721,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
         title_string = title_string.replace("\n", "")
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
-        file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
+        file_path = os.path.abspath(os.path.join(output_dir, formatted_date + title_string + ".csv"))
         df.to_csv(file_path, index=False)
 
         # for iteration in range(iterations):
@@ -736,7 +746,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
             plt.semilogy(SNR_range, total_mi_legacy, '-o', color='r', label='Legacy')
         plt.xlabel('SNR (dB)')
         plt.ylabel('MI')
-        title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
+        title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
             conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
                         cfo_str + ', Epochs=' + str(epochs) + ', #iters_e2e=' + str(
                     conf.iters_e2e) + ', CNN kernel size=' + str(conf.kernel_size))
@@ -819,7 +829,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                      label='Legacy Genie, SNR @1%=' + str(snr_at_target_legacy_genie))
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
-    title_string = (mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
+    title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
         conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
                 iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(

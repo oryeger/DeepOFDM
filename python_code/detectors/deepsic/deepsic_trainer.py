@@ -96,8 +96,8 @@ class DeepSICTrainer(Trainer):
             # Training the DeepSIC networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes
-                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to('cuda').unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
-                tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to('cuda'), probs_vec, n_users,
+                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
+                tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users,
                                                                       num_bits, bit_type)
                 train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
                 if SHOW_ALL_ITERATIONS:
@@ -126,7 +126,7 @@ class DeepSICTrainer(Trainer):
         else:
             nns = 0
         for i in range(iterations):
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users, nns)
             detected_word_list[i] = self._compute_output(probs_vec)
         # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
         # pass

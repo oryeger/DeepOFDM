@@ -3,6 +3,20 @@
   <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
+      <paths name="132.72.180.68">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="132.72.64.151">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/home/egero/Projects/DeepOFDM" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
       <paths name="132.72.65.240">
         <serverdata>
           <mappings>

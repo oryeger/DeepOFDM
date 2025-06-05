@@ -80,7 +80,7 @@ class DeepRxTrainer(Trainer):
 
     def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int) -> torch.Tensor:
         # detect and decode
-        rx_in = rx.to('cuda').unsqueeze(-1)
+        rx_in = rx.to(device=DEVICE).unsqueeze(-1)
         probs_vec, llrs = self._calculate_posteriors(self.detector, rx_in, num_bits, n_users)
 
         return self._compute_output(probs_vec), llrs

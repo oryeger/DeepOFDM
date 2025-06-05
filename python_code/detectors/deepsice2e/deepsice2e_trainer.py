@@ -107,10 +107,10 @@ class DeepSICe2eTrainer(Trainer):
                     # Training the DeepSICNet for each user-symbol/iteration
                     for i in range(1, iters_e2e):
                         probs_vec, llrs_mat = self._calculate_posteriors(self.detector,
-                                                                         rx_real.to('cuda').unsqueeze(-1), probs_vec,
+                                                                         rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec,
                                                                          num_bits, n_users, bit_type, i)
                         # Training the DeepSIC networks for the iteration>1
-                        rx_prob = torch.cat((rx_real.to('cuda'), probs_vec[:, bit_type::int(num_bits / 2), :]), dim=1).unsqueeze(-1)
+                        rx_prob = torch.cat((rx_real.to(device=DEVICE), probs_vec[:, bit_type::int(num_bits / 2), :]), dim=1).unsqueeze(-1)
 
                         train_loss_cur, val_loss_cur = self._train_model(self.detector[bit_type][i], tx_cur, rx_prob,
                                                                            num_bits, epochs, 0)
@@ -139,9 +139,9 @@ class DeepSICe2eTrainer(Trainer):
                     probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
                     # Training the DeepSICNet for each user-symbol/iteration
                     for i in range(1, iters_e2e):
-                        probs_vec, llrs_mat = self._calculate_posteriors(self.detector, rx_real.to('cuda').unsqueeze(-1), probs_vec,num_bits, n_users,num_nns,i)
+                        probs_vec, llrs_mat = self._calculate_posteriors(self.detector, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec,num_bits, n_users,num_nns,i)
                         # Training the DeepSIC networks for the iteration>1
-                        rx_prob = torch.cat((rx_real.to('cuda'), probs_vec), dim=1).unsqueeze(-1)
+                        rx_prob = torch.cat((rx_real.to(device=DEVICE), probs_vec), dim=1).unsqueeze(-1)
 
                         train_loss_cur, val_loss_cur = self._train_model(self.detector[bit_type][i], tx_cur, rx_prob,num_bits, epochs, 0)
                         if SHOW_ALL_ITERATIONS:
@@ -177,7 +177,7 @@ class DeepSICe2eTrainer(Trainer):
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
 
         for i in range(iters_inference):
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, rx.to('cuda').unsqueeze(-1), probs_vec, num_bits, n_users, nns, i+1)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users, nns, i+1)
             detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list

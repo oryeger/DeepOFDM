@@ -29,6 +29,9 @@ from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from datetime import datetime
 from scipy.io import savemat
 
+import argparse
+
+
 
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
@@ -848,6 +851,19 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
 
 
 if __name__ == '__main__':
+
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--config', type=str, default=None,
+                        help='Path to config YAML file')
+    args = parser.parse_args()
+
+    # Reload config singleton with the provided config file (or default)
+    conf.reload_config(args.config)
+
+    # Now conf has the updated config, proceed as before
+    assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
+    assert not (conf.no_probs_e2e and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
     assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
     assert not (
                 conf.no_probs_e2e and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"

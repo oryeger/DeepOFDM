@@ -39,6 +39,7 @@ os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 base_dir = Path.home() / "Projects" / "Scratchpad"
 
 
+
 def entropy_with_bin_width(data, bin_width):
     """Estimate entropy using histogram binning with a specified bin width."""
     min_x, max_x = np.min(data), np.max(data)
@@ -162,7 +163,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         chan_text = 'TDL-'+ conf.TDL_model + '-' + str(int(round(float(conf.delay_spread) * 1e9)))
 
     now = datetime.now()
-    formatted_date = now.strftime("%Y_%m_%d_%H_%M, ")
+    formatted_date = now.strftime("%Y_%m_%d_%H_%M_")
 
     if conf.full_e2e:
         iters_e2e_disp = 1
@@ -723,8 +724,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         plt.show()
 
         title_string = title_string.replace("\n", "")
+        title_string = title_string.replace(",", "")
+        title_string = title_string.replace(" ", "_")
+        title_string = title_string + '_SNR=' + str(conf.snr)
+        title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
-        file_path = os.path.abspath(os.path.join(output_dir, formatted_date + title_string + ".csv"))
+        file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
         df.to_csv(file_path, index=False)
 
         # for iteration in range(iterations):

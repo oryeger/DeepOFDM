@@ -19,6 +19,10 @@ except ImportError as e:
     os.system("pip install sionna")
     import sionna
 
+sionna.rt = None
+sionna.config.enable_rtx = False
+
+
 import tensorflow as tf
 
 gpus = tf.config.list_physical_devices('GPU')

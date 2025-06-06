@@ -21,6 +21,7 @@ CP = 9
 SAMPLING_RATE = 3.84e6
 NUM_SAMPLES_PER_SLOT = int(0.5e-3 * SAMPLING_RATE)
 
+# Testing
 
 # FFT_size = 1024
 # FIRST_CP = 88

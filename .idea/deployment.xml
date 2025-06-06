@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="132.72.65.83" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
+  <component name="PublishConfigData" autoUpload="Always" remoteFilesAllowedToDisappearOnAutoupload="false" confirmBeforeUploading="false">
     <option name="confirmBeforeUploading" value="false" />
     <serverData>
-      <paths name="132.72.65.83">
+      <paths name="132.72.64.74">
         <serverdata>
           <mappings>
-            <mapping deploy="/home/egero/Projects/DeepOFDM" local="$PROJECT_DIR$" web="/" />
+            <mapping deploy="/home/egero/Projects/DeepOFDM " local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>

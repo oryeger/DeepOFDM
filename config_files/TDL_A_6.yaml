@@ -1,0 +1,70 @@
+snr: 6
+num_snrs: 1
+snr_step: 1
+n_users: 4
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+num_res: 24
+cfo:  0.15
+clip_percentage_in_tx: 100
+epochs: 500
+iterations: 3
+pilot_size: 10000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+kernel_size: 3
+separate_nns: False # just for 16QAM
+full_e2e: False
+interf_factor: 1
+ber_on_one_user: -1
+half_probs: False
+sphere_radius: 'inf'
+
+dot_product: True
+scale_input: True
+train_on_ce_no_pilots: False
+
+use_data_as_pilots: False
+plot_only_last_iteration: False
+plot_channel: False
+plot_genie: False
+
+TDL_model: 'A' # 'None', 'A', 'B', 'C'
+delay_spread: 30e-9 # in Seconds
+carrier_frequency: 2.6e9 # in Hz
+speed: 0 # in m/s
+
+
+run_deeprx: False
+run_e2e: False
+iters_e2e: 1
+no_probs_e2e: False
+
+
+
+#snr: 0 # validation SNR value. values: float.
+#num_snrs: 20
+#n_users: 4
+#mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+#num_res: 1
+#cfo:  0
+#epochs: 300
+#iterations: 3
+#pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+#kernel_size: 1
+
+
+# general
+seed: 0 # run seed
+
+# channel
+fading_in_channel: False # If the channel is fading/non-fading. values: [True, False]
+spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
+delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
+cfo_and_clip_in_rx: True
+
+
+go_to_td: True
+
+
+# validation phase protocol
+block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
+blocks_num: 1 # 100 number of validation frames. values: int.
+

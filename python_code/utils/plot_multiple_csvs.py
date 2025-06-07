@@ -46,7 +46,7 @@ plt.figure(figsize=(10, 6))
 plt.semilogy(snrs, ber_1, marker='o', label="total_ber_1")
 plt.semilogy(snrs, ber_2, marker='s', label="total_ber_2")
 plt.semilogy(snrs, ber_3, marker='^', label="total_ber_3")
-plt.semilogy(snrs, ber_deeprx, marker='D', label="total_ber_deeprx")
+# plt.semilogy(snrs, ber_deeprx, marker='D', label="total_ber_deeprx")
 plt.semilogy(snrs, ber_legacy, marker='x', label="total_ber_legacy")
 
 plt.xlabel("SNR (dB)")

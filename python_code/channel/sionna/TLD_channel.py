@@ -19,8 +19,9 @@ except ImportError as e:
     os.system("pip install sionna")
     import sionna
 
-sionna.rt = None
-sionna.config.enable_rtx = False
+if os.name == "posix":
+    sionna.rt = None
+    sionna.config.enable_rtx = False
 
 
 import tensorflow as tf

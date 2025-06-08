@@ -343,8 +343,16 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,epochs)
                 else:
-                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
-                                                                                      n_users, iterations, epochs)
+                    if not(conf.two_stage_train):
+                        train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                                                                                          n_users, iterations, epochs)
+                    else:
+                        train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                                                                                          n_users, iterations, epochs)
+                        train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                                                                                          n_users, iterations, epochs)
+                        pass
+
 
                 if conf.train_on_ce_no_pilots:
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)

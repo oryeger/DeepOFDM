@@ -3,9 +3,11 @@ import glob
 import pandas as pd
 import matplotlib.pyplot as plt
 import re
+from scipy.interpolate import interp1d
+import numpy as np
 
 # 🔧 Adjust path if needed
-CSV_DIR = "C:\Projects\Scratchpad"
+CSV_DIR = r"C:\Projects\Scratchpad\16QAM_0"
 
 # Step 1: Collect matching files
 files = sorted(glob.glob(os.path.join(CSV_DIR, "*_SNR=*")))
@@ -41,13 +43,29 @@ ber_3 = [ber_3[i] for i in sorted_idx]
 ber_deeprx = [ber_deeprx[i] for i in sorted_idx]
 ber_legacy = [ber_legacy[i] for i in sorted_idx]
 
+markers = ['o', '*', 'x', 'D', '+', 'o']
+dashes = [':', '-.', '--', '-', '-', '-']
+
+
+ber_target = 0.01
+
 # Step 4: Plot
 plt.figure(figsize=(10, 6))
-plt.semilogy(snrs, ber_1, marker='o', label="total_ber_1")
-plt.semilogy(snrs, ber_2, marker='s', label="total_ber_2")
-plt.semilogy(snrs, ber_3, marker='^', label="total_ber_3")
-# plt.semilogy(snrs, ber_deeprx, marker='D', label="total_ber_deeprx")
-plt.semilogy(snrs, ber_legacy, marker='x', label="total_ber_legacy")
+interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
+snr_at_target = np.round(interp_func(ber_target), 1)
+plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0],color='g', label='DeepSIC1' + ', SNR @1%=' + str(snr_at_target))
+interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
+snr_at_target = np.round(interp_func(ber_target), 1)
+plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1],color='g', label='DeepSIC2' + ', SNR @1%=' + str(snr_at_target))
+interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
+snr_at_target = np.round(interp_func(ber_target), 1)
+plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2],color='g', label='DeepSIC3' + ', SNR @1%=' + str(snr_at_target))
+# interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
+# snr_at_target = np.round(interp_func(ber_target), 1)
+# plt.semilogy(snrs, ber_deeprx, '-o', color='c', label='DeepRx,   SNR @1%=' + str(snr_at_target))
+interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
+snr_at_target = np.round(interp_func(ber_target), 1)
+plt.semilogy(snrs, ber_legacy, '-o', color='r', label='Legacy,    SNR @1%=' + str(snr_at_target))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel("BER")

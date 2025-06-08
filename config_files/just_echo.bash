@@ -14,10 +14,10 @@ config_files=()
 
 for i in $(seq 5 30); do
   out_file="${base_name}_${i}.yaml"
-  {
-    echo "snr: $i"
-    tail -n +2 "$input_file"
-  } > "$out_file"
+#  {
+#    echo "snr: $i"
+#    tail -n +2 "$input_file"
+#  } > "$out_file"
 
   config_files+=("\"$out_file\"")
 done

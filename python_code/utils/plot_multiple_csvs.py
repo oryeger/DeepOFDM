@@ -5,67 +5,70 @@ import matplotlib.pyplot as plt
 import re
 from scipy.interpolate import interp1d
 import numpy as np
+from collections import defaultdict
 
-# 🔧 Adjust path if needed
-CSV_DIR = r"C:\Projects\Scratchpad\16QAM_0"
-
-# Step 1: Collect matching files
-files = sorted(glob.glob(os.path.join(CSV_DIR, "*_SNR=*")))
-
-snrs = []
-ber_1 = []
-ber_2 = []
-ber_3 = []
-ber_deeprx = []
-ber_legacy = []
-
-# Step 2: Parse each CSV and extract values
-for file in files:
-    match = re.search(r"SNR=(\d+)", file)
-    if not match:
-        continue
-    snr = int(match.group(1))
-
-    df = pd.read_csv(file)
-    snrs.append(snr)
-    ber_1.append(float(df["total_ber_1"]))
-    ber_2.append(float(df["total_ber_2"]))
-    ber_3.append(float(df["total_ber_3"]))
-    ber_deeprx.append(float(df["total_ber_deeprx"]))
-    ber_legacy.append(float(str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")))
-
-# Step 3: Sort by SNR
-sorted_idx = sorted(range(len(snrs)), key=lambda i: snrs[i])
-snrs = [snrs[i] for i in sorted_idx]
-ber_1 = [ber_1[i] for i in sorted_idx]
-ber_2 = [ber_2[i] for i in sorted_idx]
-ber_3 = [ber_3[i] for i in sorted_idx]
-ber_deeprx = [ber_deeprx[i] for i in sorted_idx]
-ber_legacy = [ber_legacy[i] for i in sorted_idx]
-
-markers = ['o', '*', 'x', 'D', '+', 'o']
-dashes = [':', '-.', '--', '-', '-', '-']
-
-
+# 🔧 Adjust path as needed
+CSV_DIR = r"C:\Projects\Scratchpad"
+seeds = [123, 17, 41, 58]
 ber_target = 0.01
 
-# Step 4: Plot
+# Step 1: Collect and aggregate data
+snr_ber_dict = defaultdict(lambda: {
+    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_legacy': []
+})
+
+for seed in seeds:
+    seed_files = sorted(glob.glob(os.path.join(CSV_DIR, f"*seed={seed}*_SNR=*")))
+    for file in seed_files:
+        match = re.search(r"SNR=(\d+)", file)
+        if not match:
+            continue
+        snr = int(match.group(1))
+
+        try:
+            df = pd.read_csv(file)
+            snr_ber_dict[snr]['ber_1'].append(float(df["total_ber_1"]))
+            snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
+            snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
+            snr_ber_dict[snr]['ber_deeprx'].append(float(df["total_ber_deeprx"]))
+            ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_legacy'].append(float(ber_legacy_val))
+        except Exception as e:
+            print(f"Error processing file {file}: {e}")
+
+# Step 2: Sort SNRs and compute averages
+snrs = sorted(snr_ber_dict.keys())
+ber_1 = [np.mean(snr_ber_dict[snr]['ber_1']) for snr in snrs]
+ber_2 = [np.mean(snr_ber_dict[snr]['ber_2']) for snr in snrs]
+ber_3 = [np.mean(snr_ber_dict[snr]['ber_3']) for snr in snrs]
+ber_deeprx = [np.mean(snr_ber_dict[snr]['ber_deeprx']) for snr in snrs]
+ber_legacy = [np.mean(snr_ber_dict[snr]['ber_legacy']) for snr in snrs]
+
+# Step 3: Plotting
 plt.figure(figsize=(10, 6))
+markers = ['o', '*', 'x', 'D', '+']
+dashes = [':', '-.', '--', '-', '-']
+
 interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
-snr_at_target = np.round(interp_func(ber_target), 1)
-plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0],color='g', label='DeepSIC1' + ', SNR @1%=' + str(snr_at_target))
+plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
+             label='DeepSIC1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
 interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
-snr_at_target = np.round(interp_func(ber_target), 1)
-plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1],color='g', label='DeepSIC2' + ', SNR @1%=' + str(snr_at_target))
+plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
+             label='DeepSIC2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
 interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
-snr_at_target = np.round(interp_func(ber_target), 1)
-plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2],color='g', label='DeepSIC3' + ', SNR @1%=' + str(snr_at_target))
+plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
+             label='DeepSIC3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+# Uncomment below to plot DeepRx
 # interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
-# snr_at_target = np.round(interp_func(ber_target), 1)
-# plt.semilogy(snrs, ber_deeprx, '-o', color='c', label='DeepRx,   SNR @1%=' + str(snr_at_target))
+# plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
+#              label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
 interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
-snr_at_target = np.round(interp_func(ber_target), 1)
-plt.semilogy(snrs, ber_legacy, '-o', color='r', label='Legacy,    SNR @1%=' + str(snr_at_target))
+plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
+             label='Legacy, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel("BER")
@@ -73,20 +76,19 @@ plt.yscale("log")
 plt.grid(True)
 plt.legend()
 
-# Step 5: Generate cleaned title
-original_name = os.path.basename(files[0])
-# Remove timestamp prefix (e.g., 2025_06_05_23_26_)
+# Optional: Create a title from one of the filenames
+example_file = sorted(glob.glob(os.path.join(CSV_DIR, "*seed=123*_SNR=*")))[0]
+original_name = os.path.basename(example_file)
 cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
-# Remove _SNR=... at the end
 cleaned_name = re.sub(".csv", "", cleaned_name)
+cleaned_name = re.sub("Clip=100%", "", cleaned_name)
 cleaned_name = re.sub(r"_SNR=\d+$", "", cleaned_name)
-
 cleaned_name = re.sub("_scs", "scs", cleaned_name)
 cleaned_name = re.sub("cfo_in_Rx", "cfo", cleaned_name)
+cleaned_name = re.sub(r"seed=\d+", "", cleaned_name)
 cleaned_name = re.sub("_", ", ", cleaned_name)
-# Add line breaks every 80 characters
 cleaned_name = "\n".join([cleaned_name[i:i+80] for i in range(0, len(cleaned_name), 80)])
-
-plt.title(cleaned_name)
+cleaned_name = cleaned_name.rstrip(", ")
+plt.title("Averaged across seeds: " + ", ".join(map(str, seeds)) + "\n" + cleaned_name)
 plt.tight_layout()
 plt.show()

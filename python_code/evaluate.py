@@ -346,11 +346,19 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                     if not(conf.two_stage_train):
                         train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs)
+                        pass
+
                     else:
+                        tx_pilot_cur = tx_pilot[:int(pilot_chunk*num_bits/2),:,:]
+                        rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
                         train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
-                                                                                          n_users, iterations, epochs)
+                                                                                          n_users, iterations, int(epochs/2))
+                        tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
+                        rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
                         train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
-                                                                                          n_users, iterations, epochs)
+                                                                                          n_users, iterations, int(epochs/2))
+                        train_loss_vect = train_loss_vect_1 + train_loss_vect_2
+                        val_loss_vect = val_loss_vect_1 + val_loss_vect_2
                         pass
 
 
@@ -734,6 +742,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
+        title_string = title_string + 'twostage_val=0_'
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string

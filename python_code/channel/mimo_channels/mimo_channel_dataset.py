@@ -36,11 +36,11 @@ class MIMOChannel:
         tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
         tx_data = self._bits_generator.integers(0, 2, size=(self._block_length - self._pilots_length, n_users, num_res))
 
-        if (conf.mod_pilot>4) and (conf.two_stage_train == True):
-            value = 1
-            tx_pilots[1:int(tx_pilots.shape[0]/2):2,:,:] = value
-            # tx_pilots[1::2,:,:] = value
-            # tx_data[1::2,:,:] = value
+        # if (conf.mod_pilot>4) and (conf.two_stage_train == True):
+        #     value = 1
+        #     tx_pilots[1:int(tx_pilots.shape[0]/2):2,:,:] = value
+        #     # tx_pilots[1::2,:,:] = value
+        #     # tx_data[1::2,:,:] = value
 
 
 

@@ -343,7 +343,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,epochs)
                 else:
-                    if not(conf.two_stage_train):
+                    if 1:
                         train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs)
                     else:
@@ -740,9 +740,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
-        title_string = title_string + 'twostage_val=0_'
         title_string = title_string + '_seed=' + str(conf.channel_seed)
-        title_string = title_string + '_two_stage_1=' + str(conf.channel_seed)
+        title_string = title_string + '_three_layers=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

@@ -32,12 +32,18 @@ class DeepSICDetector(nn.Module):
                     self.fc0.weight.copy_(torch.eye(matrix_size) + 1e-6 * torch.ones(matrix_size, matrix_size))
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')
+
         if conf.separate_nns:
             self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),padding='same')
         else:
-            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same')
+            # self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same')
+            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
+
+        self.fc3 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same')
+
         self.activation1 = nn.ReLU()
-        self.activation2 = nn.Sigmoid()
+        self.activation2 = nn.ReLU()
+        self.activation3 = nn.Sigmoid()
 
 
     def forward(self, rx_prob):
@@ -49,14 +55,12 @@ class DeepSICDetector(nn.Module):
             else:
                 rx_out_flattened = self.fc0(rx_flattened)
             rx_out = rx_out_flattened.unsqueeze(-1).reshape_as(rx)
-            ## rx_prob_out = rx_prob.clone()
-            ## rx_prob_out =  rx_out # rx_prob_out[:,:N_ANTS*2,:,:] =  rx_out
 
-            out1 = self.fc1(rx_out)
+            out1 = self.activation1(self.fc1(rx_out))
         else:
-            out1 = self.fc1(rx_prob)
+            out1 = self.activation1(self.fc1(rx_prob))
 
-        out2 = self.activation1(out1)
-        llrs = self.fc2(out2)
-        out3 = self.activation2(llrs)
+        out2 = self.activation2(self.fc2(out1))
+        llrs = self.fc3(out2)
+        out3 = self.activation3(llrs)
         return out3, llrs

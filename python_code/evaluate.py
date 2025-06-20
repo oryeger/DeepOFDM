@@ -343,7 +343,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,epochs)
                 else:
-                    if 1:
+                    if not(conf.two_stage_train):
                         train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs)
                     else:

@@ -32,14 +32,7 @@ for seed in "${seeds[@]}"; do
   echo ""
 done
 
-# Print full config_files array line
-quoted_files=()
-for f in "${all_config_files[@]}"; do
-  quoted_files+=("\\\"$f\\\"")
-done
-
-# Join the quoted files into a single string
-config_line="config_files=(${quoted_files[*]})"
-
-# Wrap the whole line in escaped double quotes
+# Print full config_files array
+config_line="config_files=(${all_config_files[*]})"
 echo "\"$config_line\""
+echo "Total config files generated: $total_count"

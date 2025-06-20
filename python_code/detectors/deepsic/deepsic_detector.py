@@ -25,7 +25,8 @@ class DeepSICDetector(nn.Module):
         if conf.scale_input:
             matrix_size = conv_num_channels*conf.num_res # N_ANTS*2*conf.num_res
             if conf.dot_product:
-                self.scale = nn.Parameter(torch.ones(matrix_size))
+                self.scale1 = nn.Parameter(torch.ones(matrix_size))
+                self.scale2 = nn.Parameter(torch.ones(matrix_size))
             else:
                 self.fc0 = nn.Linear(matrix_size, matrix_size, bias=False)
                 with torch.no_grad():
@@ -51,7 +52,9 @@ class DeepSICDetector(nn.Module):
             rx = rx_prob # rx = rx_prob[:,:N_ANTS*2,:,:]
             rx_flattened = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
             if conf.dot_product:
-                rx_out_flattened = rx_flattened*self.scale
+                rx_flattened = rx_flattened * self.scale1
+                rx_flattened = F.relu(rx_flattened)
+                rx_out_flattened = rx_flattened * self.scale2
             else:
                 rx_out_flattened = self.fc0(rx_flattened)
             rx_out = rx_out_flattened.unsqueeze(-1).reshape_as(rx)

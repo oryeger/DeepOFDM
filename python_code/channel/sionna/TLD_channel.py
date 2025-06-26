@@ -16,7 +16,10 @@ try:
 except ImportError as e:
     # Install Sionna if package is not already installed
     import os
-    os.system("pip install sionna")
+    if os.name == 'nt':  # Windows
+        os.system("pip install sionna >nul 2>&1")
+    else:  # Unix/Linux/macOS
+        os.system("pip install sionna >/dev/null 2>&1")
     import sionna
 
 if os.name == "posix":

@@ -684,6 +684,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
+
+            if conf.run_deepsicsb:
+                print(f'current DeepRx: {block_ind, ber_deepsicsb.item()}')
+
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:

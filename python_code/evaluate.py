@@ -397,8 +397,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if deepsicsb_trainer.is_online_training:
                     train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
-                    detected_word_deepsicsb, llrs_mat_deepsicsb = deepsicsb_trainer._forward(
-                        rx_data, num_bits, n_users, iterations)
+                    detected_word_deepsicsb = deepsicsb_trainer._forward(rx_data, num_bits, n_users, iterations)
 
             # CE Based
             # train_loss_vect = [0] * epochs
@@ -587,8 +586,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(), num_bits)
 
                 if conf.run_deepsicsb and deepsicsb_trainer is not None:
-                    detected_word_cur_re_deepsicsb = detected_word_deepsicsb[:, :, re, :]
-                    detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.squeeze(-1)
+                    detected_word_cur_re_deepsicsb = detected_word_deepsicsb[:, :, re]
                     detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.reshape(
                         int(tx_data.shape[0] / num_bits), n_users, num_bits).swapaxes(1, 2).reshape(tx_data.shape[0], n_users)
                     if conf.ber_on_one_user >= 0:
@@ -826,7 +824,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if conf.run_deeprx:
             interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
-        if conf.run_deepsicsb and total_ber_deepsicsb:
+        if conf.run_deepsicsb:
             interp_func = interp1d(total_ber_deepsicsb, SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_deepsicsb = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
@@ -846,6 +844,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 snr_at_target_e2e_list[iteration] = float('inf')
         if conf.run_deeprx:
             snr_at_target_deeprx = float('inf')
+        if conf.run_deepsicsb:
+            snr_at_target_deepsicsb = float('inf')
         snr_at_target_legacy = float('inf')
         snr_at_target_sphere = float('inf')
         snr_at_target_legacy_genie = float('inf')
@@ -874,7 +874,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     if conf.run_deeprx:
         plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c',
                      label='DeepRx,   SNR @1%=' + str(snr_at_target_deeprx))
-    if conf.run_deepsicsb and total_ber_deepsicsb:
+    if conf.run_deepsicsb:
         plt.semilogy(SNR_range, total_ber_deepsicsb, '-o', color='orange',
                      label='DeepSICSB, SNR @1%=' + str(snr_at_target_deepsicsb))
     plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,    SNR @1%=' + str(snr_at_target_legacy))

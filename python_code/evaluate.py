@@ -741,7 +741,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_seed=' + str(conf.channel_seed)
-        title_string = title_string + '_three_layers=' + str(conf.channel_seed)
+        title_string = title_string + '_three_layers_aaggaaiinn' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

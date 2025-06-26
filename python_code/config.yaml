@@ -34,6 +34,7 @@ speed: 0 # in m/s
 channel_seed: 731
 
 run_deeprx: False
+run_deepsicsb: True
 run_e2e: False
 iters_e2e: 1
 no_probs_e2e: False

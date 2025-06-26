@@ -397,7 +397,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if deepsicsb_trainer.is_online_training:
                     train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
-                    detected_word_deepsicsb = deepsicsb_trainer._forward(rx_data, num_bits, n_users, iterations)
+                    detected_word_deepsicsb, llrs_mat_deepsicsb = deepsicsb_trainer._forward(rx_data, num_bits, n_users, iterations)
 
             # CE Based
             # train_loss_vect = [0] * epochs
@@ -686,7 +686,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
 
             if conf.run_deepsicsb:
-                print(f'current DeepRx: {block_ind, ber_deepsicsb.item()}')
+                print(f'current DeepSICSB: {block_ind, ber_deepsicsb.item()}')
 
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
@@ -710,6 +710,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                            ber_legacy_genie, 0)
         if conf.run_deeprx:
             plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
+                               train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
+                               0)
+        if conf.run_deepsicsb:
+            plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb, snr_cur, "DeepSICSB", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                0)
         if conf.run_e2e:

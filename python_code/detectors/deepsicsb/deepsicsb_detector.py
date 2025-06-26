@@ -35,9 +35,9 @@ class DeepSICSBDetector(nn.Module):
             if hasattr(layer, 'reset_parameters'):
                 layer.reset_parameters()
 
-    def forward(self, rx: torch.Tensor) -> torch.Tensor:
+    def forward(self, rx: torch.Tensor):
         out0 = self.activation1(self.fc1(rx))
-        out1 = self.fc2(out0)
-        out2 = self.activation2(out1)
-        return out2
+        llrs = self.fc2(out0)
+        out1 = self.activation2(llrs)
+        return out1, llrs
 

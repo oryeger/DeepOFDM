@@ -39,7 +39,7 @@ class DeepSICSBTrainer(Trainer):
         train_loss_vect = []
         val_loss_vect = []
         for _ in range(epochs):
-            soft_estimation = single_model(y_total)
+            soft_estimation, llrs = single_model(y_total)
             if conf.mod_pilot <= 2:
                 tx_reshaped = tx
             else:
@@ -84,7 +84,7 @@ class DeepSICSBTrainer(Trainer):
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iterations):
             # Generating soft symbols for training purposes
-            probs_vec = self._calculate_posteriors(self.detector, i, probs_vec, rx_real.to(device=DEVICE), num_bits, n_users)
+            probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, probs_vec, rx_real.to(device=DEVICE), num_bits, n_users)
             # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
             tx_all, rx_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users , num_bits)
             # Training the DeepSIC networks for the iteration>1
@@ -113,8 +113,8 @@ class DeepSICSBTrainer(Trainer):
         # detect and decode
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
         for i in range(iterations):
-            probs_vec = self._calculate_posteriors(self.detector, i + 1, probs_vec, rx.to(device=DEVICE), num_bits , n_users)
-        return self._compute_output(probs_vec)
+            probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i + 1, probs_vec, rx.to(device=DEVICE), num_bits , n_users)
+        return self._compute_output(probs_vec), llrs_mat
 
 
 
@@ -186,9 +186,9 @@ class DeepSICSBTrainer(Trainer):
                 input = torch.cat((rx[:,:,re], probs_vec[:,idx,re]), dim=1)
                 preprocessed_input = self._preprocess(input)
                 with torch.no_grad():
-                    output = model[re][user][i - 1](preprocessed_input)
+                    output, llrs = model[re][user][i - 1](preprocessed_input)
                 next_probs_vec[:, user_indexes,re] = output[:, local_user_indexes]
-        return next_probs_vec
+        return next_probs_vec, llrs
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):
         return HALF * torch.ones(rx.shape[0], n_users*num_bits, conf.num_res).to(DEVICE).float()

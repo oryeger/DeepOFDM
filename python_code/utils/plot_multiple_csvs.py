@@ -14,7 +14,7 @@ ber_target = 0.01
 
 # Step 1: Collect and aggregate data
 snr_ber_dict = defaultdict(lambda: {
-    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_legacy': []
+    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb': [], 'ber_legacy': [], 'ber_sphere': []
 })
 
 for seed in seeds:
@@ -31,8 +31,12 @@ for seed in seeds:
             snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
             snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
             snr_ber_dict[snr]['ber_deeprx'].append(float(df["total_ber_deeprx"]))
+            ber_deepsicsb_val = str(df["total_ber_deepsicsb"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_deepsicsb'].append(float(ber_deepsicsb_val))
             ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_legacy'].append(float(ber_legacy_val))
+            ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
         except Exception as e:
             print(f"Error processing file {file}: {e}")
 
@@ -42,7 +46,10 @@ ber_1 = [np.mean(snr_ber_dict[snr]['ber_1']) for snr in snrs]
 ber_2 = [np.mean(snr_ber_dict[snr]['ber_2']) for snr in snrs]
 ber_3 = [np.mean(snr_ber_dict[snr]['ber_3']) for snr in snrs]
 ber_deeprx = [np.mean(snr_ber_dict[snr]['ber_deeprx']) for snr in snrs]
+ber_deepsicsb = [np.mean(snr_ber_dict[snr]['ber_deepsicsb']) for snr in snrs]
 ber_legacy = [np.mean(snr_ber_dict[snr]['ber_legacy']) for snr in snrs]
+ber_sphere = [np.mean(snr_ber_dict[snr]['ber_sphere']) for snr in snrs]
+
 
 # Step 3: Plotting
 plt.figure(figsize=(10, 6))
@@ -66,9 +73,17 @@ plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
 # plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
 #              label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
+interp_func = interp1d(ber_deepsicsb, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepsicsb, linestyle=dashes[4], marker=markers[4], color='orange',
+             label='DeepSICSB, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
 interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
              label='Legacy, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='c',
+             label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel("BER")

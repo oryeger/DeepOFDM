@@ -729,6 +729,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         df = pd.DataFrame(
             {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
              "total_ber_deeprx": total_ber_deeprx,
+             "total_ber_sphere": total_ber_sphere,
              "total_ber_deepsicsb": total_ber_deepsicsb,
              "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         if conf.iterations == 2:
@@ -736,6 +737,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
                  "total_ber_2": total_ber_list[1],
                  "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_sphere": total_ber_sphere,
                  "total_ber_deepsicsb": total_ber_deepsicsb,
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         elif conf.iterations == 3:
@@ -743,6 +745,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
                  "total_ber_2": total_ber_list[1], "total_ber_3": total_ber_list[2],
                  "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_sphere": total_ber_sphere,
                  "total_ber_deepsicsb": total_ber_deepsicsb,
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         # print('\n'+title_string)
@@ -777,8 +780,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
+        title_string = title_string + '_two_stage=' + str(conf.two_stage_train)
+        title_string = title_string + '_#layers=3'
         title_string = title_string + '_seed=' + str(conf.channel_seed)
-        title_string = title_string + '_three_layers=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

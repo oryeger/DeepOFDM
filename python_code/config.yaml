@@ -21,6 +21,7 @@ dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
 two_stage_train: 'NONE' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
+enable_two_stage_train: False
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

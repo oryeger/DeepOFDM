@@ -109,7 +109,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
         val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
-                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size))
+                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size) + ', two_stage=' + str(conf.two_stage_train))
 
     axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()
@@ -600,12 +600,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_sphere = calculate_ber(
                         torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
                         target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
-                    ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
-                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
+                    if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                        ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                            target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                 else:
                     ber_legacy = calculate_ber(torch.from_numpy(detected_word_legacy), target.cpu(), num_bits)
                     ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits)
-                    ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
+                    if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                        ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
 
                 ber_per_re_legacy[re] = ber_legacy
 

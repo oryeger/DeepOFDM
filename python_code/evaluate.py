@@ -724,18 +724,24 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         df = pd.DataFrame(
             {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
              "total_ber_deeprx": total_ber_deeprx,
+             "total_ber_sphere": total_ber_sphere,
+             "total_ber_deepsicsb": total_ber_deepsicsb,
              "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         if conf.iterations == 2:
             df = pd.DataFrame(
                 {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
                  "total_ber_2": total_ber_list[1],
                  "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_sphere": total_ber_sphere,
+                 "total_ber_deepsicsb": total_ber_deepsicsb,
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         elif conf.iterations == 3:
             df = pd.DataFrame(
                 {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
                  "total_ber_2": total_ber_list[1], "total_ber_3": total_ber_list[2],
                  "total_ber_deeprx": total_ber_deeprx,
+                 "total_ber_sphere": total_ber_sphere,
+                 "total_ber_deepsicsb": total_ber_deepsicsb,
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         # print('\n'+title_string)
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
@@ -825,6 +831,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if conf.run_deeprx:
             interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
+        if conf.run_deepsicsb and deepsicsb_trainer is not None:
+            interp_func = interp1d(total_ber_deepsicsb, SNR_range, kind='linear', fill_value="extrapolate")
+            snr_at_target_deepsicsb = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_legacy, SNR_range, kind='linear', fill_value="extrapolate")
         snr_at_target_legacy = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_sphere, SNR_range, kind='linear', fill_value="extrapolate")
@@ -842,6 +851,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 snr_at_target_e2e_list[iteration] = float('inf')
         if conf.run_deeprx:
             snr_at_target_deeprx = float('inf')
+        if conf.run_deepsicsb and deepsicsb_trainer is not None:
+            snr_at_target_deepsicsb = float('inf')
         snr_at_target_legacy = float('inf')
         snr_at_target_sphere = float('inf')
         snr_at_target_legacy_genie = float('inf')
@@ -870,6 +881,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     if conf.run_deeprx:
         plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c',
                      label='DeepRx,   SNR @1%=' + str(snr_at_target_deeprx))
+    if conf.run_deepsicsb and deepsicsb_trainer is not None:
+        plt.semilogy(SNR_range, total_ber_deepsicsb, '-o', color='orange',
+                     label='DeepSICSB, SNR @1%=' + str(snr_at_target_deepsicsb))
+
     plt.semilogy(SNR_range, total_ber_legacy, '-o', color='r', label='Legacy,    SNR @1%=' + str(snr_at_target_legacy))
     plt.semilogy(SNR_range, total_ber_sphere, '-o', color='brown',
                  label=modulator_text + ',        SNR @1%=' + str(snr_at_target_sphere))

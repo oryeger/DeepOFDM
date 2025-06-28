@@ -396,7 +396,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                                    iterations, epochs)
                     detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
                                                                                     iterations)
-
+            if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                if deepsicsb_trainer.is_online_training:
+                    train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
+                        tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
+                    detected_word_deepsicsb, llrs_mat_deepsicsb = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
+                                                                                         iterations)
             # CE Based
             # train_loss_vect = [0] * epochs
             # val_loss_vect = [0] * epochs
@@ -749,6 +754,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
+        title_string = title_string + '_two_stage=' + str(conf.two_stage_train)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_three_layers=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

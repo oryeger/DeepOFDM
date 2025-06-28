@@ -31,12 +31,12 @@ for seed in seeds:
             snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
             snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
             snr_ber_dict[snr]['ber_deeprx'].append(float(df["total_ber_deeprx"]))
-            # ber_deepsicsb_val = str(df["total_ber_deepsicsb"].iloc[0]).replace("tensor(", "").replace(")", "")
-            # snr_ber_dict[snr]['ber_deepsicsb'].append(float(ber_deepsicsb_val))
+            ber_deepsicsb_val = str(df["total_ber_deepsicsb"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_deepsicsb'].append(float(ber_deepsicsb_val))
             ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_legacy'].append(float(ber_legacy_val))
-            # ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
-            # snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
+            ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
         except Exception as e:
             print(f"Error processing file {file}: {e}")
 

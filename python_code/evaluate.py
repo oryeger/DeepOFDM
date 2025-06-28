@@ -360,6 +360,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
                         train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
                                                                                           n_users, iterations, int(epochs/2))
+                        # deepsic_trainer._initialize_detector(num_bits, n_users)
+
                         tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
                         rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
                         train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
@@ -687,7 +689,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
-            if conf.run_deepsicsb:
+            if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 print(f'current DeepSICSB: {block_ind, ber_deepsicsb.item()}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
@@ -713,6 +715,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                0)
+
+        if conf.run_deepsicsb and deepsicsb_trainer is not None:
+            plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb, snr_cur, "DeepSICSB", 3,
+                               train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
+                               0)
+
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
                 plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration], snr_cur,
@@ -943,7 +951,8 @@ if __name__ == '__main__':
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
     deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users)
     print(deepsic_trainer)
-    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
+    # run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
+    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

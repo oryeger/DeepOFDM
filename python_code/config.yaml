@@ -2,8 +2,8 @@ snr: 30
 num_snrs: 1
 snr_step: 1
 n_users: 4
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 3
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+num_res: 24
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 200
@@ -31,7 +31,7 @@ TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-channel_seed: 731
+channel_seed: 58
 
 run_deeprx: False
 run_deepsicsb: True

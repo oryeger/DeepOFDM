@@ -11,6 +11,7 @@ HIDDEN_BASE_SIZE = 16
 class DeepSICDetector(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSICDetector, self).__init__()
+        torch.manual_seed(42)
         if conf.separate_nns:
             conv_num_channels =  int(num_bits/2)*n_users+N_ANTS*2
         else:

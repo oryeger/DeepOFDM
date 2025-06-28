@@ -22,6 +22,7 @@ class DeepSICSBDetector(nn.Module):
 
     def __init__(self, num_bits, n_users):
         super(DeepSICSBDetector, self).__init__()
+        torch.manual_seed(42)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         base_rx_size = N_ANTS *2
         linear_input = base_rx_size + num_bits * (conf.n_users - 1)  # from DeepSIC paper

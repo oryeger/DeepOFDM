@@ -588,6 +588,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(), num_bits)
 
+                if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                    detected_word_cur_re_deepsicsb = detected_word_deepsicsb[:, :, re]
+                    detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.reshape(
+                        int(tx_data.shape[0] / num_bits), n_users, num_bits).swapaxes(1, 2).reshape(tx_data.shape[0], n_users)
+
                 if conf.ber_on_one_user >= 0:
                     ber_legacy = calculate_ber(
                         torch.from_numpy(detected_word_legacy[:, conf.ber_on_one_user]).unsqueeze(-1),
@@ -595,9 +600,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_sphere = calculate_ber(
                         torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
                         target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
+                    ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                 else:
                     ber_legacy = calculate_ber(torch.from_numpy(detected_word_legacy), target.cpu(), num_bits)
                     ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits)
+                    ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
 
                 ber_per_re_legacy[re] = ber_legacy
 
@@ -624,6 +632,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if PLOT_CE_ON_DATA:
                     ber_sum_legacy_ce_on_data += ber_legacy_ce_on_data
                 ber_sum_legacy_genie += ber_legacy_genie
+
+                if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                    ber_sum_deepsicsb += ber_deepsicsb
 
             if PLOT_MI:
                 for iteration in range(iterations):
@@ -659,6 +670,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if PLOT_CE_ON_DATA:
                 ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data / num_res
             ber_legacy_genie = ber_sum_legacy_genie / num_res
+            ber_deepsicsb = ber_sum_deepsicsb / num_res
 
             total_ber_deeprx.append(ber_deeprx)
             total_ber_legacy.append(ber_legacy)
@@ -666,12 +678,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if PLOT_CE_ON_DATA:
                 total_ber_legacy_ce_on_data.append(ber_legacy_ce_on_data)
             total_ber_legacy_genie.append(ber_legacy_genie)
+            total_ber_deepsicsb.append(ber_deepsicsb)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, float(ber_list[iterations - 1]), mi}')
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
+            if conf.run_deepsicsb:
+                print(f'current DeepSICSB: {block_ind, ber_deepsicsb.item()}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:
@@ -909,8 +924,9 @@ if __name__ == '__main__':
     deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users)
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
+    deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users)
     print(deepsic_trainer)
-    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)
+    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

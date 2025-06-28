@@ -5,6 +5,9 @@ import time
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
+from python_code.detectors.deepsicsb.deepsicsb_trainer import DeepSICSBTrainer
+
+
 from typing import List
 
 import numpy as np
@@ -130,7 +133,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     plt.show()
 
 
-def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[float]:
+def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer=None) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -176,6 +179,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
     total_ber_deeprx = []
     total_ber_legacy = []
     total_ber_sphere = []
+    total_ber_deepsicsb = []
+
     if PLOT_CE_ON_DATA:
         total_ber_legacy_ce_on_data = []
     total_ber_legacy_genie = []
@@ -195,12 +200,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer) -> List[fl
         ber_sum_legacy = 0
         ber_per_re_legacy = np.zeros(conf.num_res)
         ber_sum_sphere = 0
+        ber_sum_deepsicsb = 0
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
         ber_sum_legacy_genie = 0
         deepsic_trainer._initialize_detector(num_bits, n_users)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users)
         deeprx_trainer._initialize_detector(num_bits, n_users)
+        if conf.run_deepsicsb and deepsicsb_trainer is not None:
+            deepsicsb_trainer._initialize_detector(num_bits, n_users)
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))

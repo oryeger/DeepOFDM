@@ -28,8 +28,14 @@ for seed in seeds:
         try:
             df = pd.read_csv(file)
             snr_ber_dict[snr]['ber_1'].append(float(df["total_ber_1"]))
-            snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
-            snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
+            if "total_ber_2" in df.columns:
+                snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
+            else:
+                snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_1"]))
+            if "total_ber_3" in df.columns:
+                snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
+            else:
+                snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
             snr_ber_dict[snr]['ber_deeprx'].append(float(df["total_ber_deeprx"]))
             ber_deepsicsb_val = str(df["total_ber_deepsicsb"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_deepsicsb'].append(float(ber_deepsicsb_val))

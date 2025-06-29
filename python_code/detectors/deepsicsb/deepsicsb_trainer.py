@@ -54,13 +54,13 @@ class DeepSICSBTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[List[DeepSICSBDetector]], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[List[List[DeepSICSBDetector]]], i: int, tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for re in range(conf.num_res):
             for user in range(n_users):
-                train_loss_vect , val_loss_vect = self._train_model(model[re][user][i], tx_all[user][:,re], rx_all[0][:,:,re].to(DEVICE), num_bits, epochs)
+                train_loss_vect , val_loss_vect = self._train_model(model[re][user][i], tx_all[user][:,re], rx_all[user][:,:,re].to(DEVICE), num_bits, epochs)
                 if user == 0:
                     train_loss_vect_user = train_loss_vect
                     val_loss_vect_user = val_loss_vect
@@ -158,7 +158,7 @@ class DeepSICSBTrainer(Trainer):
         rnd_init = torch.from_numpy(np.random.choice([0, 1], size=(num_rows,num_cols,conf.num_res)))
         return rnd_init
 
-    def _calculate_posteriors(self, model: List[List[nn.Module]], i: int, probs_vec: torch.Tensor,
+    def _calculate_posteriors(self, model: List[List[List[nn.Module]]], i: int, probs_vec: torch.Tensor,
                               rx: torch.Tensor, num_bits: int, n_users: int) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.

@@ -719,7 +719,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb, snr_cur, "DeepSICSB", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
-                               0)
+                               conf.iterations)
 
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):

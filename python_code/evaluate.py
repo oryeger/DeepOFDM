@@ -951,8 +951,8 @@ if __name__ == '__main__':
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
     deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users)
     print(deepsic_trainer)
-    # run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
-    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)
+    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
+    # run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

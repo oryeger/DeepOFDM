@@ -90,6 +90,8 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
                        val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
+    if conf.enable_two_stage_train:
+        p_len = p_len * 2
     if detector == 'DeepSIC':
         iters_txt = ', #iterations=' + str(conf.iterations)
     elif detector == 'DeepSICe2e':

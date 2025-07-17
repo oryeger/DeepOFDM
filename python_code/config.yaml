@@ -6,9 +6,9 @@ mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 3
 cfo:  0
 clip_percentage_in_tx: 100
-epochs: 300
+epochs: 2
 iterations: 3
-pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
@@ -21,7 +21,7 @@ dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
 
-enable_two_stage_train: True
+enable_two_stage_train: False
 two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
 
 

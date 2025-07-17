@@ -9,7 +9,8 @@ from collections import defaultdict
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
-seeds = [123, 17, 41, 58]
+# seeds = [123, 17, 41, 58]
+seeds = [58]
 ber_target = 0.01
 
 # Step 1: Collect and aggregate data
@@ -98,7 +99,7 @@ plt.grid(True)
 plt.legend()
 
 # Optional: Create a title from one of the filenames
-example_file = sorted(glob.glob(os.path.join(CSV_DIR, "*seed=123*_SNR=*")))[0]
+example_file = sorted(glob.glob(os.path.join(CSV_DIR, "*seed="+str(seeds[0])+"*_SNR=*")))[0]
 original_name = os.path.basename(example_file)
 cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
 cleaned_name = re.sub(".csv", "", cleaned_name)

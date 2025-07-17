@@ -92,8 +92,8 @@ class Trainer(object):
     def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor, first_half_flag) -> float:
         # calculate loss
         if first_half_flag:
-            est_cur = est[0::2,:,:,:]
-            tx_cur = tx[0::2,:,:]
+            est_cur = est[:,0::2,:,:]
+            tx_cur = tx[:,0::2,:]
         else:
             est_cur = est
             tx_cur = tx

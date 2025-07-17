@@ -41,7 +41,8 @@ class DeepSICTrainer(Trainer):
         loss = 0
         train_loss_vect = []
         val_loss_vect = []
-        for _ in range(epochs):
+        # for _ in range(epochs):
+        for epoch in range(epochs):
             soft_estimation, llrs = single_model(rx_prob)
             if conf.separate_nns:
                 tx_cur =tx[bit_type::int(num_bits/2),:]
@@ -55,7 +56,7 @@ class DeepSICTrainer(Trainer):
             if first_half_flag:
                 soft_estimation_cur = soft_estimation[train_samples:]
                 tx_reshaped_cur = tx_reshaped[train_samples:]
-                val_loss = self._calculate_loss(soft_estimation_cur[0::2,:,:,:], tx_reshaped_cur[0::2,:,:])
+                val_loss = self._calculate_loss(soft_estimation_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
                 # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             else:
                 val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
@@ -105,7 +106,7 @@ class DeepSICTrainer(Trainer):
                 probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
                 tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users,
                                                                       num_bits, bit_type)
-                train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, False)
+                train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
                 if SHOW_ALL_ITERATIONS:
                     train_loss_vect = train_loss_vect + train_loss_cur
                     val_loss_vect = val_loss_vect + val_loss_cur

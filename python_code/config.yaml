@@ -1,4 +1,4 @@
-snr: 16
+snr: 40
 num_snrs: 1
 snr_step: 1
 n_users: 4
@@ -6,9 +6,9 @@ mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 3
 cfo:  0
 clip_percentage_in_tx: 100
-epochs: 200
-iterations: 2
-pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+epochs: 300
+iterations: 3
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
@@ -20,8 +20,10 @@ sphere_radius: 'inf'
 dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
-two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
+
 enable_two_stage_train: True
+two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
+
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
@@ -35,7 +37,7 @@ speed: 0 # in m/s
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: True
+run_deepsicsb: False
 run_e2e: False
 iters_e2e: 1
 no_probs_e2e: False

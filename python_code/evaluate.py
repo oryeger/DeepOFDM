@@ -109,7 +109,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
         val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
-                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size) + ', two_stage=' + str(conf.two_stage_train))
+                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size) + ', two_stage=' + str(conf.enable_two_stage_train))
 
     axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()
@@ -359,12 +359,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_pilot_cur = tx_pilot[:int(pilot_chunk*num_bits/2),:,:]
                         rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
                         train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, int(epochs/2), True)
+                                                                                          n_users, iterations, epochs, True)
 
                         tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
                         rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
                         train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, int(epochs/2), False)
+                                                                                          n_users, iterations, epochs, False)
                         train_loss_vect = train_loss_vect_1 + train_loss_vect_2
                         val_loss_vect = val_loss_vect_1 + val_loss_vect_2
                         pass
@@ -784,7 +784,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
-        title_string = title_string + '_two_stage=' + str(conf.two_stage_train)
+        title_string = title_string + '_two_stage=' + str(conf.enable_two_stage_train)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_three_layers=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

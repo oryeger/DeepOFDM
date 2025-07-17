@@ -46,7 +46,7 @@ class DeepSICSBTrainer(Trainer):
                 tx_reshaped = tx.reshape(int(tx.numel() // num_bits), num_bits)
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples], False)
             val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             val_loss = val_loss.item()
             loss += current_loss
@@ -69,7 +69,7 @@ class DeepSICSBTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).

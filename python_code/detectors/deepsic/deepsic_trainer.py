@@ -32,7 +32,7 @@ class DeepSICTrainer(Trainer):
         self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)] for _ in range(num_nns)]  # 2D list for Storing the DeepSIC Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, bit_type: int) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, bit_type: int, first_half_flag: bool) -> list[float]:
         """
         Trains a DeepSIC Network and returns the total training loss.
         """
@@ -51,8 +51,14 @@ class DeepSICTrainer(Trainer):
                 tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
-            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples],first_half_flag)
+            if first_half_flag:
+                soft_estimation_cur = soft_estimation[train_samples:]
+                tx_reshaped_cur = tx_reshaped[train_samples:]
+                val_loss = self._calculate_loss(soft_estimation_cur[0::2,:,:,:], tx_reshaped_cur[0::2,:,:])
+                # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+            else:
+                val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)
@@ -60,11 +66,11 @@ class DeepSICTrainer(Trainer):
         return train_loss_vect , val_loss_vect
 
     def _train_models(self, model: List[List[List[DeepSICDetector]]], i: int, tx_all: List[torch.Tensor],
-                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, bit_type: int):
+                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, bit_type: int, first_half_flag: bool):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(n_users):
-            train_loss_vect , val_loss_vect = self._train_model(model[bit_type][user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, bit_type)
+            train_loss_vect , val_loss_vect = self._train_model(model[bit_type][user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, bit_type, first_half_flag)
             if user == 3:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
@@ -73,7 +79,7 @@ class DeepSICTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
@@ -88,7 +94,7 @@ class DeepSICTrainer(Trainer):
         # Training the DeepSIC network for each user for iteration=1
         for bit_type in range(0, num_nns):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits, bit_type)
-            train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
+            train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSICNet for each user-symbol/iteration
@@ -99,7 +105,7 @@ class DeepSICTrainer(Trainer):
                 probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
                 tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users,
                                                                       num_bits, bit_type)
-                train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type)
+                train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, False)
                 if SHOW_ALL_ITERATIONS:
                     train_loss_vect = train_loss_vect + train_loss_cur
                     val_loss_vect = val_loss_vect + val_loss_cur

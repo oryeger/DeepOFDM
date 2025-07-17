@@ -25,7 +25,7 @@ class DeepRxTrainer(Trainer):
         self.detector = [DeepRxDetector(18,2,1, 64, num_bits, N_ANTS ).to(DEVICE) for _ in
                          range(n_users)]  # 2D list for Storing the DeepSIC Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits: int, epochs: int) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits: int, epochs: int, first_half_flag: bool) -> list[float]:
         """
         Trains a DeepSIC Network and returns the total training loss.
         """
@@ -37,19 +37,19 @@ class DeepRxTrainer(Trainer):
             soft_estimation, llrs = single_model(rx)
             tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits,tx.shape[1])
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples])
-            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples], first_half_flag)
+            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:], first_half_flag)
             val_loss = val_loss.item()
             train_loss_vect.append(current_loss)
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
     def _train_models(self, model: List[DeepRxDetector], tx_all: List[torch.Tensor],
-                      rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int):
+                      rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(n_users):
-            train_loss_vect , val_loss_vect = self._train_model(model[user], tx_all[user], rx_all[user].to(DEVICE), num_bits,epochs)
+            train_loss_vect , val_loss_vect = self._train_model(model[user], tx_all[user], rx_all[user].to(DEVICE), num_bits,epochs, first_half_flag, first_half_flag)
             if user == 0:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
@@ -58,13 +58,13 @@ class DeepRxTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int, first_half_flag: bool):
         """
         Main training function for DeepSIC trainer.
         """
 
         tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, n_users)
-        train_loss_vect , val_loss_vect = self._train_models(self.detector, tx_all, rx_all, num_bits, n_users, epochs)
+        train_loss_vect , val_loss_vect = self._train_models(self.detector, tx_all, rx_all, num_bits, n_users, epochs, first_half_flag)
         return train_loss_vect , val_loss_vect
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:

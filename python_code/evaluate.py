@@ -328,7 +328,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,
-                                                                                      epochs)
+                                                                                      epochs, False)
                 elif conf.use_data_as_pilots:
                     H_all = torch.zeros(s_orig.shape[0], N_ANTS * conf.n_users, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
@@ -350,22 +350,21 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
-                                                                                      num_bits, n_users, iterations,epochs)
+                                                                                      num_bits, n_users, iterations,epochs, False)
                 else:
                     if not conf.enable_two_stage_train:
                         train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
-                                                                                          n_users, iterations, epochs)
+                                                                                          n_users, iterations, epochs, False)
                     else:
                         tx_pilot_cur = tx_pilot[:int(pilot_chunk*num_bits/2),:,:]
                         rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
                         train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, int(epochs/2))
-                        # deepsic_trainer._initialize_detector(num_bits, n_users)
+                                                                                          n_users, iterations, int(epochs/2), True)
 
                         tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
                         rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
                         train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, int(epochs/2))
+                                                                                          n_users, iterations, int(epochs/2), False)
                         train_loss_vect = train_loss_vect_1 + train_loss_vect_2
                         val_loss_vect = val_loss_vect_1 + val_loss_vect_2
                         pass
@@ -387,7 +386,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if deepsice2e_trainer.is_online_training:
                     train_loss_vect_e2e, val_loss_vect_e2e = deepsice2e_trainer._online_training(tx_pilot, rx_pilot,
                                                                                                  num_bits, n_users,
-                                                                                                 iters_e2e, epochs)
+                                                                                                 iters_e2e, epochs, False)
                     detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users,
                                                                                             iters_e2e)
 
@@ -395,13 +394,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if deeprx_trainer.is_online_training:
                     train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot,
                                                                                                    num_bits, n_users,
-                                                                                                   iterations, epochs)
+                                                                                                   iterations, epochs, False)
                     detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
                                                                                     iterations)
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 if deepsicsb_trainer.is_online_training:
                     train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
-                        tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs)
+                        tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
                     detected_word_deepsicsb, llrs_mat_deepsicsb = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations)
             # CE Based

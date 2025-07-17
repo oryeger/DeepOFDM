@@ -69,7 +69,7 @@ class DeepSICe2eTrainer(Trainer):
         return train_loss_vect_user , val_loss_vect_user
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int, first_half_flag: bool):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).

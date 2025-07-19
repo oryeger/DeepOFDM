@@ -9,8 +9,7 @@ from collections import defaultdict
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
-# seeds = [123, 17, 41, 58]
-seeds = [58]
+seeds = [123, 17, 41, 58]
 ber_target = 0.01
 
 # Step 1: Collect and aggregate data
@@ -37,7 +36,8 @@ for seed in seeds:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
             else:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
-            snr_ber_dict[snr]['ber_deeprx'].append(float(df["total_ber_deeprx"]))
+            ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
             ber_deepsicsb_val = str(df["total_ber_deepsicsb"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_deepsicsb'].append(float(ber_deepsicsb_val))
             ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
@@ -76,9 +76,10 @@ plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
              label='DeepSIC3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 # Uncomment below to plot DeepRx
-# interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
-# plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
-#              label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if np.unique(ber_deeprx).shape[0] != 1:
+    interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
+                 label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_deepsicsb, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicsb, linestyle=dashes[4], marker=markers[4], color='orange',
@@ -89,7 +90,7 @@ plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r'
              label='Legacy, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='c',
+plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
              label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")

@@ -142,7 +142,9 @@ class DeepSICSBTrainer(Trainer):
                 # Compute the excluded range for the current `i`
                 exclude_start = k*num_bits
                 exclude_end = (k+1)*num_bits
-                idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+                # oryeger
+                # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+                idx = all_values
 
             current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
             tx_all.append(tx[:, k])
@@ -179,9 +181,11 @@ class DeepSICSBTrainer(Trainer):
                     # Compute the excluded range for the current `i`
                     exclude_start = user*num_bits
                     exclude_end = (user+1)*num_bits
+                    # oryeger
                     idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
-
                     user_indexes = np.setdiff1d(all_values, idx)
+                    # oryeger
+                    idx = all_values
                     local_user_indexes = range(0, num_bits)
 
 

@@ -109,13 +109,15 @@ class DeepSICSBTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> torch.Tensor:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> tuple[List, List]:
         # detect and decode
+        detected_word_list = [None] * iterations
+        llrs_mat_list = [None] * iterations
         probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
         for i in range(iterations):
-            probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i + 1, probs_vec, rx.to(device=DEVICE), num_bits , n_users)
-        return self._compute_output(probs_vec), llrs_mat
-
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, probs_vec, rx.to(device=DEVICE), num_bits , n_users)
+            detected_word_list[i] = self._compute_output(probs_vec)
+        return detected_word_list, llrs_mat_list
 
 
     def _compute_output(self, probs_vec):

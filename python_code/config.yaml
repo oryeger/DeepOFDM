@@ -39,6 +39,7 @@ channel_seed: 58
 
 run_deeprx: False
 run_deepsicsb: False
+run_deepsicmb: True
 run_e2e: False
 iters_e2e: 1
 no_probs_e2e: False

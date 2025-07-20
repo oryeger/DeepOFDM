@@ -6,6 +6,7 @@ from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
 from python_code.detectors.deepsicsb.deepsicsb_trainer import DeepSICSBTrainer
+from python_code.detectors.deepsicmb.deepsicmb_trainer import DeepSICMBTrainer
 
 
 from typing import List
@@ -135,7 +136,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     plt.show()
 
 
-def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer=None) -> List[float]:
+def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer=None, deepsicmb_trainer=None) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -180,6 +181,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_ber_list = [[] for _ in range(iterations)]
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_ber_deepsicsb_list = [[] for _ in range(iterations)]
+    total_ber_deepsicmb_list = [[] for _ in range(iterations)]
     total_ber_deeprx = []
     total_ber_legacy = []
     total_ber_sphere = []
@@ -204,6 +206,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         ber_per_re_legacy = np.zeros(conf.num_res)
         ber_sum_sphere = 0
         ber_sum_deepsicsb = np.zeros(iterations)
+        ber_sum_deepsicmb = np.zeros(iterations)
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
         ber_sum_legacy_genie = 0
@@ -212,6 +215,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             deepsicsb_trainer._initialize_detector(num_bits, n_users, n_ants)
+
+        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            deepsicmb_trainer._initialize_detector(num_bits, n_users, n_ants)
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))
@@ -405,6 +411,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
                     detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
+                                                                                         iterations)
+            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+                if deepsicmb_trainer.is_online_training:
+                    train_loss_vect_deepsicmb, val_loss_vect_deepsicmb = deepsicmb_trainer._online_training(
+                        tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
+                    detected_word_deepsicmb_list, llrs_mat_deepsicmb_list = deepsicmb_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations)
             # CE Based
             # train_loss_vect = [0] * epochs
@@ -609,6 +621,22 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                             ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
                         ber_sum_deepsicsb[iteration] += ber_deepsicsb
 
+                if conf.run_deepsicmb and deepsicmb_trainer is not None:
+                    for iteration in range(iterations):
+                        detected_word_cur_re_deepsicmb = detected_word_deepsicmb_list[iteration][:, :, re]
+                        detected_word_cur_re_deepsicmb = detected_word_cur_re_deepsicmb.squeeze(-1)
+                        detected_word_cur_re_deepsicmb = detected_word_cur_re_deepsicmb.reshape(int(tx_data.shape[0] / num_bits),
+                                                                                    n_users,
+                                                                                    num_bits).swapaxes(1, 2).reshape(
+                            tx_data.shape[0],
+                            n_users)
+                        if conf.ber_on_one_user >= 0:
+                            ber_deepsicmb = calculate_ber(
+                                detected_word_cur_re_deepsicmb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                                target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
+                        else:
+                            ber_deepsicmb = calculate_ber(detected_word_cur_re_deepsicmb.cpu(), target.cpu(), num_bits)
+                        ber_sum_deepsicmb[iteration] += ber_deepsicmb
 
                 if conf.ber_on_one_user >= 0:
                     ber_legacy = calculate_ber(
@@ -617,14 +645,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_sphere = calculate_ber(
                         torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
                         target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
-                    if conf.run_deepsicsb and deepsicsb_trainer is not None:
-                        ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
-                            target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                 else:
                     ber_legacy = calculate_ber(torch.from_numpy(detected_word_legacy), target.cpu(), num_bits)
                     ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits)
-                    if conf.run_deepsicsb and deepsicsb_trainer is not None:
-                        ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
 
                 ber_per_re_legacy[re] = ber_legacy
 
@@ -693,6 +716,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration] / num_res
                 total_ber_deepsicsb_list[iteration].append(ber_deepsicsb_list[iteration])
 
+            ber_deepsicmb_list = [None] * iterations
+            for iteration in range(iterations):
+                ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration] / num_res
+                total_ber_deepsicmb_list[iteration].append(ber_deepsicmb_list[iteration])
+
             total_ber_deeprx.append(ber_deeprx)
             total_ber_legacy.append(ber_legacy)
             total_ber_sphere.append(ber_sphere)
@@ -706,7 +734,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if conf.run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
-                print(f'current DeepSICSB: {block_ind, ber_deepsicsb.item()}')
+                print(f'current DeepSICSB: {block_ind, float(ber_deepsicsb_list[iterations - 1])}')
+            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+                print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:
@@ -733,8 +763,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                0)
 
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
-            for iteration in range(iters_e2e_disp):
+            for iteration in range(iterations):
                 plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
+                                   conf.iterations)
+
+        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            for iteration in range(iterations):
+                plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                    conf.iterations)
 
@@ -753,6 +789,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
              "total_ber_deeprx": total_ber_deeprx,
              "total_ber_sphere": total_ber_sphere,
              "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
+             "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
              "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         if conf.iterations == 2:
             df = pd.DataFrame(
@@ -762,6 +799,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                  "total_ber_sphere": total_ber_sphere,
                  "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
                  "total_ber_deepsicsb_2": total_ber_deepsicsb_list[1],
+                 "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
+                 "total_ber_deepsicmb_2": total_ber_deepsicmb_list[1],
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         elif conf.iterations == 3:
             df = pd.DataFrame(
@@ -772,6 +811,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                  "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
                  "total_ber_deepsicsb_2": total_ber_deepsicsb_list[1],
                  "total_ber_deepsicsb_3": total_ber_deepsicsb_list[2],
+                 "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
+                 "total_ber_deepsicmb_2": total_ber_deepsicmb_list[1],
+                 "total_ber_deepsicmb_3": total_ber_deepsicmb_list[2],
                  "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
         # print('\n'+title_string)
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
@@ -851,6 +893,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     snr_at_target_list = np.zeros(iterations)
     snr_at_target_e2e_list = np.zeros(iters_e2e)
     snr_at_target_deepsicsb_list = np.zeros(iterations)
+    snr_at_target_deepsicmb_list = np.zeros(iterations)
     if len(SNR_range) > 1:
         bler_target = 0.01
         for iteration in range(iterations):
@@ -863,10 +906,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 snr_at_target_e2e_list[iteration] = np.round(interp_func(bler_target), 1)
 
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
-            for iteration in range(interations):
+            for iteration in range(iterations):
                 interp_func = interp1d(total_ber_deepsicsb_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
                 snr_at_target_deepsicsb_list[iteration] = np.round(interp_func(bler_target), 1)
+        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            for iteration in range(iterations):
+                interp_func = interp1d(total_ber_deepsicmb_list[iteration], SNR_range, kind='linear',
+                                       fill_value="extrapolate")
+                snr_at_target_deepsicmb_list[iteration] = np.round(interp_func(bler_target), 1)
         if conf.run_deeprx:
             interp_func = interp1d(total_ber_deeprx, SNR_range, kind='linear', fill_value="extrapolate")
             snr_at_target_deeprx = np.round(interp_func(bler_target), 1)
@@ -890,6 +938,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             for iteration in range(iterations):
                 snr_at_target_deepsicsb_list[iteration] = float('inf')
+        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            for iteration in range(iterations):
+                snr_at_target_deepsicmb_list[iteration] = float('inf')
         snr_at_target_legacy = float('inf')
         snr_at_target_sphere = float('inf')
         snr_at_target_legacy_genie = float('inf')
@@ -920,6 +971,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             plt.semilogy(SNR_range, total_ber_deepsicsb_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='orange',
                          label='DeepSICSB' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsicsb_list[iteration]))
+    if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        for iteration in range(iterations):
+            plt.semilogy(SNR_range, total_ber_deepsicmb_list[iteration], linestyle=dashes[iteration],
+                         marker=markers[iteration], color='black',
+                         label='DeepSICMB' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsicmb_list[iteration]))
     if conf.run_deeprx:
         plt.semilogy(SNR_range, total_ber_deeprx, '-o', color='c',
                      label='DeepRx,   SNR @1%=' + str(snr_at_target_deeprx))
@@ -979,9 +1035,9 @@ if __name__ == '__main__':
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
     deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users, conf.n_ants)
+    deepsicmb_trainer = DeepSICMBTrainer(conf.num_res, conf.n_users, conf.n_ants)
     print(deepsic_trainer)
-    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
-    # run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)
+    run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer, deepsicmb_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS
-
 HIDDEN_BASE_SIZE = 64
 
 class DeepSICSBDetector(nn.Module):
@@ -24,7 +22,7 @@ class DeepSICSBDetector(nn.Module):
         super(DeepSICSBDetector, self).__init__()
         torch.manual_seed(42)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
-        base_rx_size = N_ANTS *2
+        base_rx_size = conf.n_ants *2
         linear_input = base_rx_size + num_bits * (conf.n_users - 1)  # from DeepSIC paper
         self.fc1 = nn.Linear(linear_input, hidden_size)
         self.activation1 = nn.ReLU()

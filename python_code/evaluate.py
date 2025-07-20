@@ -17,7 +17,7 @@ from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
 from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, CFO_COMP, GENIE_CFO,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI,
-                                         PLOT_CE_ON_DATA, N_ANTS)
+                                         PLOT_CE_ON_DATA)
 
 import commpy.modulation as mod
 
@@ -151,6 +151,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     mod_pilot = conf.mod_pilot
     num_bits = int(np.log2(mod_pilot))
     n_users = conf.n_users
+    n_ants = conf.n_ants
     iterations = conf.iterations
     iters_e2e = conf.iters_e2e
     epochs = conf.epochs
@@ -206,11 +207,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
         ber_sum_legacy_genie = 0
-        deepsic_trainer._initialize_detector(num_bits, n_users)  # For reseting the weights
-        deepsice2e_trainer._initialize_detector(num_bits, n_users)
-        deeprx_trainer._initialize_detector(num_bits, n_users)
+        deepsic_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
+        deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
+        deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
-            deepsicsb_trainer._initialize_detector(num_bits, n_users)
+            deepsicsb_trainer._initialize_detector(num_bits, n_users, n_ants)
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))
@@ -312,7 +313,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             # online training main function
             if deepsic_trainer.is_online_training:
                 if conf.train_on_ce_no_pilots:
-                    H_all = torch.zeros(N_ANTS, conf.num_res, dtype=torch.complex64)
+                    H_all = torch.zeros(conf.n_ants, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
                         rx_pilot_cur = rx[:pilot_chunk, :, re]
                         row_means = torch.mean(rx_pilot_cur, axis=1, keepdims=True)
@@ -332,16 +333,16 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                       num_bits, n_users, iterations,
                                                                                       epochs, False)
                 elif conf.use_data_as_pilots:
-                    H_all = torch.zeros(s_orig.shape[0], N_ANTS * conf.n_users, conf.num_res, dtype=torch.complex64)
+                    H_all = torch.zeros(s_orig.shape[0], conf.n_ants * conf.n_users, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
-                        H = torch.zeros(s_orig.shape[0], N_ANTS, conf.n_users, dtype=torch.complex64)
+                        H = torch.zeros(s_orig.shape[0], conf.n_ants, conf.n_users, dtype=torch.complex64)
                         for user in range(n_users):
                             s_orig_pilot = s_orig[:, user, re]
                             rx_pilot_ce_cur = rx_ce[user, :, :, re]
 
                             H[:, :, user] = (s_orig_pilot[:, None].conj() / (
                                     torch.abs(s_orig_pilot[:, None]) ** 2)) * rx_pilot_ce_cur  # shape: [56, 4]
-                        H_all[:, :, re] = H.reshape(H.shape[0], N_ANTS * conf.n_users)
+                        H_all[:, :, re] = H.reshape(H.shape[0], conf.n_ants * conf.n_users)
                     real_part = H_all.real
                     imag_part = H_all.imag
                     H_all_real = torch.empty((H_all.shape[0], H_all.shape[1] * 2, H_all.shape[2]),
@@ -455,7 +456,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     radius = float(conf.sphere_radius)
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
-                if (conf.n_users == 4) & (N_ANTS == 4):
+                if (conf.n_users == 4) & (conf.n_ants == 4):
                     detected_word_sphere = SphereDecoder(H, rx_data_c[:, :, re].numpy(), radius)
                 else:
                     detected_word_sphere = np.zeros_like(detected_word_legacy)
@@ -786,11 +787,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
-        title_string = title_string + '_N_ANTS=' + str(N_ANTS)
+        title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
         title_string = title_string + '_two_stage=' + str(conf.enable_two_stage_train)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
-        title_string = title_string + '_three_layers=' + str(conf.channel_seed)
+        title_string = title_string + '_no_deep_rx=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
@@ -949,10 +950,10 @@ if __name__ == '__main__':
 
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))
-    deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users)
-    deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users)
-    deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users)
-    deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users)
+    deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users, conf.n_ants)
+    deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
+    deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
+    deepsicsb_trainer = DeepSICSBTrainer(conf.num_res, conf.n_users, conf.n_ants)
     print(deepsic_trainer)
     run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer)
     # run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer)

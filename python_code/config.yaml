@@ -1,5 +1,6 @@
 snr: 40
 num_snrs: 1
+n_ants: 4
 snr_step: 1
 n_users: 2
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM

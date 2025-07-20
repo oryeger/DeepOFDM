@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS
-
 HIDDEN_BASE_SIZE = 16
 
 class DeepSICDetector(nn.Module):
@@ -13,18 +11,18 @@ class DeepSICDetector(nn.Module):
         super(DeepSICDetector, self).__init__()
         torch.manual_seed(42)
         if conf.separate_nns:
-            conv_num_channels =  int(num_bits/2)*n_users+N_ANTS*2
+            conv_num_channels =  int(num_bits/2)*n_users+conf.n_ants*2
         else:
             if conf.half_probs:
-                conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+N_ANTS*2)
+                conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+conf.n_ants*2)
             else:
                 if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
-                    conv_num_channels = int(num_bits * n_users + N_ANTS * 4)
+                    conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
                 else:
-                    conv_num_channels =  int(num_bits*n_users+N_ANTS*2)
+                    conv_num_channels =  int(num_bits*n_users+conf.n_ants*2)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:
-            matrix_size = conv_num_channels*conf.num_res # N_ANTS*2*conf.num_res
+            matrix_size = conv_num_channels*conf.num_res # conf.n_ants*2*conf.num_res
             if conf.dot_product:
                 self.scale = nn.Parameter(torch.ones(matrix_size))
             else:
@@ -49,7 +47,7 @@ class DeepSICDetector(nn.Module):
 
     def forward(self, rx_prob):
         if conf.scale_input:
-            rx = rx_prob # rx = rx_prob[:,:N_ANTS*2,:,:]
+            rx = rx_prob # rx = rx_prob[:,:conf.n_ants*2,:,:]
             rx_flattened = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
             if conf.dot_product:
                 rx_out_flattened = rx_flattened*self.scale

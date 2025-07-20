@@ -17,14 +17,14 @@ Softmax = torch.nn.Softmax(dim=1)
 
 class DeepSICe2eTrainer(Trainer):
 
-    def __init__(self, num_bits: int, n_users: int):
+    def __init__(self, num_bits: int, n_users: int, n_ants: int):
         self.lr = 5e-3
-        super().__init__(num_bits, n_users)
+        super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
         return 'DeepSICe2e'
 
-    def _initialize_detector(self, num_bits, n_users):
+    def _initialize_detector(self, num_bits, n_users, n_ants):
         if conf.separate_nns:
             num_nns = int(num_bits/2)
         else:

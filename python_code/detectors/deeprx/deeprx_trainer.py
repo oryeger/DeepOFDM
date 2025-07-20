@@ -7,22 +7,22 @@ from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
 from python_code.detectors.deeprx.deeprx_detector import DeepRxDetector
 from python_code.detectors.trainer import Trainer
-from python_code.utils.constants import TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT, N_ANTS
+from python_code.utils.constants import TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 
 Softmax = torch.nn.Softmax(dim=1)
 
 class DeepRxTrainer(Trainer):
 
-    def __init__(self, num_res: int, n_users: int):
+    def __init__(self, num_res: int, n_users: int, n_ants: int):
         self.lr = 5e-3
-        super().__init__(num_res, n_users)
+        super().__init__(num_res, n_users, n_ants)
 
     def __str__(self):
         return 'DeepSIC'
 
-    def _initialize_detector(self, num_bits, n_users):
-        self.detector = [DeepRxDetector(18,2,1, 64, num_bits, N_ANTS ).to(DEVICE) for _ in
+    def _initialize_detector(self, num_bits, n_users, n_ants):
+        self.detector = [DeepRxDetector(18,2,1, 64, num_bits, n_ants ).to(DEVICE) for _ in
                          range(n_users)]  # 2D list for Storing the DeepSIC Networks
 
 

@@ -2,8 +2,6 @@ from torch import nn
 import torch
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS
-
 
 class ResBlock(nn.Module):
     def __init__(self, n_chan=64, out_chan=64, padding=1, dilation=(1, 1), groups=64):

@@ -4,8 +4,6 @@ import torch.nn.functional as F
 
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS
-
 import numpy as np
 from itertools import product
 import commpy.modulation as mod

@@ -1,7 +1,7 @@
 import os
 from python_code import conf
 
-from python_code.utils.constants import N_ANTS, NUM_SAMPLES_PER_SLOT, SAMPLING_RATE
+from python_code.utils.constants import NUM_SAMPLES_PER_SLOT, SAMPLING_RATE
 import matplotlib.pyplot as plt
 
 
@@ -62,7 +62,7 @@ class TDLChannel:
                           delay_spread=float(conf.delay_spread),
                           carrier_frequency=float(conf.carrier_frequency),
                           num_tx_ant=y_in.shape[0],
-                          num_rx_ant=N_ANTS,
+                          num_rx_ant=conf.n_ants,
                           min_speed=conf.speed)
 
 
@@ -94,14 +94,14 @@ class TDLChannel:
         y_tf = tf.convert_to_tensor(y_in)
         TA = np.argmax(h_cur)
         no = tf.convert_to_tensor(float(noise_var))
-        y_out = np.zeros([1,1,N_ANTS,NUM_SAMPLES_PER_SLOT*num_slots],dtype=np.complex128)
+        y_out = np.zeros([1,1,conf.n_ants,NUM_SAMPLES_PER_SLOT*num_slots],dtype=np.complex128)
         for slot in range(num_slots):
             y_reshaped = tf.reshape(y_tf[:,:,slot*num_time_samples:(slot+1)*num_time_samples], [batch_size, 1, y_in.shape[0], num_time_samples])
             y_reshaped = tf.cast(y_reshaped, h_time.dtype)
             y_out_cur_slot = channel_time([y_reshaped, h_time, no])
             y_out_cur_slot = y_out_cur_slot[:,:,:,TA:-l_tot+1+TA]
             y_out[:,:,:,slot*num_time_samples:(slot+1)*num_time_samples] = y_out_cur_slot.numpy()
-        y_out = np.reshape(y_out, (1, N_ANTS, int(NUM_SAMPLES_PER_SLOT*num_slots)))
+        y_out = np.reshape(y_out, (1, conf.n_ants, int(NUM_SAMPLES_PER_SLOT*num_slots)))
         # y_out = y_out.numpy()
         # np.save('C:\\Projects\\Scratchpad\\output.npy', y_out)
         # y_out_2 = np.load('C:\\Projects\\Scratchpad\\output.npy')

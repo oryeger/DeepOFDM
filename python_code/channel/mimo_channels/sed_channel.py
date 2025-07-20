@@ -2,7 +2,7 @@ import numpy as np
 from sympy import false
 
 from python_code import conf
-from python_code.utils.constants import (N_ANTS , PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
+from python_code.utils.constants import (PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
                                          CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
 
 import matplotlib.pyplot as plt
@@ -196,8 +196,8 @@ class SEDChannel:
         var = 10 ** (-0.1 * snr)
         empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
         if conf.TDL_model[0] == 'N':
-            y = np.zeros((N_ANTS,s.shape[1],num_res), dtype=complex)
-            y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
+            y = np.zeros((conf.n_ants,s.shape[1],num_res), dtype=complex)
+            y_ce = np.zeros((n_users, conf.n_ants, s.shape[1], num_res), dtype=complex)
 
             for re_index in range(num_res):
                 conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
@@ -219,7 +219,7 @@ class SEDChannel:
 
 
             y, channel_used = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True, empty_tf_tensor)
-            y_ce = np.zeros((n_users, N_ANTS, s.shape[1], num_res), dtype=complex)
+            y_ce = np.zeros((n_users, conf.n_ants, s.shape[1], num_res), dtype=complex)
             all_values = list(range(n_users))
             for user in range(n_users):
                 idx = np.setdiff1d(all_values, user)
@@ -229,11 +229,11 @@ class SEDChannel:
                 y_ce[user, :, :, :] = conv_ce
 
         for re_index in range(num_res):
-            w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+            w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
                 for user in range(n_users):
-                    # w = np.sqrt(var) * (np.random.randn(N_ANTS, s.shape[1]) + 1j * np.random.randn(N_ANTS, s.shape[1]))
+                    # w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
 
 
@@ -264,7 +264,7 @@ class SEDChannel:
 
             colors = ['g', 'r', 'k', 'b']
             user = max(conf.ber_on_one_user,0)
-            for ant in range(N_ANTS):
+            for ant in range(conf.n_ants):
                 plt.plot(
                     20 * np.log10(np.abs(y_ce[user, ant, symbol_to_plot, :])),
                     '-', color=colors[ant], label=f'Ant {ant}'

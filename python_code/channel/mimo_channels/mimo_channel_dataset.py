@@ -6,7 +6,6 @@ from numpy.random import default_rng
 from python_code import conf
 from python_code.channel.mimo_channels.sed_channel import SEDChannel
 from python_code.channel.modulator import BPSKModulator
-from python_code.utils.constants import N_ANTS
 import commpy.modulation as mod
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -21,8 +20,8 @@ class MIMOChannel:
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
         self.tx_length = n_users
-        self._h_shape = [N_ANTS, n_users]
-        self.rx_length = N_ANTS
+        self._h_shape = [conf.n_ants, n_users]
+        self.rx_length = conf.n_ants
         self.fading_in_channel = fading_in_channel
         self.spatial_in_channel = spatial_in_channel
         self.delayspread_in_channel = delayspread_in_channel
@@ -139,6 +138,6 @@ class MIMOChannel:
 
     def _transmit_and_detect(self, snr: float, num_res: int, index: int, n_users: int, mod_pilot: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
-        h = SEDChannel.calculate_channel(N_ANTS, n_users, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
+        h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
         tx, rx, rx_ce, s_orig = self._transmit(h, snr,num_res, n_users, mod_pilot)
         return tx, h, rx, rx_ce, s_orig

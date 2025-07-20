@@ -26,17 +26,17 @@ class Trainer(object):
     It also defines some functions that every inherited trainer must implement.
     """
 
-    def __init__(self, num_bits, n_users):
+    def __init__(self, num_bits, n_users, n_ants):
         # initialize matrices, dataset and detector
         self.lr = 5e-3
         self.is_online_training = True
         #  self._initialize_dataloader(num_res,self.pilot_size)
-        self._initialize_detector(num_bits, n_users)
+        self._initialize_detector(num_bits, n_users, n_ants)
 
     def get_name(self):
         return self.__name__()
 
-    def _initialize_detector(self, num_bits, n_users):
+    def _initialize_detector(self, num_bits, n_users, n_ants):
         """
         Every trainer must have some base detector
         """

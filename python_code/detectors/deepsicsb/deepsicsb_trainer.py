@@ -17,14 +17,14 @@ Softmax = torch.nn.Softmax(dim=1)
 
 class DeepSICSBTrainer(Trainer):
 
-    def __init__(self, num_bits: int, n_users: int):
+    def __init__(self, num_bits: int, n_users: int, n_ants: int):
         self.lr = 5e-3
-        super().__init__(num_bits, n_users)
+        super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
         return 'DeepSICSB'
 
-    def _initialize_detector(self, num_bits, n_users):
+    def _initialize_detector(self, num_bits, n_users, n_ants):
         self.detector = [[[DeepSICSBDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
                          range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
 

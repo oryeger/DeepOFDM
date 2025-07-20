@@ -142,9 +142,21 @@ class DeepSICMBTrainer(Trainer):
                 # Compute the excluded range for the current `i`
                 exclude_start = k*num_bits
                 exclude_end = (k+1)*num_bits
-                idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+                # oryeger
+                # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+                idx = all_values
 
-            current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
+            kernel_size = conf.kernel_size
+            half_kernel = int((conf.kernel_size-1)/2)
+            n_probs_per_re = probs_vec.shape[1]
+            probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
+            for re in range(conf.num_res):
+                begin_index = np.max([re-half_kernel,0])
+                end_index = begin_index + kernel_size
+                for kernel_idx in range(begin_index, end_index):
+                    probs_vec_extended[:,n_probs_per_re*(kernel_idx):n_probs_per_re*(kernel_idx+1),re] = probs_vec[:,:,kernel_idx]
+
+                current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
             tx_all.append(tx[:, k])
             rx_all.append(current_y_train)
         return tx_all, rx_all
@@ -179,9 +191,11 @@ class DeepSICMBTrainer(Trainer):
                     # Compute the excluded range for the current `i`
                     exclude_start = user*num_bits
                     exclude_end = (user+1)*num_bits
+                    # oryeger
                     idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
-
                     user_indexes = np.setdiff1d(all_values, idx)
+                    # oryeger
+                    idx = all_values
                     local_user_indexes = range(0, num_bits)
 
 

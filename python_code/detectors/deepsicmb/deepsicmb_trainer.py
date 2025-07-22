@@ -132,6 +132,7 @@ class DeepSICMBTrainer(Trainer):
         """
         tx_all = []
         rx_all = []
+        rx_device = rx.to(device=DEVICE)
         for k in range(n_users):
             if conf.mod_pilot <= 2:
                 idx = [user_i for user_i in range(n_users) if user_i != k]
@@ -150,13 +151,16 @@ class DeepSICMBTrainer(Trainer):
             half_kernel = int((conf.kernel_size-1)/2)
             n_probs_per_re = probs_vec.shape[1]
             probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
+            # current_y_train = torch.zeros(probs_vec.shape[0], conf.n_ants*2+n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
             for re in range(conf.num_res):
                 begin_index = np.max([re-half_kernel,0])
-                end_index = begin_index + kernel_size
+                end_index = np.min( [begin_index + kernel_size , conf.num_res])
+                running_idx = 0
                 for kernel_idx in range(begin_index, end_index):
-                    probs_vec_extended[:,n_probs_per_re*(kernel_idx):n_probs_per_re*(kernel_idx+1),re] = probs_vec[:,:,kernel_idx]
+                    probs_vec_extended[:,n_probs_per_re*(running_idx):n_probs_per_re*(running_idx+1),re] = probs_vec[:,:,kernel_idx]
+                    running_idx += 1
 
-                current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
+            current_y_train = torch.cat((rx_device, probs_vec_extended), dim=1)
             tx_all.append(tx[:, k])
             rx_all.append(current_y_train)
         return tx_all, rx_all
@@ -198,8 +202,19 @@ class DeepSICMBTrainer(Trainer):
                     idx = all_values
                     local_user_indexes = range(0, num_bits)
 
+                kernel_size = conf.kernel_size
+                half_kernel = int((conf.kernel_size - 1) / 2)
+                n_probs_per_re = probs_vec.shape[1]
+                probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size).to(DEVICE)
+                # current_y_train = torch.zeros(probs_vec.shape[0], conf.n_ants*2+n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
+                begin_index = np.max([re - half_kernel, 0])
+                end_index = np.min([begin_index + kernel_size, conf.num_res])
+                running_idx = 0
+                for kernel_idx in range(begin_index, end_index):
+                    probs_vec_extended[:, n_probs_per_re * (running_idx):n_probs_per_re * (running_idx + 1)] = probs_vec[:, :, kernel_idx]
+                    running_idx += 1
 
-                input = torch.cat((rx[:,:,re], probs_vec[:,idx,re]), dim=1)
+                input = torch.cat((rx[:,:,re], probs_vec_extended), dim=1)
                 preprocessed_input = self._preprocess(input)
                 with torch.no_grad():
                     output, llrs = model[re][user][i - 1](preprocessed_input)
@@ -207,4 +222,4 @@ class DeepSICMBTrainer(Trainer):
         return next_probs_vec, llrs
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):
-        return HALF * torch.ones(rx.shape[0], n_users*num_bits, conf.num_res).to(DEVICE).float()
+        return HALF * torch.ones(rx.shape[0], n_users*num_bits*conf.kernel_size, conf.num_res).to(DEVICE).float()

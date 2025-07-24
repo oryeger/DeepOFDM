@@ -3,7 +3,7 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 num_res: 13
 cfo:  0
 clip_percentage_in_tx: 100
@@ -31,7 +31,7 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'A' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 30e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
@@ -40,9 +40,12 @@ channel_seed: 58
 run_deeprx: False
 run_deepsicsb: True
 run_deepsicmb: True
+seperate_pilots: True
+
 run_e2e: False
 iters_e2e: 1
 no_probs_e2e: False
+
 
 
 

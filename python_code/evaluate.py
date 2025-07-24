@@ -428,10 +428,16 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
                 for user in range(n_users):
-                    rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
-                    s_orig_pilot = s_orig[:pilot_chunk, user, re]
-                    H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                            torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                    if not(conf.seperate_pilots):
+                        rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+                        s_orig_pilot = s_orig[:pilot_chunk, user, re]
+                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                    else:
+                        rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:n_users, :, re]
+                        s_orig_pilot = s_orig[user:pilot_chunk:n_users, user, re]
+                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
                 H = H.cpu().numpy()
 
                 H_Ht = H @ H.T.conj()

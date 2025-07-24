@@ -855,7 +855,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
-        title_string = title_string + '_two_stage=' + str(conf.enable_two_stage_train)
+        title_string = title_string + '_sep_pilots=' + str(conf.seperate_pilots)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_nothing=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

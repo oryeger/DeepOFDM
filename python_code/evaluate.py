@@ -468,10 +468,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     radius = float(conf.sphere_radius)
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
-                if (conf.n_users == 4) & (conf.n_ants == 4):
+                if (conf.n_users == conf.n_ants):
                     detected_word_sphere = SphereDecoder(H, rx_data_c[:, :, re].numpy(), radius)
                 else:
-                    detected_word_sphere = np.zeros_like(detected_word_legacy)
+                    detected_word_sphere = SphereDecoder(np.eye(conf.n_users), equalized.numpy(), radius)
 
                 if PLOT_CE_ON_DATA:
                     # CE on data

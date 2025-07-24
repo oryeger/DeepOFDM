@@ -222,4 +222,4 @@ class DeepSICMBTrainer(Trainer):
         return next_probs_vec, llrs
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):
-        return HALF * torch.ones(rx.shape[0], n_users*num_bits*conf.kernel_size, conf.num_res).to(DEVICE).float()
+        return HALF * torch.ones(rx.shape[0], n_users*num_bits, conf.num_res).to(DEVICE).float()

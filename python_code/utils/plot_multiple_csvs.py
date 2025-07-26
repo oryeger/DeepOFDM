@@ -14,7 +14,9 @@ ber_target = 0.01
 
 # Step 1: Collect and aggregate data
 snr_ber_dict = defaultdict(lambda: {
-    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [], 'ber_legacy': [], 'ber_sphere': []
+    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
+    'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
+    'ber_legacy': [], 'ber_sphere': []
 })
 
 for seed in seeds:
@@ -52,6 +54,25 @@ for seed in seeds:
                 else:
                     snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_1"]))
 
+            if "total_ber_deepsicmb" in df.columns:
+                snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb"]))
+                snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb"]))
+                snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb"]))
+            else:
+                snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb_1"]))
+                if "total_ber_deepsicmb_2" in df.columns:
+                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_2"]))
+                else:
+                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_1"]))
+                if "total_ber_deepsicmb_3" in df.columns:
+                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_3"]))
+                else:
+                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_1"]))
+
+
+
+
+
             ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
             ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
@@ -69,6 +90,9 @@ ber_3 = [np.mean(snr_ber_dict[snr]['ber_3']) for snr in snrs]
 ber_deepsicsb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_1']) for snr in snrs]
 ber_deepsicsb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_2']) for snr in snrs]
 ber_deepsicsb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_3']) for snr in snrs]
+ber_deepsicmb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_1']) for snr in snrs]
+ber_deepsicmb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_2']) for snr in snrs]
+ber_deepsicmb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_3']) for snr in snrs]
 ber_deeprx = [np.mean(snr_ber_dict[snr]['ber_deeprx']) for snr in snrs]
 
 ber_legacy = [np.mean(snr_ber_dict[snr]['ber_legacy']) for snr in snrs]
@@ -98,9 +122,6 @@ if np.unique(ber_deeprx).shape[0] != 1:
     plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
                  label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-
-
-
 interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
              label='DeepSICSB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
@@ -112,6 +133,18 @@ plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], colo
 interp_func = interp1d(ber_deepsicsb_3, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], color='orange',
              label='DeepSICSB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
+             label='DeepSICSM1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
+             label='DeepSICSM2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
+             label='DeepSICMB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 
 interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")

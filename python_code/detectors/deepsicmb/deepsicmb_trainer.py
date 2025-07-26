@@ -132,7 +132,6 @@ class DeepSICMBTrainer(Trainer):
         """
         tx_all = []
         rx_all = []
-        rx_device = rx.to(device=DEVICE)
         for k in range(n_users):
             if conf.mod_pilot <= 2:
                 idx = [user_i for user_i in range(n_users) if user_i != k]
@@ -150,17 +149,19 @@ class DeepSICMBTrainer(Trainer):
             kernel_size = conf.kernel_size
             half_kernel = int((conf.kernel_size-1)/2)
             n_probs_per_re = probs_vec.shape[1]
+            n_ants_effective_per_re = rx.shape[1]
             probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
-            # current_y_train = torch.zeros(probs_vec.shape[0], conf.n_ants*2+n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
+            rx_extended =  torch.zeros(rx.shape[0], n_ants_effective_per_re * kernel_size, conf.num_res).to(DEVICE)
             for re in range(conf.num_res):
                 begin_index = np.max([re-half_kernel,0])
                 end_index = np.min( [begin_index + kernel_size , conf.num_res])
                 running_idx = 0
                 for kernel_idx in range(begin_index, end_index):
                     probs_vec_extended[:,n_probs_per_re*(running_idx):n_probs_per_re*(running_idx+1),re] = probs_vec[:,:,kernel_idx]
+                    rx_extended[:,n_ants_effective_per_re*(running_idx):n_ants_effective_per_re*(running_idx+1),re] = rx[:,:,kernel_idx]
                     running_idx += 1
 
-            current_y_train = torch.cat((rx_device, probs_vec_extended), dim=1)
+            current_y_train = torch.cat((rx_extended, probs_vec_extended), dim=1)
             tx_all.append(tx[:, k])
             rx_all.append(current_y_train)
         return tx_all, rx_all
@@ -182,6 +183,9 @@ class DeepSICMBTrainer(Trainer):
         Propagates the probabilities through the learnt networks.
         """
         next_probs_vec = torch.zeros(probs_vec.shape).to(DEVICE)
+        n_ants_effective_per_re = rx.shape[1]
+        kernel_size = conf.kernel_size
+        rx_extended = torch.zeros(rx.shape[0], n_ants_effective_per_re * kernel_size, conf.num_res).to(DEVICE)
         for re in range(conf.num_res):
             for user in range(n_users):
                 if conf.mod_pilot <= 2:
@@ -202,7 +206,6 @@ class DeepSICMBTrainer(Trainer):
                     idx = all_values
                     local_user_indexes = range(0, num_bits)
 
-                kernel_size = conf.kernel_size
                 half_kernel = int((conf.kernel_size - 1) / 2)
                 n_probs_per_re = probs_vec.shape[1]
                 probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size).to(DEVICE)
@@ -212,9 +215,10 @@ class DeepSICMBTrainer(Trainer):
                 running_idx = 0
                 for kernel_idx in range(begin_index, end_index):
                     probs_vec_extended[:, n_probs_per_re * (running_idx):n_probs_per_re * (running_idx + 1)] = probs_vec[:, :, kernel_idx]
+                    rx_extended[:, n_ants_effective_per_re * (running_idx):n_ants_effective_per_re * (running_idx + 1),re] = rx[:, :, kernel_idx]
                     running_idx += 1
 
-                input = torch.cat((rx[:,:,re], probs_vec_extended), dim=1)
+                input = torch.cat((rx_extended[:,:,re], probs_vec_extended), dim=1)
                 preprocessed_input = self._preprocess(input)
                 with torch.no_grad():
                     output, llrs = model[re][user][i - 1](preprocessed_input)

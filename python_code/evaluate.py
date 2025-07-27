@@ -134,6 +134,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     # fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=12)
     plt.tight_layout()
     plt.show()
+    return fig
 
 
 def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer=None, deepsicmb_trainer=None) -> List[float]:
@@ -760,33 +761,32 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         else:
             cfo_str = 'cfo=0'
 
-        plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_legacy),
+        fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_legacy),
                            snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy,
                            ber_legacy_genie, 0)
         if conf.run_deeprx:
-            plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
+            fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                0)
-
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             for iteration in range(iterations):
-                plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
+                fig_deepsicsb = plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                    conf.iterations)
+
 
         if conf.run_deepsicmb and deepsicmb_trainer is not None:
             for iteration in range(iterations):
-                plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
+                fig_deepsicmb = plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
                                    conf.iterations)
-
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
-                plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration], snr_cur,
+                fig_e2e = plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration], snr_cur,
                                    "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                    ber_e2e_list[iteration], ber_legacy, ber_legacy_genie, iteration)
         for iteration in range(iterations):
-            plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC",
+            fig_deepsic = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC",
                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration],
                                ber_legacy, ber_legacy_genie, iteration)
 
@@ -861,8 +861,30 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
-        file_path = os.path.abspath(os.path.join(output_dir, title_string + ".csv"))
+        file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(file_path, index=False)
+
+        if conf.save_loss_plot:
+            title_string_cur = "deepsic_" + title_string
+            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+            fig_deepsic.savefig(file_path)
+            if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                title_string_cur = "deepsicsb_"+title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_deepsicsb.savefig(file_path)
+            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+                title_string_cur = "deepsicmb_"+title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_deepsicmb.savefig(file_path)
+            if conf.run_deeprx:
+                title_string_cur = "deeprx_"+title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_deeprx.savefig(file_path)
+            if conf.run_e2e:
+                title_string_cur = "e2e"+title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_e2e.savefig(file_path)
+
 
         # for iteration in range(iterations):
         #     np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))

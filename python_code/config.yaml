@@ -17,6 +17,7 @@ interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
+save_loss_plot: True
 
 dot_product: True
 scale_input: True

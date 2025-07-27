@@ -196,7 +196,7 @@ class SEDChannel:
         var = 10 ** (-0.1 * snr)
         empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
         y = np.zeros((conf.n_ants, s.shape[1], num_res), dtype=complex)
-        if not (conf.seperate_pilots):
+        if not (conf.separate_pilots):
             y_ce = np.zeros((n_users, conf.n_ants, s.shape[1], num_res), dtype=complex)
         else:
             y_ce = np.zeros_like(y, dtype=complex)
@@ -207,7 +207,7 @@ class SEDChannel:
                     conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])
                     y[:, :, re_index] = conv
 
-                    if not(conf.seperate_pilots):
+                    if not(conf.separate_pilots):
                         all_values = list(range(n_users))
                         for user in range(n_users):
                             idx = np.setdiff1d(all_values, user)
@@ -216,10 +216,10 @@ class SEDChannel:
                             conv_ce = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s_cur_user)
                             y_ce[user, :, :, re_index] = conv_ce
                     else:
-                        s_seperate_pilots = np.zeros((s.shape[0],s.shape[1]), dtype=complex)
+                        s_separate_pilots = np.zeros((s.shape[0],s.shape[1]), dtype=complex)
                         for user in range(n_users):
-                            s_seperate_pilots[user,user::n_users] = s[user,user::n_users,re_index]
-                        conv_ce = SEDChannel._compute_channel_signal_convolution(h[:, :, re_index], s_seperate_pilots)
+                            s_separate_pilots[user,user::n_users] = s[user,user::n_users,re_index]
+                        conv_ce = SEDChannel._compute_channel_signal_convolution(h[:, :, re_index], s_separate_pilots)
                         y_ce[:, :, re_index] = conv_ce
 
 
@@ -231,7 +231,7 @@ class SEDChannel:
 
             y, channel_used = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True, empty_tf_tensor)
             all_values = list(range(n_users))
-            if not(conf.seperate_pilots):
+            if not(conf.separate_pilots):
                 for user in range(n_users):
                     idx = np.setdiff1d(all_values, user)
                     s_cur_user = s.copy()
@@ -239,11 +239,11 @@ class SEDChannel:
                     conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used)
                     y_ce[user, :, :, :] = conv_ce
             else:
-                s_seperate_pilots = np.zeros_like(s, dtype=complex)
+                s_separate_pilots = np.zeros_like(s, dtype=complex)
                 for user in range(n_users):
-                    s_seperate_pilots[user, user::n_users,:] = s[user, user::n_users, :]
+                    s_separate_pilots[user, user::n_users,:] = s[user, user::n_users, :]
 
-                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_seperate_pilots, True, cfo, 100, num_res, 1, True,                                                                 channel_used)
+                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, cfo, 100, num_res, 1, True,                                                                 channel_used)
                 y_ce[:, :, :] = conv_ce
 
 
@@ -251,7 +251,7 @@ class SEDChannel:
             w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
-                if not(conf.seperate_pilots):
+                if not(conf.separate_pilots):
                     for user in range(n_users):
                         # w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
                         y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w

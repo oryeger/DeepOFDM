@@ -8,7 +8,7 @@ num_res: 13
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2
-iterations: 1
+iterations: 4
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 separate_nns: False # just for 16QAM

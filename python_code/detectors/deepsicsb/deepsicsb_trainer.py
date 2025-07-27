@@ -167,7 +167,7 @@ class DeepSICSBTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(probs_vec.shape).to(DEVICE)
+        next_probs_vec = probs_vec.clone()
         for re in range(conf.num_res):
             for user in range(n_users):
                 if conf.mod_pilot <= 2:

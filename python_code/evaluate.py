@@ -429,7 +429,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
                 for user in range(n_users):
-                    if not(conf.seperate_pilots):
+                    if not(conf.separate_pilots):
                         rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
                         s_orig_pilot = s_orig[:pilot_chunk, user, re]
                         H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
@@ -855,7 +855,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
-        title_string = title_string + '_sep_pilots=' + str(conf.seperate_pilots)
+        title_string = title_string + '_separate_pilots=' + str(conf.separate_pilots)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

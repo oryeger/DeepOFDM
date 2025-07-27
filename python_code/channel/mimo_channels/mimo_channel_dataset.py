@@ -128,7 +128,7 @@ class MIMOChannel:
         rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users)
 
         rx = np.transpose(rx, (1, 0, 2))
-        if not(conf.seperate_pilots):
+        if not(conf.separate_pilots):
             rx_ce_t = np.zeros((n_users,rx.shape[0],rx.shape[1],rx.shape[2]),dtype=complex)
             for user in range(n_users):
                 rx_ce_t[user,:,:,:] = np.transpose(rx_ce[user,:,:,:], (1, 0, 2))

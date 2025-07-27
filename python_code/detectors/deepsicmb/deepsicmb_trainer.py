@@ -182,7 +182,7 @@ class DeepSICMBTrainer(Trainer):
         """
         Propagates the probabilities through the learnt networks.
         """
-        next_probs_vec = torch.zeros(probs_vec.shape).to(DEVICE)
+        next_probs_vec = probs_vec.clone()
         n_ants_effective_per_re = rx.shape[1]
         kernel_size = conf.kernel_size
         rx_extended = torch.zeros(rx.shape[0], n_ants_effective_per_re * kernel_size, conf.num_res).to(DEVICE)

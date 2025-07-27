@@ -17,7 +17,7 @@ interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
-save_loss_plot: True
+save_loss_plot_snr: 40
 
 dot_product: True
 scale_input: True
@@ -41,7 +41,7 @@ channel_seed: 58
 run_deeprx: False
 run_deepsicsb: True
 run_deepsicmb: True
-seperate_pilots: True
+separate_pilots: True
 
 run_e2e: False
 iters_e2e: 1

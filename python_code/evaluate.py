@@ -864,7 +864,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(file_path, index=False)
 
-        if conf.save_loss_plot:
+        if conf.save_loss_plot_snr == snr_cur:
             title_string_cur = "deepsic_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
             fig_deepsic.savefig(file_path)

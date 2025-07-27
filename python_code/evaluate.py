@@ -771,14 +771,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             for iteration in range(iterations):
                 fig_deepsicsb = plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicsb_list[iteration], ber_legacy, ber_legacy_genie,
                                    conf.iterations)
 
 
         if conf.run_deepsicmb and deepsicmb_trainer is not None:
             for iteration in range(iterations):
                 fig_deepsicmb = plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicmb_list[iteration], ber_legacy, ber_legacy_genie,
                                    conf.iterations)
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
@@ -855,7 +855,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
-        title_string = title_string + '_separate_pilots=' + str(conf.separate_pilots)
+        title_string = title_string + '_sep_pilots_gt=' + str(conf.separate_pilots)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

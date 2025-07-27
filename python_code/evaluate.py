@@ -630,7 +630,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
-                        ber_sum_deepsicsb[iteration] += ber_deepsicsb
+                        if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
+                            ber_sum_deepsicsb[iteration] += ber_deepsicsb
                         ber_per_re_deepsicsb[iteration, re] = ber_deepsicsb
 
 
@@ -649,7 +650,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepsicmb = calculate_ber(detected_word_cur_re_deepsicmb.cpu(), target.cpu(), num_bits)
-                        ber_sum_deepsicmb[iteration] += ber_deepsicmb
+                        if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
+                            ber_sum_deepsicmb[iteration] += ber_deepsicmb
                         ber_per_re_deepsicmb[iteration, re] = ber_deepsicmb
 
                 if conf.ber_on_one_user >= 0:
@@ -682,7 +684,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu(), num_bits)
 
                 if conf.run_deeprx:
-                    ber_sum_deeprx += ber_deeprx
+                    if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
+                        ber_sum_deeprx += ber_deeprx
                 ber_sum_legacy += ber_legacy
                 ber_sum_sphere += ber_sphere
                 if PLOT_CE_ON_DATA:
@@ -718,7 +721,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_e2e_list[iteration] = ber_sum_e2e[iteration] / num_res
                     total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
 
-            ber_deeprx = ber_sum_deeprx / num_res
+            ber_deeprx = ber_sum_deeprx / (num_res - 2*conf.kernel_size)
             ber_legacy = ber_sum_legacy / num_res
             ber_sphere = ber_sum_sphere / num_res
             if PLOT_CE_ON_DATA:

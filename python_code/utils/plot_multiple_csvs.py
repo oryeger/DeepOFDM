@@ -9,6 +9,7 @@ from collections import defaultdict
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
+# seeds = [123, 17, 41, 58]
 seeds = [123, 17, 41, 58]
 ber_target = 0.01
 

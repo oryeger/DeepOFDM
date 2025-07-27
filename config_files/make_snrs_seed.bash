@@ -18,7 +18,7 @@ all_config_files=()
 for seed in "${seeds[@]}"; do
   echo "Generating configs for seed $seed"
 
-  for i in $(seq 5 30); do
+  for i in $(seq 0 25); do
     out_file="${base_name}_seed${seed}_${i}.yaml"
 
     # Replace channel_seed and snr lines

@@ -886,7 +886,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
         title_string = title_string + '_sep_pilots_gt=' + str(conf.separate_pilots)
-        title_string = title_string + '_HBS=16'
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

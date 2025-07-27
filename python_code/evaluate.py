@@ -157,6 +157,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     iterations = conf.iterations
     iters_e2e = conf.iters_e2e
     epochs = conf.epochs
+    half_kernel = int(np.ceil(conf.kernel_size/2))
 
     if mod_pilot == 2:
         mod_text = 'BPSK'
@@ -579,7 +580,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(), num_bits)
 
-                    ber_sum[iteration] += ber
+                    if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
+                        ber_sum[iteration] += ber
                     ber_per_re[iteration, re] = ber
                 if conf.run_e2e:
                     for iteration in range(iters_e2e_disp):
@@ -707,7 +709,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             ber_list = [None] * iterations
             for iteration in range(iterations):
-                ber_list[iteration] = ber_sum[iteration] / num_res
+                ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
                 total_ber_list[iteration].append(ber_list[iteration])
 
             if conf.run_e2e:
@@ -725,12 +727,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             ber_deepsicsb_list = [None] * iterations
             for iteration in range(iterations):
-                ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration] / num_res
+                ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / (num_res - 2*conf.kernel_size)
                 total_ber_deepsicsb_list[iteration].append(ber_deepsicsb_list[iteration])
 
             ber_deepsicmb_list = [None] * iterations
             for iteration in range(iterations):
-                ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration] / num_res
+                ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration]  / (num_res - 2*conf.kernel_size)
                 total_ber_deepsicmb_list[iteration].append(ber_deepsicmb_list[iteration])
 
             total_ber_deeprx.append(ber_deeprx)
@@ -885,7 +887,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         title_string = title_string + '_FFT_size=' + str(FFT_size)
-        title_string = title_string + '_sep_pilots_center=' + str(conf.separate_pilots)
+        title_string = title_string + '_sep_pilots_ber_no_edges=' + str(conf.separate_pilots)
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

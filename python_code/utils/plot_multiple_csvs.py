@@ -155,11 +155,11 @@ plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], colo
 
 interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
-             label='DeepSICSM1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='DeepSICMB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
-             label='DeepSICSM2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='DeepSICMB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',

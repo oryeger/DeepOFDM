@@ -40,8 +40,8 @@ speed: 0 # in m/s
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: True
-run_deepsicmb: True
+run_deepsicsb: False
+run_deepsicmb: False
 run_deepstag: True
 separate_pilots: True
 

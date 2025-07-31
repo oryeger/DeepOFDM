@@ -5,7 +5,8 @@ from torch import nn
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
-from python_code.detectors.deepstag.deepstag_detector import DeepSTAGDetector
+from python_code.detectors.deepstag.deepstag_det_conv import DeepSTAGDetConv
+from python_code.detectors.deepstag.deepstag_det_re import DeepSTAGDetRe
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
@@ -29,8 +30,12 @@ class DeepSTAGTrainer(Trainer):
         else:
             num_nns = 1
 
-        self.detector = [[[DeepSTAGDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
+        self.det_conv = [[[DeepSTAGDetConv(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)] for _ in range(num_nns)]  # 2D list for Storing the DeepSTAG Networks
+
+        self.det_re = [[[DeepSTAGDetRe(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
+                         range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
+
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, bit_type: int, first_half_flag: bool) -> list[float]:
         """
@@ -66,7 +71,7 @@ class DeepSTAGTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[List[List[DeepSTAGDetector]]], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[List[List[DeepSTAGDetConv]]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, bit_type: int, first_half_flag: bool):
         train_loss_vect_user = []
         val_loss_vect_user = []
@@ -95,7 +100,7 @@ class DeepSTAGTrainer(Trainer):
         # Training the DeepSTAG network for each user for iteration=1
         for bit_type in range(0, num_nns):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits, bit_type)
-            train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
+            train_loss_vect , val_loss_vect = self._train_models(self.det_conv, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSTAGNet for each user-symbol/iteration
@@ -103,10 +108,10 @@ class DeepSTAGTrainer(Trainer):
             # Training the DeepSTAG networks for the iteration>1
             for bit_type in range(0, num_nns):
                 # Generating soft symbols for training purposes
-                probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
+                probs_vec, llrs_mat = self._calculate_posteriors(self.det_conv, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, bit_type)
                 tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users,
                                                                       num_bits, bit_type)
-                train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
+                train_loss_cur , val_loss_cur =  self._train_models(self.det_conv, i, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
                 if SHOW_ALL_ITERATIONS:
                     train_loss_vect = train_loss_vect + train_loss_cur
                     val_loss_vect = val_loss_vect + val_loss_cur
@@ -133,9 +138,9 @@ class DeepSTAGTrainer(Trainer):
         else:
             nns = 0
         for i in range(iterations):
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users, nns)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users, nns)
             detected_word_list[i] = self._compute_output(probs_vec)
-        # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
+        # plt.imshow(self.det_conv[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
         # pass
 
         return detected_word_list, llrs_mat_list

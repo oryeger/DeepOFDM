@@ -6,9 +6,9 @@ from python_code import conf
 
 HIDDEN_BASE_SIZE = 16
 
-class DeepSTAGDetector(nn.Module):
+class DeepSTAGDetConv(nn.Module):
     def __init__(self, num_bits, n_users):
-        super(DeepSTAGDetector, self).__init__()
+        super(DeepSTAGDetConv, self).__init__()
         torch.manual_seed(42)
         if conf.separate_nns:
             conv_num_channels =  int(num_bits/2)*n_users+conf.n_ants*2

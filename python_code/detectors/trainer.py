@@ -89,10 +89,15 @@ class Trainer(object):
         pass
 
 
-    def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor) -> float:
+    def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor, first_half_flag) -> float:
         # calculate loss
-        est_cur = est
-        tx_cur = tx
+        if first_half_flag:
+            est_cur = est[:,0::2,:,:]
+            tx_cur = tx[:,0::2,:]
+        else:
+            est_cur = est
+            tx_cur = tx
+
         loss = self._calculate_loss(est=est_cur, tx=tx_cur)
         current_loss = loss.item()
         # back propagation

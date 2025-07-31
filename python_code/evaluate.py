@@ -431,9 +431,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                          iterations)
             if conf.run_deepstag and deepstag_trainer is not None:
                 if deepstag_trainer.is_online_training:
-                    train_loss_vect_deepstag, val_loss_vect_deepstag = deepsicmb_trainer._online_training(
+                    train_loss_vect_deepstag, val_loss_vect_deepstag = deepstag_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
-                    detected_word_deepstag_list, llrs_mat_deepstag_list = deepsicmb_trainer._forward(rx_data, num_bits, n_users,
+                    detected_word_deepstag_list, llrs_mat_deepstag_list = deepstag_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations)
             # CE Based
             # train_loss_vect = [0] * epochs

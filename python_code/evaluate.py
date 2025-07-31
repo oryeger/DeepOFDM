@@ -938,7 +938,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         for iter in range(iterations):
             plt.plot(np.arange(conf.num_res), ber_per_re_deepstag[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))
         ax.legend()
-        ax.set_title('DeepSICMB, ' + title_string)
+        ax.set_title('DeepSTAG, ' + title_string)
         ax.grid(True)
         fig.tight_layout()
         plt.show()

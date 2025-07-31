@@ -42,6 +42,7 @@ channel_seed: 58
 run_deeprx: False
 run_deepsicsb: True
 run_deepsicmb: True
+run_deepstag: True
 separate_pilots: True
 
 run_e2e: False

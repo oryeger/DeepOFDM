@@ -1,4 +1,5 @@
 snr: 40
+cur_str: 'blabla'
 num_snrs: 1
 n_ants: 8
 snr_step: 1

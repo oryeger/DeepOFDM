@@ -580,9 +580,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(), num_bits)
 
-                    # if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
-                    #     ber_sum[iteration] += ber
-                    ber_sum[iteration] += ber
+                    if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
+                        ber_sum[iteration] += ber
+                    # ber_sum[iteration] += ber
                     ber_per_re[iteration, re] = ber
 
                 if conf.run_e2e:
@@ -894,8 +894,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
-        title_string = title_string + '_FFT_size=' + str(FFT_size)
-        title_string = title_string + '_sep_pilots_ber_no_edges=' + str(conf.separate_pilots)
+        # title_string = title_string + '_FFT_size=' + str(FFT_size)
+        # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)
+        title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

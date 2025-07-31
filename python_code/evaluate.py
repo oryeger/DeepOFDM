@@ -752,7 +752,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             ber_list = [None] * iterations
             for iteration in range(iterations):
-                ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
+                # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
+                ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
 
             if conf.run_e2e:
@@ -761,7 +762,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_e2e_list[iteration] = ber_sum_e2e[iteration] / num_res
                     total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
 
-            ber_deeprx = ber_sum_deeprx / (num_res - 2*conf.kernel_size)
+            # ber_deeprx = ber_sum_deeprx / (num_res - 2*conf.kernel_size)
+            ber_deeprx = ber_sum_deeprx / num_res
             ber_legacy = ber_sum_legacy / num_res
             ber_sphere = ber_sum_sphere / num_res
             if PLOT_CE_ON_DATA:
@@ -770,17 +772,20 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             ber_deepsicsb_list = [None] * iterations
             for iteration in range(iterations):
-                ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / (num_res - 2*conf.kernel_size)
+                # ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / (num_res - 2*conf.kernel_size)
+                ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / num_res
                 total_ber_deepsicsb_list[iteration].append(ber_deepsicsb_list[iteration])
 
             ber_deepsicmb_list = [None] * iterations
             for iteration in range(iterations):
-                ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration]  / (num_res - 2*conf.kernel_size)
+                # ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration]  / (num_res - 2*conf.kernel_size)
+                ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration]  / num_res
                 total_ber_deepsicmb_list[iteration].append(ber_deepsicmb_list[iteration])
 
             ber_deepstag_list = [None] * iterations
             for iteration in range(iterations):
-                ber_deepstag_list[iteration] = ber_sum_deepstag[iteration]  / (num_res - 2*conf.kernel_size)
+                # ber_deepstag_list[iteration] = ber_sum_deepstag[iteration]  / (num_res - 2*conf.kernel_size)
+                ber_deepstag_list[iteration] = ber_sum_deepstag[iteration]  / num_res
                 total_ber_deepstag_list[iteration].append(ber_deepstag_list[iteration])
 
             total_ber_deeprx.append(ber_deeprx)

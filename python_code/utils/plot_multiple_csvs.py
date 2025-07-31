@@ -16,7 +16,7 @@ ber_target = 0.01
 # Step 1: Collect and aggregate data
 snr_ber_dict = defaultdict(lambda: {
     'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
-    'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
+    'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [], 'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [],
     'ber_legacy': [], 'ber_sphere': []
 })
 
@@ -70,6 +70,21 @@ for seed in seeds:
                 else:
                     snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_1"]))
 
+            if "total_ber_deepstag" in df.columns:
+                snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag"]))
+                snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag"]))
+                snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag"]))
+            else:
+                snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag_1"]))
+                if "total_ber_deepstag_2" in df.columns:
+                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_2"]))
+                else:
+                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_1"]))
+                if "total_ber_deepstag_3" in df.columns:
+                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_3"]))
+                else:
+                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_1"]))
+
 
 
 
@@ -94,6 +109,9 @@ ber_deepsicsb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_3']) for snr in snrs
 ber_deepsicmb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_1']) for snr in snrs]
 ber_deepsicmb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_2']) for snr in snrs]
 ber_deepsicmb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_3']) for snr in snrs]
+ber_deepstag_1 = [np.mean(snr_ber_dict[snr]['ber_deepstag_1']) for snr in snrs]
+ber_deepstag_2 = [np.mean(snr_ber_dict[snr]['ber_deepstag_2']) for snr in snrs]
+ber_deepstag_3 = [np.mean(snr_ber_dict[snr]['ber_deepstag_3']) for snr in snrs]
 ber_deeprx = [np.mean(snr_ber_dict[snr]['ber_deeprx']) for snr in snrs]
 
 ber_legacy = [np.mean(snr_ber_dict[snr]['ber_legacy']) for snr in snrs]
@@ -146,6 +164,19 @@ plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], colo
 interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
              label='DeepSICMB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepstag_1, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepstag_1, linestyle=dashes[0], marker=markers[0], color='pink',
+             label='DeepSTAG1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepstag_2, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepstag_2, linestyle=dashes[1], marker=markers[1], color='pink',
+             label='DeepSTAG2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
+interp_func = interp1d(ber_deepstag_3, snrs, kind='linear', fill_value="extrapolate")
+plt.semilogy(snrs, ber_deepstag_3, linestyle=dashes[2], marker=markers[2], color='pink',
+             label='DeepSTAG3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+
 
 
 interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")

@@ -23,9 +23,8 @@ class DeepSTAGDetRe(nn.Module):
         torch.manual_seed(42)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         base_rx_size = conf.n_ants *2
-        # OryEger
-        # linear_input = base_rx_size + num_bits * (conf.n_users - 1)  # from DeepSIC paper
-        linear_input = base_rx_size + num_bits * conf.n_users  # from DeepSIC paper
+        linear_input = (base_rx_size + num_bits * conf.n_users) * conf.stag_re_kernel_size
+
         self.fc1 = nn.Linear(linear_input, hidden_size)
         self.activation1 = nn.ReLU()
         self.fc2 = nn.Linear(hidden_size, num_bits)

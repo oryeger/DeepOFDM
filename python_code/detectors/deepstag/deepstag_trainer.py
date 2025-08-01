@@ -199,7 +199,33 @@ class DeepSTAGTrainer(Trainer):
                 all_values = list(range(max_value))
                 idx = all_values
 
-            current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
+            kernel_size = conf.stag_re_kernel_size
+            half_kernel = int((conf.kernel_size-1)/2)
+            n_probs_per_re = probs_vec.shape[1]
+            n_ants_effective_per_re = rx.shape[1]
+            probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size, conf.num_res).to(DEVICE)
+            rx_extended =  torch.zeros(rx.shape[0], n_ants_effective_per_re * kernel_size, conf.num_res).to(DEVICE)
+            for re in range(conf.num_res):
+                begin_index = re - half_kernel
+                end_index = begin_index + kernel_size
+                indexes_updated = np.zeros(kernel_size,dtype=int)
+                running_idx = 0
+                for index in  range(begin_index, end_index):
+                    if index<0:
+                        indexes_updated[running_idx] = index + kernel_size
+                    elif index>conf.num_res-1:
+                        indexes_updated[running_idx] = index - kernel_size
+                    else:
+                        indexes_updated[running_idx] = index
+                    running_idx += 1
+
+                running_idx = 0
+                for kernel_idx in indexes_updated:
+                    probs_vec_extended[:,n_probs_per_re*(running_idx):n_probs_per_re*(running_idx+1),re] = probs_vec[:,:,kernel_idx]
+                    rx_extended[:,n_ants_effective_per_re*(running_idx):n_ants_effective_per_re*(running_idx+1),re] = rx[:,:,kernel_idx]
+                    running_idx += 1
+
+            current_y_train = torch.cat((rx_extended, probs_vec_extended), dim=1)
             tx_all.append(tx[:, k])
             rx_all.append(current_y_train)
         return tx_all, rx_all
@@ -249,6 +275,9 @@ class DeepSTAGTrainer(Trainer):
         Propagates the probabilities through the learnt networks.
         """
         next_probs_vec = probs_vec.clone()
+        n_ants_effective_per_re = rx.shape[1]
+        kernel_size = conf.stag_re_kernel_size
+        half_kernel = int((kernel_size - 1) / 2)
         for re in range(conf.num_res):
             for user in range(n_users):
                 if conf.mod_pilot <= 2:
@@ -270,7 +299,30 @@ class DeepSTAGTrainer(Trainer):
                     local_user_indexes = range(0, num_bits)
 
 
-                input = torch.cat((rx[:,:,re], probs_vec[:,idx,re]), dim=1)
+                n_probs_per_re = probs_vec.shape[1]
+                probs_vec_extended = torch.zeros(probs_vec.shape[0], n_probs_per_re * kernel_size).to(DEVICE)
+                rx_extended = torch.zeros(rx.shape[0], n_ants_effective_per_re * kernel_size).to(DEVICE)
+
+                begin_index = re - half_kernel
+                end_index = begin_index + kernel_size
+                indexes_updated = np.zeros(kernel_size,dtype=int)
+                running_idx = 0
+                for index in  range(begin_index, end_index):
+                    if index<0:
+                        indexes_updated[running_idx] = index + kernel_size
+                    elif index>conf.num_res-1:
+                        indexes_updated[running_idx] = index - kernel_size
+                    else:
+                        indexes_updated[running_idx] = index
+                    running_idx += 1
+
+                running_idx = 0
+                for kernel_idx in indexes_updated:
+                    probs_vec_extended[:, n_probs_per_re * (running_idx):n_probs_per_re * (running_idx + 1)] = probs_vec[:, :, kernel_idx]
+                    rx_extended[:, n_ants_effective_per_re * (running_idx):n_ants_effective_per_re * (running_idx + 1)] = rx[:, :, kernel_idx]
+                    running_idx += 1
+
+                input = torch.cat((rx_extended, probs_vec_extended), dim=1)
                 preprocessed_input = self._preprocess(input)
                 with torch.no_grad():
                     output, llrs = model[re][user][i - 1](preprocessed_input)

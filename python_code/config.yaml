@@ -13,6 +13,7 @@ iterations: 3
 num_trainings: 1
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
+stag_re_kernel_size: 3
 separate_nns: False # just for 16QAM
 full_e2e: False
 interf_factor: 1

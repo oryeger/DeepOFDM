@@ -912,7 +912,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         else:
             add_text = 'all users'
 
-        colors = ['g', 'r', 'k', 'b']
+        colors = ['g', 'r', 'k', 'b', 'yellow', 'pink']
         fig, ax = plt.subplots()
         for iter in range(iterations):
             plt.plot(np.arange(conf.num_res), ber_per_re[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))

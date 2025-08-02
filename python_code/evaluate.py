@@ -972,7 +972,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
-        title_string = title_string + '_mb=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

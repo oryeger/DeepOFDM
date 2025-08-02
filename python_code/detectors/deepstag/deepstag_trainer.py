@@ -70,7 +70,7 @@ class DeepSTAGTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models_conv(self, model: List[List[DeepSTAGDetConv]], i: int, tx_all: List[torch.Tensor],
+    def _train_models_conv(self, model: List[List[List[DeepSTAGDetConv]]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int):
         train_loss_vect_user = []
         val_loss_vect_user = []
@@ -113,35 +113,41 @@ class DeepSTAGTrainer(Trainer):
         """
 
         # Training the DeepSTAG network for each user for iteration=1
-        initial_probs = self._initialize_probs_conv(tx, num_bits, n_users).to(device=DEVICE)
-        tx_all, rx_prob_all = self._prepare_data_for_training_conv(tx, rx_real.to(device=DEVICE), initial_probs.squeeze(-1), n_users, num_bits)
-        train_loss_vect, val_loss_vect = self._train_models_conv(self.det_conv, 0, tx_all, rx_prob_all, num_bits, n_users,epochs)
-        probs_vec = self._initialize_probs_for_training_conv(tx, num_bits, n_users).to(device=DEVICE)
-        probs_vec, llrs_mat = self._calculate_posteriors_conv(self.det_conv, 1, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
-        tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real, probs_vec.squeeze(-1), n_users)
-        train_loss_cur, val_loss_cur = self._train_models_re(self.det_re, 0, tx_all, rx_all, num_bits, n_users,epochs)
+
+
+
+        initial_probs = self._initialize_probs_re(tx, num_bits, n_users)
+        tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real, initial_probs, n_users)
+        train_loss_vect , val_loss_vect = self._train_models_re(self.det_re, 0, tx_all, rx_all, num_bits, n_users, epochs)
+        probs_vec = self._initialize_probs_for_training_re(tx, num_bits, n_users)
+        probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, 1,  rx_real.to(device=DEVICE), probs_vec, num_bits, n_users)
+        tx_all, rx_prob_all = self._prepare_data_for_training_conv(tx, rx_real.to(device=DEVICE), probs_vec, n_users, num_bits)
+        train_loss_cur, val_loss_cur = self._train_models_conv(self.det_conv, 0, tx_all, rx_prob_all, num_bits, n_users,
+                                                            epochs)
         train_loss_vect = train_loss_vect + train_loss_cur
         val_loss_vect = val_loss_vect + val_loss_cur
 
         if iterations>1:
-            probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, 1, rx_real.to(device=DEVICE),
-                                                                probs_vec.squeeze(-1), num_bits, n_users)        # Initializing the probabilities
+            probs_vec, llrs_mat = self._calculate_posteriors_conv(self.det_conv, 1, rx_real.to(device=DEVICE).unsqueeze(-1),
+                                                             probs_vec.unsqueeze(-1), num_bits, n_users)
+        # Initializing the probabilities
         # Training the DeepSTAGNet for each user-symbol/iteration
         for i in range(1, iterations):
             # Training the DeepSTAG networks for the iteration>1
-            tx_all, rx_prob_all = self._prepare_data_for_training_conv(tx, rx_real.to(device=DEVICE), probs_vec,n_users, num_bits)
-            train_loss_cur, train_loss_cur = self._train_models_conv(self.det_conv,i, tx_all, rx_prob_all, num_bits,n_users, epochs)
+            tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real.to(device=DEVICE), probs_vec.squeeze(-1), n_users)
+            train_loss_cur, val_loss_cur = self._train_models_re(self.det_re, i, tx_all, rx_all, num_bits, n_users,
+                                                                   epochs)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur
-                val_loss_vect = val_loss_vect + train_loss_cur
+                val_loss_vect = val_loss_vect + val_loss_cur
 
-            probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec.unsqueeze(-1), num_bits, n_users)
-            tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real, probs_vec.squeeze(-1), n_users)
-            train_loss_cur, val_loss_cur = self._train_models_re(self.det_re, i, tx_all, rx_all, num_bits, n_users,epochs)
+            probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, i+1, rx_real.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
+            tx_all, rx_prob_all = self._prepare_data_for_training_conv(tx, rx_real.to(device=DEVICE), probs_vec,n_users, num_bits)
+            train_loss_cur, val_loss_cur = self._train_models_conv(self.det_conv, i, tx_all, rx_prob_all, num_bits,n_users,epochs)
             if i != iterations-1:
-                probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, i+1, rx_real.to(device=DEVICE),
-                                                                    probs_vec.squeeze(-1), num_bits,
-                                                                    n_users)  # Initializing the probabilities
+                probs_vec, llrs_mat = self._calculate_posteriors_conv(self.det_conv, i+1,
+                                                                      rx_real.to(device=DEVICE).unsqueeze(-1),
+                                                                      probs_vec.unsqueeze(-1), num_bits, n_users)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur
                 val_loss_vect = val_loss_vect + val_loss_cur
@@ -162,11 +168,11 @@ class DeepSTAGTrainer(Trainer):
         # detect and decode
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations
-        probs_vec = self._initialize_probs_for_infer_conv(rx, num_bits, n_users)
+        probs_vec = self._initialize_probs_for_infer_re(rx, num_bits, n_users)
         for i in range(iterations):
-            probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
-            probs_vec = probs_vec.unsqueeze(-1)
+            probs_vec, _ = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec, num_bits, n_users)
+            probs_vec, llrs_mat_list[i] = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec.unsqueeze(-1), num_bits, n_users)
+            probs_vec = probs_vec.squeeze(-1)
             detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list
@@ -263,7 +269,7 @@ class DeepSTAGTrainer(Trainer):
         rnd_init = HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32)
         return rnd_init
 
-    def _calculate_posteriors_re(self, model: List[List[List[DeepSTAGDetRe]]], i: int, rx: torch.Tensor, probs_vec: torch.Tensor,
+    def _calculate_posteriors_re(self, model: List[List[List[nn.Module]]], i: int, rx: torch.Tensor, probs_vec: torch.Tensor,
                                num_bits: int, n_users: int) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
@@ -323,7 +329,7 @@ class DeepSTAGTrainer(Trainer):
                 next_probs_vec[:, user_indexes,re] = output[:, local_user_indexes]
         return next_probs_vec, llrs
 
-    def _calculate_posteriors_conv(self, model: List[List[DeepSTAGDetConv]], i: int, rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int) -> torch.Tensor:
+    def _calculate_posteriors_conv(self, model: List[List[List[nn.Module]]], i: int, rx_real: torch.Tensor, prob: torch.tensor, num_bits: int, n_users: int) -> torch.Tensor:
         """
         Propagates the probabilities through the learnt networks.
         """

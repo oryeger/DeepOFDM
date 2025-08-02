@@ -11,7 +11,7 @@ HIDDEN_BASE_SIZE = 16
 class DeepSICe2eDetector(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSICe2eDetector, self).__init__()
-        if conf.no_probs_e2e:
+        if conf.no_probs:
             conv_num_channels = conf.n_ants*2
         else:
             if conf.separate_nns:
@@ -47,7 +47,7 @@ class DeepSICe2eDetector(nn.Module):
             llrs_mat = torch.zeros(rx_prob.shape[0], n_users * num_bits, rx_prob.shape[2], rx_prob.shape[3],
                                    device=rx_prob.device)
 
-        if conf.no_probs_e2e:
+        if conf.no_probs:
             if conf.separate_nns:
                 rx_prob_new = torch.zeros(rx_prob.shape[0], n_users * int(num_bits / 2), rx_prob.shape[2], rx_prob.shape[3], device=rx_prob.device)
             else:
@@ -63,7 +63,7 @@ class DeepSICe2eDetector(nn.Module):
                 llrs = self.fc2[cur_index](out2)
                 out3 = self.activation2(llrs)
 
-                if conf.no_probs_e2e:
+                if conf.no_probs:
                     if conf.separate_nns:
                         index_start = user * int(num_bits / 2)
                         index_end = (user + 1) * int(num_bits / 2)
@@ -96,7 +96,7 @@ class DeepSICe2eDetector(nn.Module):
                         index_end = (user + 1) * num_bits
                         llrs_mat[:, index_start:index_end, :, :] = llrs
 
-        if conf.no_probs_e2e:
+        if conf.no_probs:
             out3 = rx_prob_new.squeeze(-1)  # Output of final rx_prob
         else:
             out3 = rx_prob_new[:, conf.n_ants * 2:, :, :].squeeze(-1)  # Output of final rx_prob

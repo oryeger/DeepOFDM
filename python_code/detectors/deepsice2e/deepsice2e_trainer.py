@@ -127,7 +127,7 @@ class DeepSICe2eTrainer(Trainer):
                         index_start_put = user * num_bits
                         index_end_put = (user + 1) * num_bits
                         tx_cur[i, index_start_put:index_end_put, :] = tx[index_start_get:index_end_get,user, :]
-                if conf.no_probs_e2e:
+                if conf.no_probs:
                     rx_prob = rx_real.unsqueeze(-1).to(DEVICE)
                 else:
                     rx_prob = torch.cat((rx_real, initial_probs), dim=1).unsqueeze(-1).to(DEVICE)
@@ -196,7 +196,7 @@ class DeepSICe2eTrainer(Trainer):
         tx_all = []
         rx_prob_all = []
         for user in range(n_users):
-            if conf.no_probs_e2e:
+            if conf.no_probs:
                 rx_prob_all = rx.unsqueeze(-1)
             else:
                 if conf.separate_nns:
@@ -230,7 +230,7 @@ class DeepSICe2eTrainer(Trainer):
         llrs_mat = torch.zeros(prob.shape).to(DEVICE)
         if conf.separate_nns:
             for bit_type in ensure_tensor_iterable(nns):
-                if conf.no_probs_e2e:
+                if conf.no_probs:
                     rx_prob = rx_real
                 else:
                     rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:].unsqueeze(-1)), dim=1)
@@ -242,7 +242,7 @@ class DeepSICe2eTrainer(Trainer):
                 probs_mat[:, index_start:index_end:int(num_bits/2),:] = output
                 llrs_mat[:, index_start:index_end:int(num_bits/2),:] = llrs
         else:
-            if conf.no_probs_e2e:
+            if conf.no_probs:
                 rx_prob = rx_real
             else:
                 rx_prob = torch.cat((rx_real, prob.unsqueeze(-1)), dim=1)

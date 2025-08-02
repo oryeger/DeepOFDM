@@ -1124,7 +1124,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                      color='g',
                      label='DeepSIC' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_list[iteration]))
     if conf.run_e2e:
-        if conf.no_probs_e2e:
+        if conf.no_probs:
             e2e_text = 'NoProbs'
         else:
             e2e_text = 'Deepe2e'
@@ -1196,10 +1196,10 @@ if __name__ == '__main__':
 
     # Now conf has the updated config, proceed as before
     assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
-    assert not (conf.no_probs_e2e and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
+    assert not (conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
     assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
     assert not (
-                conf.no_probs_e2e and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
+                conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
 
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))

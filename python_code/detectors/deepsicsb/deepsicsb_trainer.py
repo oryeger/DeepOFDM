@@ -146,7 +146,10 @@ class DeepSICSBTrainer(Trainer):
                 # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
                 idx = all_values
 
-            current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
+            if not(conf.no_probs):
+                current_y_train = torch.cat((rx, probs_vec[:, idx]), dim=1)
+            else:
+                current_y_train = rx
             tx_all.append(tx[:, k])
             rx_all.append(current_y_train)
         return tx_all, rx_all
@@ -189,7 +192,10 @@ class DeepSICSBTrainer(Trainer):
                     local_user_indexes = range(0, num_bits)
 
 
-                input = torch.cat((rx[:,:,re], probs_vec[:,idx,re]), dim=1)
+                if not(conf.no_probs):
+                    input = torch.cat((rx[:,:,re], probs_vec[:,idx,re]), dim=1)
+                else:
+                    input = rx[:, :, re]
                 preprocessed_input = self._preprocess(input)
                 with torch.no_grad():
                     output, llrs = model[re][user][i - 1](preprocessed_input)

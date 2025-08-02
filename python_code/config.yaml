@@ -4,16 +4,16 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 13
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+num_res: 3
 cfo:  0
 clip_percentage_in_tx: 100
-epochs: 2
-iterations: 6
+epochs: 100
+iterations: 3
 num_trainings: 1
-pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
-stag_re_kernel_size: 3
+stag_re_kernel_size: 1
 separate_nns: False # just for 16QAM
 full_e2e: False
 interf_factor: 1

@@ -10,16 +10,13 @@ class DeepSTAGDetConv(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSTAGDetConv, self).__init__()
         torch.manual_seed(42)
-        if conf.separate_nns:
-            conv_num_channels =  int(num_bits/2)*n_users+conf.n_ants*2
+        if conf.half_probs:
+            conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+conf.n_ants*2)
         else:
-            if conf.half_probs:
-                conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+conf.n_ants*2)
+            if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
+                conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
             else:
-                if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
-                    conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
-                else:
-                    conv_num_channels =  int(num_bits*n_users+conf.n_ants*2)
+                conv_num_channels =  int(num_bits*n_users+conf.n_ants*2)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:
             matrix_size = conv_num_channels*conf.num_res # conf.n_ants*2*conf.num_res
@@ -31,18 +28,17 @@ class DeepSTAGDetConv(nn.Module):
                     self.fc0.weight.copy_(torch.eye(matrix_size) + 1e-6 * torch.ones(matrix_size, matrix_size))
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')
-
-        if conf.separate_nns:
-            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),padding='same')
+        if conf.stag_conv_two_layers:
+            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same')
+            self.activation1 = nn.ReLU()
+            self.activation2 = nn.Sigmoid()
         else:
-            # self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same')
             self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
+            self.fc3 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same')
+            self.activation1 = nn.ReLU()
+            self.activation2 = nn.ReLU()
+            self.activation3 = nn.Sigmoid()
 
-        self.fc3 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same')
-
-        self.activation1 = nn.ReLU()
-        self.activation2 = nn.ReLU()
-        self.activation3 = nn.Sigmoid()
 
 
     def forward(self, rx_prob):
@@ -59,7 +55,11 @@ class DeepSTAGDetConv(nn.Module):
         else:
             out1 = self.activation1(self.fc1(rx_prob))
 
-        out2 = self.activation2(self.fc2(out1))
-        llrs = self.fc3(out2)
-        out3 = self.activation3(llrs)
+        if conf.stag_conv_two_layers:
+            llrs = self.fc2(out1)
+            out3 = self.activation2(llrs)
+        else:
+            out2 = self.activation2(self.fc2(out1))
+            llrs = self.fc3(out2)
+            out3 = self.activation3(llrs)
         return out3, llrs

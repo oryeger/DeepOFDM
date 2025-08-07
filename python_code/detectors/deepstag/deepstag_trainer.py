@@ -135,16 +135,26 @@ class DeepSTAGTrainer(Trainer):
                 train_loss_vect = train_loss_vect + train_loss_cur
                 val_loss_vect = val_loss_vect + train_loss_cur
 
-            probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec.unsqueeze(-1), num_bits, n_users)
-            tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real, probs_vec.squeeze(-1), n_users)
-            train_loss_cur, val_loss_cur = self._train_models_re(self.det_re, i, tx_all, rx_all, num_bits, n_users,epochs)
-            if i != iterations-1:
-                probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, i+1, rx_real.to(device=DEVICE),
-                                                                    probs_vec.squeeze(-1), num_bits,
-                                                                    n_users)  # Initializing the probabilities
-            if SHOW_ALL_ITERATIONS:
-                train_loss_vect = train_loss_vect + train_loss_cur
-                val_loss_vect = val_loss_vect + val_loss_cur
+            if not(conf.stag_half_iteration):
+                probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1,
+                                                               rx_real.to(device=DEVICE).unsqueeze(-1),
+                                                               probs_vec.unsqueeze(-1), num_bits, n_users)
+                tx_all, rx_all = self._prepare_data_for_training_re(tx, rx_real, probs_vec.squeeze(-1), n_users)
+                train_loss_cur, val_loss_cur = self._train_models_re(self.det_re, i, tx_all, rx_all, num_bits, n_users,epochs)
+                if i != iterations-1:
+                    probs_vec, llrs_mat = self._calculate_posteriors_re(self.det_re, i+1, rx_real.to(device=DEVICE),
+                                                                        probs_vec.squeeze(-1), num_bits,
+                                                                        n_users)  # Initializing the probabilities
+                if SHOW_ALL_ITERATIONS:
+                    train_loss_vect = train_loss_vect + train_loss_cur
+                    val_loss_vect = val_loss_vect + val_loss_cur
+            else:
+                if i != iterations - 1:
+                    probs_vec, llrs_mat = self._calculate_posteriors_conv(self.det_conv, i + 1,
+                                                                   rx_real.to(device=DEVICE).unsqueeze(-1),
+                                                                   probs_vec.unsqueeze(-1), num_bits, n_users)
+                    probs_vec = probs_vec.squeeze(-1)
+
         return train_loss_vect , val_loss_vect
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:
@@ -164,9 +174,13 @@ class DeepSTAGTrainer(Trainer):
         llrs_mat_list = [None] * iterations
         probs_vec = self._initialize_probs_for_infer_conv(rx, num_bits, n_users)
         for i in range(iterations):
-            probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
-            probs_vec, llrs_mat_list[i] = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
-            probs_vec = probs_vec.unsqueeze(-1)
+            if (i==0) or not conf.stag_half_iteration:
+                probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
+                probs_vec, llrs_mat_list[i] = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
+                probs_vec = probs_vec.unsqueeze(-1)
+            else:
+                probs_vec, llrs_mat_list[i] = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
+
             detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list

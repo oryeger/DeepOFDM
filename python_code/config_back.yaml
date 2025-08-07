@@ -1,17 +1,17 @@
-snr: 5
-cur_str: "chechagain2"
+snr: 15
+cur_str: 2 trainings
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 24
+num_res: 13
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2
-iterations: 200
+iterations: 3
 num_trainings: 1
-pilot_size: 10000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
 separate_nns: False # just for 16QAM
@@ -20,25 +20,26 @@ interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
-save_loss_plot_snr: 25
+save_loss_plot_snr: 40
 
 dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
-two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
+
 enable_two_stage_train: False
+two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
+
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
-delay_spread: 300e-9 # in Seconds
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
+delay_spread: 30e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-channel_seed: 17
-
+channel_seed: 58
 
 run_deeprx: False
 run_deepsicsb: False
@@ -48,7 +49,8 @@ separate_pilots: True
 
 run_e2e: False
 iters_e2e: 1
-no_probs: False
+no_probs: True
+
 
 
 
@@ -80,3 +82,4 @@ go_to_td: True
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+

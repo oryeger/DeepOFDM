@@ -12,7 +12,7 @@ epochs: 50
 iterations: 3
 num_trainings: 1
 pilot_size: 200   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
-kernel_size: 1
+kernel_size: 3
 stag_re_kernel_size: 1
 separate_nns: False # just for 16QAM
 full_e2e: False

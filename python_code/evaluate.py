@@ -850,7 +850,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                    conf.iterations)
         if conf.run_deepstag and deepstag_trainer is not None:
             for iteration in range(iterations):
-                fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag, llrs_mat_deepstag_list[iteration], snr_cur, "DeepSICMB", 3,
+                fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag, llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepstag_list[iteration], ber_legacy, ber_legacy_genie,
                                    conf.iterations)
         if conf.run_e2e:

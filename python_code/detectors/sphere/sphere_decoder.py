@@ -38,8 +38,8 @@ def SphereDecoder(H, y, radius_in):
     candidates = qam.modulate(bit_combinations_flat)
 
     # QR decomposition of H
-    Q, R = np.linalg.qr(H)
-    bits_out = np.zeros((y.shape[0]*num_bits, y.shape[1]))
+    Q, R = np.linalg.qr(H, mode='reduced')
+    bits_out = np.zeros((y.shape[0]*num_bits, H.shape[1]))
     for i in range(y.shape[0]):
         radius = radius_in
         y_tilde = Q.conj().T @ y[i,:]

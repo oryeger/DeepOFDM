@@ -9,7 +9,6 @@ from collections import defaultdict
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
-# seeds = [123, 17, 41, 58]
 seeds = [123, 17, 41, 58]
 ber_target = 0.01
 
@@ -22,7 +21,19 @@ snr_ber_dict = defaultdict(lambda: {
 
 for seed in seeds:
     seed_files = sorted(glob.glob(os.path.join(CSV_DIR, f"*seed={seed}*_SNR=*")))
+
+    seen_snr = set()
+    unique_files = []
     for file in seed_files:
+        match = re.search(r'_SNR=(\d+)\.csv$', file)
+        if match:
+            snr = match.group(1)
+            if snr not in seen_snr:
+                seen_snr.add(snr)
+                unique_files.append(file)
+
+    for file in unique_files:
+
         match = re.search(r"SNR=(\d+)", file)
         if not match:
             continue

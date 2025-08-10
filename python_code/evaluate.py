@@ -186,7 +186,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_ber_deepsicsb_list = [[] for _ in range(iterations)]
     total_ber_deepsicmb_list = [[] for _ in range(iterations)]
-    total_ber_deepstag_list = [[] for _ in range(iterations)]
+    total_ber_deepstag_list = [[] for _ in range(iterations*2)]
     total_ber_deeprx = []
     total_ber_legacy = []
     total_ber_sphere = []
@@ -207,7 +207,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         ber_per_re = np.zeros((iterations, conf.num_res))
         ber_per_re_deepsicsb = np.zeros((iterations, conf.num_res))
         ber_per_re_deepsicmb = np.zeros((iterations, conf.num_res))
-        ber_per_re_deepstag = np.zeros((iterations, conf.num_res))
+        ber_per_re_deepstag = np.zeros((iterations*2, conf.num_res))
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_deeprx = 0
         ber_sum_legacy = 0
@@ -215,7 +215,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         ber_sum_sphere = 0
         ber_sum_deepsicsb = np.zeros(iterations)
         ber_sum_deepsicmb = np.zeros(iterations)
-        ber_sum_deepstag = np.zeros(iterations)
+        ber_sum_deepstag = np.zeros(iterations*2)
         if PLOT_CE_ON_DATA:
             ber_sum_legacy_ce_on_data = 0
         ber_sum_legacy_genie = 0
@@ -682,7 +682,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
 
                 if conf.run_deepstag and deepstag_trainer is not None:
-                    for iteration in range(iterations):
+                    for iteration in range(iterations*2):
                         detected_word_cur_re_deepstag = detected_word_deepstag_list[iteration][:, :, re]
                         detected_word_cur_re_deepstag = detected_word_cur_re_deepstag.squeeze(-1)
                         detected_word_cur_re_deepstag = detected_word_cur_re_deepstag.reshape(int(tx_data.shape[0] / num_bits),
@@ -790,8 +790,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_deepsicmb_list[iteration] = ber_sum_deepsicmb[iteration]  / num_res
                 total_ber_deepsicmb_list[iteration].append(ber_deepsicmb_list[iteration])
 
-            ber_deepstag_list = [None] * iterations
-            for iteration in range(iterations):
+            ber_deepstag_list = [None] * iterations*2
+            for iteration in range(iterations*2):
                 # ber_deepstag_list[iteration] = ber_sum_deepstag[iteration]  / (num_res - 2*conf.kernel_size)
                 ber_deepstag_list[iteration] = ber_sum_deepstag[iteration]  / num_res
                 total_ber_deepstag_list[iteration].append(ber_deepstag_list[iteration])
@@ -813,7 +813,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if conf.run_deepsicmb and deepsicmb_trainer is not None:
                 print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
             if conf.run_deepstag and deepstag_trainer is not None:
-                print(f'current DeepSTAG: {block_ind, float(ber_deepstag_list[iterations - 1])}')
+                print(f'current DeepSTAG: {block_ind, float(ber_deepstag_list[iterations*2 - 1])}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:
@@ -851,7 +851,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepsicmb_list[iteration], ber_legacy, ber_legacy_genie,
                                    conf.iterations)
         if conf.run_deepstag and deepstag_trainer is not None:
-            for iteration in range(iterations):
+            for iteration in range(iterations*2):
                 fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag, llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepstag_list[iteration], ber_legacy, ber_legacy_genie,
                                    conf.iterations)
@@ -865,43 +865,32 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration],
                                ber_legacy, ber_legacy_genie, iteration)
 
-        df = pd.DataFrame(
-            {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
-             "total_ber_deeprx": total_ber_deeprx,
-             "total_ber_sphere": total_ber_sphere,
-             "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
-             "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
-             "total_ber_deepstag_1": total_ber_deepstag_list[0],
-             "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
-        if conf.iterations == 2:
-            df = pd.DataFrame(
-                {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
-                 "total_ber_2": total_ber_list[1],
-                 "total_ber_deeprx": total_ber_deeprx,
-                 "total_ber_sphere": total_ber_sphere,
-                 "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
-                 "total_ber_deepsicsb_2": total_ber_deepsicsb_list[1],
-                 "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
-                 "total_ber_deepsicmb_2": total_ber_deepsicmb_list[1],
-                 "total_ber_deepstag_1": total_ber_deepstag_list[0],
-                 "total_ber_deepstag_2": total_ber_deepstag_list[1],
-                 "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
-        elif conf.iterations == 3:
-            df = pd.DataFrame(
-                {"SNR_range": SNR_range[:len(total_ber_legacy)], "total_ber_1": total_ber_list[0],
-                 "total_ber_2": total_ber_list[1], "total_ber_3": total_ber_list[2],
-                 "total_ber_deeprx": total_ber_deeprx,
-                 "total_ber_sphere": total_ber_sphere,
-                 "total_ber_deepsicsb_1": total_ber_deepsicsb_list[0],
-                 "total_ber_deepsicsb_2": total_ber_deepsicsb_list[1],
-                 "total_ber_deepsicsb_3": total_ber_deepsicsb_list[2],
-                 "total_ber_deepsicmb_1": total_ber_deepsicmb_list[0],
-                 "total_ber_deepsicmb_2": total_ber_deepsicmb_list[1],
-                 "total_ber_deepsicmb_3": total_ber_deepsicmb_list[2],
-                 "total_ber_deepstag_1": total_ber_deepstag_list[0],
-                 "total_ber_deepstag_2": total_ber_deepstag_list[1],
-                 "total_ber_deepstag_3": total_ber_deepstag_list[2],
-                 "total_ber_legacy": total_ber_legacy, "total_ber_legacy_genie": total_ber_legacy_genie}, )
+        data = {
+            "SNR_range": SNR_range[:len(total_ber_legacy)],
+            "total_ber_legacy": total_ber_legacy,
+            "total_ber_legacy_genie": total_ber_legacy_genie,
+            "total_ber_deeprx": total_ber_deeprx,
+            "total_ber_sphere": total_ber_sphere,
+        }
+
+        # Add total_ber from total_ber_list with suffix _1, _2, ...
+        for i in range(conf.iterations):
+            data[f"total_ber_{i + 1}"] = total_ber_list[i]
+
+        # Add deep_sicsb
+        for i in range(conf.iterations):
+            data[f"total_ber_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
+
+        # Add deep_sicmb
+        for i in range(conf.iterations):
+            data[f"total_ber_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
+
+        # Add deep_stag
+        for i in range(conf.iterations*2):
+            data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
+
+        df = pd.DataFrame(data)
+
         # print('\n'+title_string)
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
             conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +

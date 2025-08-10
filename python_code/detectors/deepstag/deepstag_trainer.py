@@ -170,18 +170,20 @@ class DeepSTAGTrainer(Trainer):
 
     def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> tuple[List, List]:
         # detect and decode
-        detected_word_list = [None] * iterations
-        llrs_mat_list = [None] * iterations
+        detected_word_list = [None] * iterations * 2
+        llrs_mat_list = [None] * iterations * 2
         probs_vec = self._initialize_probs_for_infer_conv(rx, num_bits, n_users)
         for i in range(iterations):
             if (i==0) or not conf.stag_half_iteration:
-                probs_vec, _ = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
-                probs_vec, llrs_mat_list[i] = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
+                probs_vec, llrs_mat_list[i*2] = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
+                detected_word_list[i*2] = self._compute_output(probs_vec)
+                probs_vec, llrs_mat_list[i*2+1] = self._calculate_posteriors_re(self.det_re, i + 1, rx.to(device=DEVICE), probs_vec.squeeze(-1), num_bits, n_users)
                 probs_vec = probs_vec.unsqueeze(-1)
+                detected_word_list[i*2+1] = self._compute_output(probs_vec)
             else:
                 probs_vec, llrs_mat_list[i] = self._calculate_posteriors_conv(self.det_conv, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users)
+                detected_word_list[i] = self._compute_output(probs_vec)
 
-            detected_word_list[i] = self._compute_output(probs_vec)
 
         return detected_word_list, llrs_mat_list
 

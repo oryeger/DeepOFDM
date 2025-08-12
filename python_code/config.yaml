@@ -1,11 +1,11 @@
 snr: 15
 cur_str: 2 trainings
 num_snrs: 1
-n_ants: 4
+n_ants: 8
 snr_step: 1
-n_users: 2
+n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-num_res: 1
+num_res: 13
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2

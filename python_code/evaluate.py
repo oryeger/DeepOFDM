@@ -1200,7 +1200,73 @@ if __name__ == '__main__':
     deepsicsb_trainer = DeepSICSBTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsicmb_trainer = DeepSICMBTrainer(num_bits, conf.n_users, conf.n_ants)
     deepstag_trainer = DeepSTAGTrainer(num_bits, conf.n_users, conf.n_ants)
-    print(deepsic_trainer)
+
+
+
+    # def iter_modules(obj):
+    #     """Recursively yield nn.Modules from nested lists/tuples."""
+    #     import torch.nn as nn
+    #     if isinstance(obj, nn.Module):
+    #         yield obj
+    #     elif isinstance(obj, (list, tuple)):
+    #         for item in obj:
+    #             yield from iter_modules(item)
+    #
+    #
+    # detectors = deepsic_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters DeepSIC: {total_params}")
+    #
+    # detectors = deeprx_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters DeepRx: {total_params}")
+    #
+    # detectors = deepsicsb_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters DeepSICSB: {total_params}")
+    #
+    # detectors = deepsicmb_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters DeepSICMB: {total_params}")
+    #
+    # detectors = deepstag_trainer.det_conv
+    # total_params_conv = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # detectors = deepstag_trainer.det_re
+    # total_params_re = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    #
+    # print(f"Parameters DeepSTAG: {total_params_conv+total_params_re}")
+
+
     run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer, deepsicmb_trainer, deepstag_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time

@@ -92,7 +92,7 @@ class DeepSICe2eTrainer(Trainer):
                         index_start_put = user*int(num_bits/2)
                         index_end_put = (user + 1) * int(num_bits/2)
                         tx_cur[i,index_start_put:index_end_put,:] = tx[index_start_get:index_end_get:int(num_bits/2),user,:]
-                if conf.no_prob_e2e:
+                if conf.no_probs:
                     rx_prob = rx_real.unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1
                 else:
                     rx_prob = torch.cat((rx_real, initial_probs[:,bit_type::int(num_bits/2),:]), dim=1).unsqueeze(-1).to(DEVICE)  # Concatenate along dimension 1

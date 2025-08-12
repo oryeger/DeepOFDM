@@ -163,7 +163,11 @@ class DeepSICTrainer(Trainer):
                     indexes_comb = torch.cat((indexes_half, indexes_user)).unique(sorted=True)
                     rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec[:,indexes_comb,:,:]), dim=1))
                 else:
-                    rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+                    if conf.no_probs:
+                        rx_prob_all.append(rx.unsqueeze(-1))
+                    else:
+                        rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+
             tx_all.append(tx[:, user, :])
         return tx_all, rx_prob_all
 
@@ -201,7 +205,10 @@ class DeepSICTrainer(Trainer):
                         indexes_comb = torch.cat((indexes_half, indexes_user)).unique(sorted=True)
                         rx_prob = torch.cat((rx_real, prob[:,indexes_comb,:,:]), dim=1)
                     else:
-                        rx_prob = torch.cat((rx_real, prob), dim=1)
+                        if conf.no_probs:
+                            rx_prob = rx_real
+                        else:
+                            rx_prob = torch.cat((rx_real, prob), dim=1)
 
                 with torch.no_grad():
                     output, llrs = model[bit_type][user][i - 1](rx_prob)

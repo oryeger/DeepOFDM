@@ -38,6 +38,10 @@ from scipy.io import savemat
 
 import argparse
 
+from python_code.coding.mcs_table import get_mcs
+
+
+from python_code.coding.ldpc_wrapper import LDPC5GCodec
 
 
 
@@ -191,6 +195,17 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_ber_legacy = []
     total_ber_sphere = []
 
+    if conf.mcs > -1:
+        qm, code_rate = get_mcs(conf.mcs)
+        assert (np.log2(mod_pilot) == qm), "Assert: MCS and modulation don't fit"
+        ldpc_n = int(conf.num_res * 14 * 12 * qm)
+        ldpc_k = int(ldpc_n*code_rate)
+    else:
+        ldpc_n = 0
+        ldpc_k = 0
+
+
+
     if PLOT_CE_ON_DATA:
         total_ber_legacy_ce_on_data = []
     total_ber_legacy_genie = []
@@ -249,7 +264,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(
             snr_list=[snr_cur], num_bits=num_bits, n_users
-            =n_users, mod_pilot=mod_pilot)
+            =n_users, mod_pilot=mod_pilot, ldpc_k=ldpc_k, ldpc_n=ldpc_n)
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
         # REs = np.arange(conf.num_res)
@@ -739,6 +754,33 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if PLOT_CE_ON_DATA:
                     ber_sum_legacy_ce_on_data += ber_legacy_ce_on_data
                 ber_sum_legacy_genie += ber_legacy_genie
+
+            # LDPC decoding
+            if conf.mcs>-1:
+                codec = LDPC5GCodec(k=ldpc_k, n=ldpc_n)
+                for iteration in range(iterations):
+                    llr_all_res = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
+                    for re in range(conf.num_res):
+                        llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
+                        llr_cur_re = llr_cur_re.squeeze(-1)
+                        llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                        num_bits).swapaxes(1, 2).reshape(
+                        tx_data.shape[0], n_users)
+                        llr_all_res[:,re::conf.num_res] = llr_cur_re.swapaxes(0, 1).cpu()
+
+                    data_length = llr_all_res.shape[1]
+                    num_slots = int(np.floor(data_length * num_res / ldpc_n))
+                    for slot in range(num_slots):
+                        decodedwords = codec.decode(llr_all_res[:, slot * ldpc_k:(slot + 1) * ldpc_k])
+                    # Filling the remaining buts with random buts for the ber calcualtions
+                    tx_data_coded[:, (num_slots * ldpc_n):data_length * num_res] = self._bits_generator.integers(0, 2,
+                                                                                                                 size=(
+                                                                                                                 n_users,
+                                                                                                                 remainder))
+                    tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(
+                        int)
+
+                    pass
 
 
             if PLOT_MI:

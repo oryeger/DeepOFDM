@@ -35,7 +35,7 @@ class ChannelModelDataset(Dataset):
         self.num_res = num_res
         self.kernel_size = kernel_size
 
-    def get_snr_data(self, snr: float, database: list, num_bits: int, n_users: int, mod_pilot: int):
+    def get_snr_data(self, snr: float, database: list, num_bits: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int):
         if database is None:
             database = []
         tx_full = np.empty((self.blocks_num, self.block_length, self.channel_type.tx_length, self.num_res))
@@ -43,23 +43,25 @@ class ChannelModelDataset(Dataset):
         rx_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         rx_ce_full = np.empty((self.blocks_num, n_users, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         s_orig_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.tx_length, self.num_res), dtype=np.complex128)
+        tx_data_uncoded_full = np.empty((self.blocks_num, self.block_length, self.channel_type.tx_length, self.num_res))
         # accumulate words until reaches desired number
         for index in range(self.blocks_num):
-            tx, h, rx, rx_ce, s_orig = self.channel_type._transmit_and_detect(snr, self.num_res, index, n_users, mod_pilot)
+            tx, h, rx, rx_ce, s_orig, tx_data_uncoded = self.channel_type._transmit_and_detect(snr, self.num_res, index, n_users, mod_pilot, ldpc_k, ldpc_n)
             # accumulate
             tx_full[index] = tx
             rx_full[index] = rx
             rx_ce_full[index] = rx_ce
             h_full[index] = h
             s_orig_full[index] = s_orig
+            tx_data_uncoded_full[index] =  tx_data_uncoded
 
         database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full))
 
-    def __getitem__(self, snr_list: List[float], num_bits: int, n_users: int, mod_pilot: int) -> Tuple[torch.Tensor, torch.complex, torch.complex]:
+    def __getitem__(self, snr_list: List[float], num_bits: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.complex, torch.complex]:
         database = []
         # do not change max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            [executor.submit(self.get_snr_data, snr, database, num_bits, n_users, mod_pilot) for snr in snr_list]
+            [executor.submit(self.get_snr_data, snr, database, num_bits, n_users, mod_pilot, ldpc_k, ldpc_n) for snr in snr_list]
         tx, rx, rx_ce, h, s_orig = (np.concatenate(arrays) for arrays in zip(*database))
         tx, rx, rx_ce, h , s_orig= torch.Tensor(tx).to(device=DEVICE), torch.from_numpy(rx).to(device=DEVICE), torch.from_numpy(rx_ce).to(device=DEVICE), torch.from_numpy(
             h).to(device=DEVICE), torch.from_numpy(s_orig).to(device=DEVICE)

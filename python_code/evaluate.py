@@ -889,6 +889,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         for i in range(conf.iterations*2):
             data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
 
+        for i in range(iters_e2e_disp):
+            data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
+
+
         df = pd.DataFrame(data)
 
         # print('\n'+title_string)

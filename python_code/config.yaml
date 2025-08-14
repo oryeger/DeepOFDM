@@ -9,7 +9,7 @@ num_res: 13
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2
-iterations: 3
+iterations: 1
 num_trainings: 1
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
@@ -22,7 +22,7 @@ half_probs: False
 sphere_radius: 'inf'
 save_loss_plot_snr: 40
 
-dot_product: True
+dot_product: False
 scale_input: True
 train_on_ce_no_pilots: False
 stag_conv_two_layers: False
@@ -49,7 +49,7 @@ run_deepsicmb: False
 run_deepstag: True
 separate_pilots: True
 
-run_e2e: False
+run_e2e: True
 iters_e2e: 1
 no_probs: False
 

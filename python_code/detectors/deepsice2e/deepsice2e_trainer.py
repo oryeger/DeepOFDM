@@ -47,7 +47,7 @@ class DeepSICe2eTrainer(Trainer):
         for _ in range(epochs):
             soft_estimation, llrs = single_model(rx_prob,num_bits,iters_vec)
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx[:train_samples].to(DEVICE))
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx[:train_samples].to(DEVICE),False)
             val_loss = self._calculate_loss(soft_estimation[train_samples:], tx[train_samples:].to(DEVICE))
             val_loss = val_loss.item()
             loss += current_loss

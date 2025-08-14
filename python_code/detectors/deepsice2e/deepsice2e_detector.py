@@ -26,6 +26,14 @@ class DeepSICe2eDetector(nn.Module):
         else:
             self.num_layers = conf.n_users
 
+        if conf.scale_input:
+            matrix_size = conv_num_channels*conf.num_res # conf.n_ants*2*conf.num_res
+            self.scale = nn.ParameterList([
+                nn.Parameter(torch.ones(matrix_size))
+                for _ in range(self.num_layers)
+            ])
+
+
         self.fc1 = nn.ModuleList([
             nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same') for _ in range(self.num_layers)])
         if conf.separate_nns:
@@ -33,10 +41,16 @@ class DeepSICe2eDetector(nn.Module):
                 nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),padding='same') for _ in range(self.num_layers)])
         else:
             self.fc2 = nn.ModuleList([
-                nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same') for _ in range(self.num_layers)])
+                nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same') for _ in range(self.num_layers)])
+
+        self.fc3 = nn.ModuleList([
+            nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same') for _ in range(self.num_layers)])
+
+
 
         self.activation1 = nn.ReLU()
-        self.activation2 = nn.Sigmoid()
+        self.activation2 = nn.ReLU()
+        self.activation3 = nn.Sigmoid()
 
     def forward(self, rx_prob, num_bits, iters_e2e):
         n_users = conf.n_users
@@ -58,10 +72,19 @@ class DeepSICe2eDetector(nn.Module):
         for iteration in ensure_tensor_iterable(iters_e2e):
             for user in range(n_users):
                 cur_index = iteration * n_users + user
-                out1 = self.fc1[cur_index](rx_prob)
-                out2 = self.activation1(out1)
-                llrs = self.fc2[cur_index](out2)
-                out3 = self.activation2(llrs)
+
+                if conf.scale_input:
+                    rx = rx_prob_new  # rx = rx_prob[:,:conf.n_ants*2,:,:]
+                    rx_flattened = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
+                    rx_out_flattened = rx_flattened * self.scale[cur_index]
+                    rx_out = rx_out_flattened.unsqueeze(-1).reshape_as(rx)
+                    out1 = self.activation1(self.fc1[cur_index](rx_out))
+                else:
+                    out1 = self.activation1(self.fc1[cur_index](rx_prob_new))
+
+                out2 = self.activation2(self.fc2[cur_index](out1))
+                llrs = self.fc3[cur_index](out2)
+                out3 = self.activation3(llrs)
 
                 if conf.no_probs:
                     if conf.separate_nns:

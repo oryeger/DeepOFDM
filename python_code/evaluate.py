@@ -196,6 +196,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_ber_deepstag_list = [[] for _ in range(iterations*2)]
     total_ber_deeprx = []
     total_ber_legacy = []
+    total_bler_legacy = []
     total_ber_sphere = []
 
     if conf.mcs > -1:
@@ -619,9 +620,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(), num_bits)
 
-                    if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
-                        ber_sum[iteration] += ber
-                    # ber_sum[iteration] += ber
+                    # if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
+                    #     ber_sum[iteration] += ber
+                    ber_sum[iteration] += ber
                     ber_per_re[iteration, re] = ber
 
                 if conf.run_e2e:
@@ -671,10 +672,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
-                        if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                            ber_sum_deepsicsb[iteration] += ber_deepsicsb
                         # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
                         #     ber_sum_deepsicsb[iteration] += ber_deepsicsb
+                        ber_sum_deepsicsb[iteration] += ber_deepsicsb
                         ber_per_re_deepsicsb[iteration, re] = ber_deepsicsb
 
 
@@ -750,8 +750,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu(), num_bits)
 
                 if conf.run_deeprx:
-                    if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                        ber_sum_deeprx += ber_deeprx
+                    # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
+                    #     ber_sum_deeprx += ber_deeprx
+                    ber_sum_deeprx += ber_deeprx
                 ber_sum_legacy += ber_legacy
                 ber_sum_sphere += ber_sphere
                 if PLOT_CE_ON_DATA:
@@ -759,6 +760,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_sum_legacy_genie += ber_legacy_genie
 
             # LDPC decoding
+            bler_list = [None] * iterations
             if conf.mcs>-1:
                 if ldpc_k > 3824:
                     crc_length = 24
@@ -766,10 +768,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     crc_length = 16
                 codec = LDPC5GCodec(k=(ldpc_k+crc_length), n=ldpc_n)
                 crc = CRC5GCodec(crc_length)
-                bler_list = [None] * iterations
                 for iteration in range(iterations):
                     llr_all_res = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
+                    llr_all_res_legacy = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
+                        # DeepSIC
                         llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits), n_users,
@@ -777,15 +780,35 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_data.shape[0], n_users)
                         llr_all_res[:,re::conf.num_res] = llr_cur_re.swapaxes(0, 1).cpu()
 
+                        # Legacy
+                        llr_cur_re_legacy = llrs_mat_legacy[:, :, re, :]
+                        llr_cur_re_legacy = llr_cur_re_legacy.squeeze(-1)
+                        llr_cur_re_legacy = llr_cur_re_legacy.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                        num_bits).swapaxes(1, 2).reshape(
+                        tx_data.shape[0], n_users)
+                        llr_all_res_legacy[:,re::conf.num_res] = llr_cur_re_legacy.swapaxes(0, 1)
+
+
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
                     crc_count = 0
+                    crc_count_legacy = 0
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
                         crc_count += (~crc_out).numpy().astype(int).sum()
+                        decodedwords_legacy = codec.decode(llr_all_res_legacy[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                        crc_out_legacy = crc.decode(decodedwords_legacy)
+                        crc_count_legacy += (~crc_out_legacy).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
-
+                    bler_legacy = crc_count_legacy / (num_slots * n_users)
+                    total_bler_legacy.append(bler_legacy)
+            else:
+                for iteration in range(iterations):
+                    bler_list[iteration] = 0
+                    total_bler_list[iteration].append(0)
+                    bler_legacy = 0
+                    total_bler_legacy.append(0)
 
             if PLOT_MI:
                 for iteration in range(iterations):
@@ -850,7 +873,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, float(ber_list[iterations - 1]), mi}')
-            print(f'current DeepSIC BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
+            if conf.mcs>-1:
+                print(f'current DeepSIC BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
@@ -920,24 +944,23 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             "total_ber_sphere": total_ber_sphere,
         }
 
+        # Add total_ber from total_ber_list with suffix _1, _2, ...
+        for i in range(conf.iterations):
+            data[f"total_ber_{i + 1}"] = total_ber_list[i]
+
+        for i in range(iters_e2e_disp):
+            data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
+        df = pd.DataFrame(data)
+
+
         data_bler = {
             "SNR_range": SNR_range[:len(total_ber_legacy)],
-            "total_bler_legacy": total_ber_legacy,
-            "total_bler_legacy_genie": total_ber_legacy_genie,
-            "total_bler_deeprx": total_ber_deeprx,
-            "total_bler_sphere": total_ber_sphere,
+            "total_bler_legacy": total_bler_legacy,
         }
 
-
-        # Add total_ber from total_ber_list with suffix _1, _2, ...
         for i in range(conf.iterations):
             data_bler[f"total_bler_{i + 1}"] = total_bler_list[i]
 
-        for i in range(iters_e2e_disp):
-            data_bler[f"total_bler_e2e_{i + 1}"] = total_ber_e2e_list[i]
-
-
-        df = pd.DataFrame(data)
         df_bler = pd.DataFrame(data_bler)
 
         # print('\n'+title_string)
@@ -1017,8 +1040,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(file_path, index=False)
-        file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
-        df_bler.to_csv(file_path_bler, index=False)
+        if conf.mcs>-1:
+            file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
+            df_bler.to_csv(file_path_bler, index=False)
 
         if conf.save_loss_plot_snr == snr_cur:
             title_string_cur = "deepsic_" + title_string

@@ -236,7 +236,10 @@ class DeepSICe2eTrainer(Trainer):
                     rx_prob = torch.cat((rx_real, prob[:,bit_type::int(num_bits/2),:].unsqueeze(-1)), dim=1)
 
                 with torch.no_grad():
-                    output, llrs = model[bit_type][i-1](rx_prob,num_bits, 0)
+                    if conf.full_e2e:
+                        output, llrs = model[bit_type][i-1](rx_prob,num_bits, torch.arange(0, conf.iters_e2e))
+                    else:
+                        output, llrs = model[bit_type][i - 1](rx_prob, num_bits, 0)
                 index_start = bit_type
                 index_end = num_bits*n_users+bit_type
                 probs_mat[:, index_start:index_end:int(num_bits/2),:] = output
@@ -248,7 +251,11 @@ class DeepSICe2eTrainer(Trainer):
                 rx_prob = torch.cat((rx_real, prob.unsqueeze(-1)), dim=1)
 
             with torch.no_grad():
-                output, llrs = model[0][i-1](rx_prob,num_bits, 0)
+                if conf.full_e2e:
+                    output, llrs = model[0][i-1](rx_prob,num_bits, torch.arange(0, conf.iters_e2e))
+                else:
+                    output, llrs = model[0][i-1](rx_prob,num_bits, 0)
+
             probs_mat = output
             llrs_mat = llrs
         return probs_mat, llrs_mat

@@ -6,6 +6,7 @@ snr_step: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: 5 # [0..3] - QPSK, [4..9]
+block_length_factor: 3
 num_res: 3
 cfo:  0
 clip_percentage_in_tx: 100

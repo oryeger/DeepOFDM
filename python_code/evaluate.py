@@ -15,7 +15,7 @@ from typing import List
 
 import numpy as np
 import torch
-from python_code import DEVICE, conf
+from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
 from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, CFO_COMP, GENIE_CFO,
@@ -202,7 +202,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     if conf.mcs > -1:
         qm, code_rate = get_mcs(conf.mcs)
         assert (np.log2(mod_pilot) == qm), "Assert: MCS and modulation don't fit"
-        ldpc_n = int(conf.num_res * 14 * 12 * qm)
+        ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * qm)
         ldpc_k = int(ldpc_n*code_rate)
     else:
         ldpc_n = 0
@@ -889,6 +889,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
             else:
                 print(f'current legacy: {block_ind, ber_legacy}')
+
+            if conf.mcs>-1:
+                print(f'current legacy BLER: {block_ind, float(bler_legacy), mi}')
+
             print(f'current sphere: {block_ind, ber_sphere.item()}')
             if PLOT_CE_ON_DATA:
                 print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
@@ -955,11 +959,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         data_bler = {
             "SNR_range": SNR_range[:len(total_ber_legacy)],
-            "total_bler_legacy": total_bler_legacy,
+            "total_ber_legacy": total_bler_legacy,
         }
 
         for i in range(conf.iterations):
-            data_bler[f"total_bler_{i + 1}"] = total_bler_list[i]
+            data_bler[f"total_ber_{i + 1}"] = total_bler_list[i]
 
         df_bler = pd.DataFrame(data_bler)
 

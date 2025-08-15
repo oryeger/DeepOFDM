@@ -1,7 +1,6 @@
 from enum import Enum
 import numpy as np
 
-BLOCK_LENGTH_FACTOR = 3
 HALF = 0.5
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1

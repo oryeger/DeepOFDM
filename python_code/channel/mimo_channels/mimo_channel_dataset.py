@@ -15,6 +15,7 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 
 
 
+
 class MIMOChannel:
     def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool,
                  clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, n_users: int):
@@ -55,7 +56,7 @@ class MIMOChannel:
                 tx_data_crc = crc.encode(tx_data_uncoded[:,slot*ldpc_k:(slot+1)*ldpc_k])
                 codewords = codec.encode(tx_data_crc)
                 tx_data_coded[:,slot*ldpc_n:(slot+1)*ldpc_n] = codewords
-            # Filling the remaining buts with random buts for the ber calcualtions
+            # Filling the remaining bits with random bits for the ber calculations
             tx_data_coded[:,(num_slots*ldpc_n):data_length*num_res] = self._bits_generator.integers(0, 2, size=(n_users,remainder))
             tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(int)
 

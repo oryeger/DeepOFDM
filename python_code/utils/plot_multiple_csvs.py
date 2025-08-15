@@ -13,12 +13,19 @@ seeds = [123, 17, 41, 58]
 # seeds = [58]
 ber_target = 0.01
 
-# Step 1: Collect and aggregate data
+BER = True  # Set to False if you want to plot SNR instead of BER
+
+if BER:
+    search_pattern = r"SNR=(\d+)"
+else:
+    search_pattern = r'_SNR=(\d+)_bler\.csv$'
+
 snr_ber_dict = defaultdict(lambda: {
-    'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
-    'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [], 'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [],
-    'ber_legacy': [], 'ber_sphere': []
+    'bler_1': [], 'bler_2': [], 'bler_3': [], 'bler_deeprx': [], 'bler_deepsicsb_1': [], 'bler_deepsicsb_2': [], 'bler_deepsicsb_3': [],
+    'bler_deepsicmb_1': [], 'bler_deepsicmb_2': [], 'bler_deepsicmb_3': [], 'bler_deepstag_1': [], 'bler_deepstag_2': [], 'bler_deepstag_3': [],
+    'bler_legacy': [], 'bler_sphere': []
 })
+
 
 for seed in seeds:
     seed_files = sorted(glob.glob(os.path.join(CSV_DIR, f"*seed={seed}*_SNR=*")))
@@ -26,7 +33,7 @@ for seed in seeds:
     seen_snr = set()
     unique_files = []
     for file in seed_files:
-        match = re.search(r'_SNR=(\d+)\.csv$', file)
+        match = re.search(search_pattern, file)
         if match:
             snr = match.group(1)
             if snr not in seen_snr:
@@ -35,7 +42,7 @@ for seed in seeds:
 
     for file in unique_files:
 
-        match = re.search(r"SNR=(\d+)", file)
+        match = re.search(search_pattern, file)
         if not match:
             continue
         snr = int(match.group(1))
@@ -52,61 +59,62 @@ for seed in seeds:
             else:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
 
-            if "total_ber_deepsicsb" in df.columns:
-                snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb"]))
-                snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb"]))
-                snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb"]))
-            else:
-                snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb_1"]))
-                if "total_ber_deepsicsb_2" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_2"]))
+            if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
+                if "total_ber_deepsicsb" in df.columns:
+                    snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb"]))
+                    snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb"]))
+                    snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_1"]))
-                if "total_ber_deepsicsb_3" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_3"]))
+                    snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb_1"]))
+                    if "total_ber_deepsicsb_2" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_2"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_1"]))
+                    if "total_ber_deepsicsb_3" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_3"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_1"]))
+
+            if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
+                if "total_ber_deepsicmb" in df.columns:
+                    snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb"]))
+                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb"]))
+                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_1"]))
+                    snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb_1"]))
+                    if "total_ber_deepsicmb_2" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_2"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_1"]))
+                    if "total_ber_deepsicmb_3" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_3"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_1"]))
 
-            if "total_ber_deepsicmb" in df.columns:
-                snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb"]))
-                snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb"]))
-                snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb"]))
-            else:
-                snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb_1"]))
-                if "total_ber_deepsicmb_2" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_2"]))
+            if any(col.startswith("total_ber_deepstag") for col in df.columns):
+                if "total_ber_deepstag" in df.columns:
+                    snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag"]))
+                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag"]))
+                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_1"]))
-                if "total_ber_deepsicmb_3" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_3"]))
-                else:
-                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_1"]))
+                    snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag_1"]))
+                    if "total_ber_deepstag_2" in df.columns:
+                        snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_2"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_1"]))
+                    if "total_ber_deepstag_3" in df.columns:
+                        snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_3"]))
+                    else:
+                        snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_1"]))
 
-            if "total_ber_deepstag" in df.columns:
-                snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag"]))
-                snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag"]))
-                snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag"]))
-            else:
-                snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag_1"]))
-                if "total_ber_deepstag_2" in df.columns:
-                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_2"]))
-                else:
-                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_1"]))
-                if "total_ber_deepstag_3" in df.columns:
-                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_3"]))
-                else:
-                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_1"]))
-
-
-
-
-
-            ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
-            snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
+            if any(col.startswith("total_ber_deeprx") for col in df.columns):
+                ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
+                snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
             ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
             snr_ber_dict[snr]['ber_legacy'].append(float(ber_legacy_val))
-            ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
-            snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
+            if any(col.startswith("total_ber_sphere") for col in df.columns):
+                ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
+                snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
         except Exception as e:
             print(f"Error processing file {file}: {e}")
 
@@ -147,47 +155,49 @@ interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
              label='DeepSIC3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-# Uncomment below to plot DeepRx
 if np.unique(ber_deeprx).shape[0] != 1:
     interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
                  label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
-             label='DeepSICSB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
+    interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
+                 label='DeepSICSB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicsb_2, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], color='orange',
-             label='DeepSICSB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepsicsb_2, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], color='orange',
+                 label='DeepSICSB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicsb_3, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], color='orange',
-             label='DeepSICSB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepsicsb_3, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], color='orange',
+                 label='DeepSICSB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
-             label='DeepSICMB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
+    interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
+                 label='DeepSICMB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
-             label='DeepSICMB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
+                 label='DeepSICMB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
-             label='DeepSICMB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
+                 label='DeepSICMB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepstag_1, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepstag_1, linestyle=dashes[0], marker=markers[0], color='pink',
-             label='DeepSTAG1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if any(col.startswith("total_ber_deepstag") for col in df.columns):
+    interp_func = interp1d(ber_deepstag_1, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepstag_1, linestyle=dashes[0], marker=markers[0], color='pink',
+                 label='DeepSTAG1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepstag_2, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepstag_2, linestyle=dashes[1], marker=markers[1], color='pink',
-             label='DeepSTAG2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepstag_2, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepstag_2, linestyle=dashes[1], marker=markers[1], color='pink',
+                 label='DeepSTAG2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_deepstag_3, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_deepstag_3, linestyle=dashes[2], marker=markers[2], color='pink',
-             label='DeepSTAG3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+    interp_func = interp1d(ber_deepstag_3, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_deepstag_3, linestyle=dashes[2], marker=markers[2], color='pink',
+                 label='DeepSTAG3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 
 
@@ -195,9 +205,10 @@ interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate"
 plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
              label='Legacy, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
-interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
-plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-             label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if np.unique(ber_sphere).shape[0] != 1:
+    interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
+                 label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel("BER")

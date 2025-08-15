@@ -7,7 +7,7 @@ from torch.utils.data import Dataset
 
 from python_code import DEVICE
 from python_code.channel.mimo_channels.mimo_channel_dataset import MIMOChannel
-from python_code.utils.constants import BLOCK_LENGTH_FACTOR
+from python_code import conf
 
 
 class ChannelModelDataset(Dataset):
@@ -30,7 +30,7 @@ class ChannelModelDataset(Dataset):
         if block_length > 0:
             self.block_length = block_length
         else:
-            self.block_length = pilots_length*BLOCK_LENGTH_FACTOR
+            self.block_length = pilots_length*conf.block_length_factor
         self.channel_type = MIMOChannel(self.block_length, pilots_length, fading_in_channel, spatial_in_channel, delayspread_in_channel, clip_percentage_in_tx, cfo, go_to_td, cfo_and_clip_in_rx, n_users)
         self.num_res = num_res
         self.kernel_size = kernel_size

@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
+from python_code.coding.crc_wrapper import CRC5GCodec
 
 
 
@@ -32,26 +33,31 @@ class MIMOChannel:
         self.go_to_td = go_to_td
 
 
-    def _transmit(self, h: np.ndarray, snr: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit(self, h: np.ndarray, snr: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         data_length = self._block_length - self._pilots_length
         if conf.mcs<=-1:
             tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
             tx_data = self._bits_generator.integers(0, 2, size=(data_length, n_users, num_res))
         else:
-            codec = LDPC5GCodec(k=ldpc_k, n=ldpc_n)
+            if ldpc_k > 3824:
+                crc_length = 24
+            else:
+                crc_length = 16
+            codec = LDPC5GCodec(k=(ldpc_k+crc_length), n=ldpc_n)
+            crc = CRC5GCodec(crc_length)
             tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
             tx_data_coded = np.zeros((n_users , data_length*num_res))
             num_slots = int(np.floor(data_length*num_res/ldpc_n))
             remainder = (data_length * num_res) % ldpc_n
             tx_data_uncoded = self._bits_generator.integers(0, 2, size=(n_users,num_slots*ldpc_n))
             for slot in range(num_slots):
-                codewords = codec.encode(tx_data_uncoded[:,slot*ldpc_k:(slot+1)*ldpc_k])
+                tx_data_crc = crc.encode(tx_data_uncoded[:,slot*ldpc_k:(slot+1)*ldpc_k])
+                codewords = codec.encode(tx_data_crc)
                 tx_data_coded[:,slot*ldpc_n:(slot+1)*ldpc_n] = codewords
             # Filling the remaining buts with random buts for the ber calcualtions
             tx_data_coded[:,(num_slots*ldpc_n):data_length*num_res] = self._bits_generator.integers(0, 2, size=(n_users,remainder))
             tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(int)
-
 
         if conf.enable_two_stage_train:
             if conf.mod_pilot > 4:
@@ -87,8 +93,6 @@ class MIMOChannel:
 
         tx = np.concatenate([tx_pilots, tx_data])
 
-        tx_data_uncoded_out = np.zeros_like(tx)
-        tx_data_uncoded_out[]
 
 
         # modulation
@@ -160,10 +164,10 @@ class MIMOChannel:
 
         s_orig = np.transpose(s_orig, (1, 0, 2))
 
-        return tx, rx, rx_ce, s_orig, tx_data_uncoded
+        return tx, rx, rx_ce, s_orig
 
     def _transmit_and_detect(self, snr: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
-        tx, rx, rx_ce, s_orig, tx_data_uncoded = self._transmit(h, snr,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
-        return tx, h, rx, rx_ce, s_orig, tx_data_uncoded
+        tx, rx, rx_ce, s_orig = self._transmit(h, snr,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
+        return tx, h, rx, rx_ce, s_orig

@@ -43,17 +43,15 @@ class ChannelModelDataset(Dataset):
         rx_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         rx_ce_full = np.empty((self.blocks_num, n_users, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         s_orig_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.tx_length, self.num_res), dtype=np.complex128)
-        tx_data_uncoded_full = np.empty((self.blocks_num, self.block_length, self.channel_type.tx_length, self.num_res))
         # accumulate words until reaches desired number
         for index in range(self.blocks_num):
-            tx, h, rx, rx_ce, s_orig, tx_data_uncoded = self.channel_type._transmit_and_detect(snr, self.num_res, index, n_users, mod_pilot, ldpc_k, ldpc_n)
+            tx, h, rx, rx_ce, s_orig = self.channel_type._transmit_and_detect(snr, self.num_res, index, n_users, mod_pilot, ldpc_k, ldpc_n)
             # accumulate
             tx_full[index] = tx
             rx_full[index] = rx
             rx_ce_full[index] = rx_ce
             h_full[index] = h
             s_orig_full[index] = s_orig
-            tx_data_uncoded_full[index] =  tx_data_uncoded
 
         database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full))
 

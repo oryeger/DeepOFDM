@@ -42,6 +42,8 @@ from python_code.coding.mcs_table import get_mcs
 
 
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
+from python_code.coding.crc_wrapper import CRC5GCodec
+
 
 
 
@@ -187,6 +189,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         iters_e2e_disp = iters_e2e
 
     total_ber_list = [[] for _ in range(iterations)]
+    total_bler_list = [[] for _ in range(iterations)]
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_ber_deepsicsb_list = [[] for _ in range(iterations)]
     total_ber_deepsicmb_list = [[] for _ in range(iterations)]
@@ -757,7 +760,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             # LDPC decoding
             if conf.mcs>-1:
-                codec = LDPC5GCodec(k=ldpc_k, n=ldpc_n)
+                if ldpc_k > 3824:
+                    crc_length = 24
+                else:
+                    crc_length = 16
+                codec = LDPC5GCodec(k=(ldpc_k+crc_length), n=ldpc_n)
+                crc = CRC5GCodec(crc_length)
+                bler_list = [None] * iterations
                 for iteration in range(iterations):
                     llr_all_res = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
@@ -768,19 +777,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_data.shape[0], n_users)
                         llr_all_res[:,re::conf.num_res] = llr_cur_re.swapaxes(0, 1).cpu()
 
-                    data_length = llr_all_res.shape[1]
-                    num_slots = int(np.floor(data_length * num_res / ldpc_n))
+                    num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
+                    crc_count = 0
                     for slot in range(num_slots):
-                        decodedwords = codec.decode(llr_all_res[:, slot * ldpc_k:(slot + 1) * ldpc_k])
-                    # Filling the remaining buts with random buts for the ber calcualtions
-                    tx_data_coded[:, (num_slots * ldpc_n):data_length * num_res] = self._bits_generator.integers(0, 2,
-                                                                                                                 size=(
-                                                                                                                 n_users,
-                                                                                                                 remainder))
-                    tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(
-                        int)
-
-                    pass
+                        decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                        crc_out = crc.decode(decodedwords)
+                        crc_count += (~crc_out).numpy().astype(int).sum()
+                    bler_list[iteration] = crc_count / (num_slots * n_users)
+                    total_bler_list[iteration].append(bler_list[iteration])
 
 
             if PLOT_MI:
@@ -846,6 +850,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, float(ber_list[iterations - 1]), mi}')
+            print(f'current DeepSIC BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
@@ -915,27 +920,37 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             "total_ber_sphere": total_ber_sphere,
         }
 
+        data_bler = {
+            "SNR_range": SNR_range[:len(total_ber_legacy)],
+            "total_bler_legacy": total_ber_legacy,
+            "total_bler_legacy_genie": total_ber_legacy_genie,
+            "total_bler_deeprx": total_ber_deeprx,
+            "total_bler_sphere": total_ber_sphere,
+        }
+
+
         # Add total_ber from total_ber_list with suffix _1, _2, ...
         for i in range(conf.iterations):
-            data[f"total_ber_{i + 1}"] = total_ber_list[i]
+            data[f"total_bler_{i + 1}"] = total_bler_list[i]
 
         # Add deep_sicsb
         for i in range(conf.iterations):
-            data[f"total_ber_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
+            data[f"total_bler_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
 
         # Add deep_sicmb
         for i in range(conf.iterations):
-            data[f"total_ber_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
+            data[f"total_bler_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
 
         # Add deep_stag
         for i in range(conf.iterations*2):
-            data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
+            data[f"total_bler_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
 
         for i in range(iters_e2e_disp):
-            data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
+            data[f"total_bler_e2e_{i + 1}"] = total_ber_e2e_list[i]
 
 
         df = pd.DataFrame(data)
+        df_bler = pd.DataFrame(data_bler)
 
         # print('\n'+title_string)
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
@@ -1014,6 +1029,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(file_path, index=False)
+        file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
+        df_bler.to_csv(file_path_bler, index=False)
 
         if conf.save_loss_plot_snr == snr_cur:
             title_string_cur = "deepsic_" + title_string

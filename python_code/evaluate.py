@@ -931,22 +931,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         # Add total_ber from total_ber_list with suffix _1, _2, ...
         for i in range(conf.iterations):
-            data[f"total_bler_{i + 1}"] = total_bler_list[i]
-
-        # Add deep_sicsb
-        for i in range(conf.iterations):
-            data[f"total_bler_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
-
-        # Add deep_sicmb
-        for i in range(conf.iterations):
-            data[f"total_bler_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
-
-        # Add deep_stag
-        for i in range(conf.iterations*2):
-            data[f"total_bler_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
+            data_bler[f"total_bler_{i + 1}"] = total_bler_list[i]
 
         for i in range(iters_e2e_disp):
-            data[f"total_bler_e2e_{i + 1}"] = total_ber_e2e_list[i]
+            data_bler[f"total_bler_e2e_{i + 1}"] = total_ber_e2e_list[i]
 
 
         df = pd.DataFrame(data)

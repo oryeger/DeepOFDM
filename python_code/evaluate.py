@@ -833,11 +833,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
 
-            if conf.run_e2e:
-                ber_e2e_list = [None] * iters_e2e_disp
-                for iteration in range(iters_e2e_disp):
-                    ber_e2e_list[iteration] = ber_sum_e2e[iteration] / num_res
-                    total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
+            ber_e2e_list = [None] * iters_e2e_disp
+            for iteration in range(iters_e2e_disp):
+                ber_e2e_list[iteration] = ber_sum_e2e[iteration] / num_res
+                total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
 
             # ber_deeprx = ber_sum_deeprx / (num_res - 2*conf.kernel_size)
             ber_deeprx = ber_sum_deeprx / num_res

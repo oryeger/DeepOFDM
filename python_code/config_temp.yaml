@@ -1,13 +1,13 @@
 snr: 0
-cur_str: testbler
+cur_str: 2 trainings
 num_snrs: 1
 n_ants: 4
 snr_step: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: 5 # [0..3] - QPSK, [4..9] - 16QAM
-block_length_factor: 13
-num_res: 24
+block_length_factor: 3
+num_res: 3
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2
@@ -24,7 +24,7 @@ half_probs: False
 sphere_radius: 'inf'
 save_loss_plot_snr: 40
 
-dot_product: True
+dot_product: False
 scale_input: True
 train_on_ce_no_pilots: False
 stag_conv_two_layers: False
@@ -39,8 +39,8 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
-delay_spread: 300e-9 # in Seconds
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
+delay_spread: 30e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 channel_seed: 58
@@ -48,10 +48,10 @@ channel_seed: 58
 run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
-run_deepstag: False
+run_deepstag: True
 separate_pilots: True
 
-run_e2e: False
+run_e2e: True
 iters_e2e: 2
 no_probs: False
 
@@ -86,3 +86,6 @@ go_to_td: True
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+
+
+

@@ -10,7 +10,7 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # Define parameters
-seeds=(41 123 17 58)
+seeds=(123 17 41 58)
 cfos=(0 0.15)
 snrs=($(seq 0 25))  # You can replace this with a custom list, e.g., snrs=(0 5 10 15)
 

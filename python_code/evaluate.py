@@ -347,6 +347,54 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             tx_pilot, tx_data = tx[:pilot_size], tx[pilot_size:]
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
+            rx_c = rx.cpu()
+            llrs_mat_legacy_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
+            detected_word_legacy_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
+            for re in range(conf.num_res):
+                # Regular CE
+                H = torch.zeros_like(h[:, :, re])
+                for user in range(n_users):
+                    if not(conf.separate_pilots):
+                        rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+                        s_orig_pilot = s_orig[:pilot_chunk, user, re]
+                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                    else:
+                        rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:n_users, :, re]
+                        s_orig_pilot = s_orig[user:pilot_chunk:n_users, user, re]
+                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
+                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+                H = H.cpu().numpy()
+
+                H_Ht = H @ H.T.conj()
+                H_Ht_inv = np.linalg.pinv(H_Ht)
+                H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
+                equalized = torch.zeros(rx_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
+                for i in range(rx_c.shape[0]):
+                    equalized[i, :] = torch.matmul(H_pi, rx_c[i, :, re])
+                if mod_pilot == 2:
+                    for i in range(equalized.shape[1]):
+                        detected_word_legacy_for_aug[:, i,re] = torch.from_numpy(
+                            BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
+                elif mod_pilot == 4:
+                    # qam = mod.QAMModem(mod_pilot)
+                    for user in range(n_users):
+                        detected_word_legacy_for_aug[:, user,re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
+                        llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
+                            int(llr_out.shape[0] / num_bits), num_bits, 1)
+                elif mod_pilot == 16:
+                    for user in range(n_users):
+                        detected_word_legacy_for_aug[:, user,re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
+                        llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
+                            int(llr_out.shape[0] / num_bits), num_bits, 1)
+                else:
+                    print('Unknown modulator')
+
+            llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
+
+
+
+
             # online training main function
             if deepsic_trainer.is_online_training:
                 if conf.train_on_ce_no_pilots:
@@ -461,52 +509,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_deepstag_list, llrs_mat_deepstag_list = deepstag_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations)
             # CE Based
-            # train_loss_vect = [0] * epochs
-            # val_loss_vect = [0] * epochs
             rx_data_c = rx[pilot_chunk:].cpu()
-            llrs_mat_legacy = np.zeros((rx_data_c.shape[0], num_bits * n_users, num_res, 1))
 
             for re in range(conf.num_res):
                 # Regular CE
-                H = torch.zeros_like(h[:, :, re])
-                for user in range(n_users):
-                    if not(conf.separate_pilots):
-                        rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
-                        s_orig_pilot = s_orig[:pilot_chunk, user, re]
-                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
-                    else:
-                        rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:n_users, :, re]
-                        s_orig_pilot = s_orig[user:pilot_chunk:n_users, user, re]
-                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
-                H = H.cpu().numpy()
-
-                H_Ht = H @ H.T.conj()
-                H_Ht_inv = np.linalg.pinv(H_Ht)
-                H_pi = torch.tensor(H.T.conj() @ H_Ht_inv)
-                equalized = torch.zeros(rx_data_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
-                for i in range(rx_data_c.shape[0]):
-                    equalized[i, :] = torch.matmul(H_pi, rx_data_c[i, :, re])
-                detected_word_legacy = np.zeros((int(equalized.shape[0] * np.log2(mod_pilot)), equalized.shape[1]))
-
-                if mod_pilot == 2:
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy[:, i] = torch.from_numpy(
-                            BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
-                elif mod_pilot == 4:
-                    # qam = mod.QAMModem(mod_pilot)
-                    for user in range(n_users):
-                        detected_word_legacy[:, user], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
-                        llrs_mat_legacy[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1)
-                elif mod_pilot == 16:
-                    for user in range(n_users):
-                        detected_word_legacy[:, user], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
-                        llrs_mat_legacy[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1)
-                else:
-                    print('Unknown modulator')
+                detected_word_legacy = detected_word_legacy_for_aug[pilot_size:, :, re]
 
                 # Sphere:
                 if conf.sphere_radius == 'inf':

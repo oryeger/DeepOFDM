@@ -391,7 +391,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     print('Unknown modulator')
 
             llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
-
+            probs_for_aug = torch.sigmoid(torch.tensor(conf.augment_scale*llrs_mat_legacy_for_aug, dtype=torch.float32))
 
 
 
@@ -416,7 +416,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,
-                                                                                      epochs, False)
+                                                                                      epochs, False, probs_for_aug)
                 elif conf.use_data_as_pilots:
                     H_all = torch.zeros(s_orig.shape[0], conf.n_ants * conf.n_users, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
@@ -438,76 +438,75 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
-                                                                                      num_bits, n_users, iterations,epochs, False)
+                                                                                      num_bits, n_users, iterations,epochs, False, probs_for_aug[:pilot_chunk])
                 else:
                     if not conf.enable_two_stage_train:
                         train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
-                                                                                          n_users, iterations, epochs, False)
+                                                                                          n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
                     else:
                         tx_pilot_cur = tx_pilot[:int(pilot_chunk*num_bits/2),:,:]
                         rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
                         train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, epochs, True)
+                                                                                          n_users, iterations, epochs, True, probs_for_aug[:pilot_chunk])
 
                         tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
                         rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
                         train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, epochs, False)
+                                                                                          n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
                         train_loss_vect = train_loss_vect_1 + train_loss_vect_2
                         val_loss_vect = val_loss_vect_1 + val_loss_vect_2
-                        pass
 
 
                 if conf.train_on_ce_no_pilots:
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)
                     rx_data_and_H = torch.cat((rx_data, H_repeated), dim=1)
                     detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,
-                                                                                 iterations)
+                                                                                 iterations, probs_for_aug[pilot_chunk:])
                 elif conf.use_data_as_pilots:
                     rx_data_and_H = torch.cat((rx_data, H_all_real[pilot_chunk:]), dim=1)
                     detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,
-                                                                                 iterations)
+                                                                                 iterations, probs_for_aug[pilot_chunk:])
                 else:
-                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations)
+                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
 
             if conf.run_e2e:
                 if deepsice2e_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
                         train_loss_vect_e2e, val_loss_vect_e2e = deepsice2e_trainer._online_training(tx_pilot, rx_pilot,
                                                                                                      num_bits, n_users,
-                                                                                                     iters_e2e, epochs, False)
+                                                                                                     iters_e2e, epochs, False, torch.empty(0))
                     detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users,
-                                                                                            iters_e2e)
+                                                                                            iters_e2e, torch.empty(0))
 
             if conf.run_deeprx:
                 if deeprx_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
                         train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot,
                                                                                                        num_bits, n_users,
-                                                                                                       iterations, epochs, False)
+                                                                                                       iterations, epochs, False, torch.empty(0))
                     detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
-                                                                                    iterations)
+                                                                                    iterations, torch.empty(0))
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 if deepsicsb_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
                         train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
-                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
+                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
-                                                                                         iterations)
+                                                                                         iterations, torch.empty(0))
             if conf.run_deepsicmb and deepsicmb_trainer is not None:
                 if deepsicmb_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
                         train_loss_vect_deepsicmb, val_loss_vect_deepsicmb = deepsicmb_trainer._online_training(
-                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
+                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepsicmb_list, llrs_mat_deepsicmb_list = deepsicmb_trainer._forward(rx_data, num_bits, n_users,
-                                                                                         iterations)
+                                                                                         iterations, torch.empty(0))
             if conf.run_deepstag and deepstag_trainer is not None:
                 if deepstag_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
                         train_loss_vect_deepstag, val_loss_vect_deepstag = deepstag_trainer._online_training(
-                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False)
+                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepstag_list, llrs_mat_deepstag_list = deepstag_trainer._forward(rx_data, num_bits, n_users,
-                                                                                         iterations)
+                                                                                         iterations, torch.empty(0))
             # CE Based
             rx_data_c = rx[pilot_chunk:].cpu()
 
@@ -808,14 +807,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         crc_count_legacy += (~crc_out_legacy).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
-                    bler_legacy = crc_count_legacy / (num_slots * n_users)
-                    total_bler_legacy.append(bler_legacy)
+                    if iteration == 0:
+                        bler_legacy = crc_count_legacy / (num_slots * n_users)
+                        total_bler_legacy.append(bler_legacy)
             else:
                 for iteration in range(iterations):
                     bler_list[iteration] = 0
                     total_bler_list[iteration].append(0)
-                    bler_legacy = 0
-                    total_bler_legacy.append(0)
+                bler_legacy = 0
+                total_bler_legacy.append(0)
 
             if PLOT_MI:
                 for iteration in range(iterations):

@@ -76,13 +76,13 @@ class Trainer(object):
     #                                                cfo_and_clip_in_rx=conf.cfo_and_clip_in_rx,
     #                                                kernel_size=conf.kernel_size)
 
-    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool) -> Tuple[List[float], List[float]]:
+    def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor) -> Tuple[List[float], List[float]]:
         """
         Every detector trainer must have some function to adapt it online
         """
         pass
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> Tuple[torch.Tensor, torch.Tensor]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int, probs_in: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """
         Every trainer must have some forward pass for its detector
         """

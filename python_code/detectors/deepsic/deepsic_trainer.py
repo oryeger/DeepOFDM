@@ -80,13 +80,16 @@ class DeepSICTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
-        initial_probs = self._initialize_probs(tx, num_bits, n_users)
+        if conf.augment:
+            initial_probs = probs_in
+        else:
+            initial_probs = self._initialize_probs(tx, num_bits, n_users)
         if conf.separate_nns:
             num_nns = int(num_bits / 2)
         else:
@@ -97,7 +100,10 @@ class DeepSICTrainer(Trainer):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits, bit_type)
             train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
         # Initializing the probabilities
-        probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
+        if conf.augment:
+            probs_vec = probs_in.to(DEVICE)
+        else:
+            probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iterations):
             # Training the DeepSIC networks for the iteration>1
@@ -123,11 +129,15 @@ class DeepSICTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> tuple[List, List]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int, probs_in: torch.Tensor) -> tuple[List, List]:
         # detect and decode
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations
-        probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
+        if conf.augment:
+            probs_vec = probs_in.to(DEVICE)
+        else:
+            probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
+
         if conf.separate_nns:
             nns = torch.arange(int(num_bits / 2))
         else:

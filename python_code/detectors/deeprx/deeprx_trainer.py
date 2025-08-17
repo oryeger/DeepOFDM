@@ -59,7 +59,7 @@ class DeepRxTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int, first_half_flag: bool):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
         Main training function for DeepSIC trainer.
         """
@@ -79,7 +79,7 @@ class DeepRxTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int) -> torch.Tensor:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iters_e2e: int, probs_in: torch.Tensor) -> torch.Tensor:
         # detect and decode
         rx_in = rx.to(device=DEVICE).unsqueeze(-1)
         probs_vec, llrs = self._calculate_posteriors(self.detector, rx_in, num_bits, n_users)

@@ -69,7 +69,7 @@ class DeepSICSBTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
         Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
@@ -109,7 +109,7 @@ class DeepSICSBTrainer(Trainer):
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:
         return rx.float()
 
-    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int) -> tuple[List, List]:
+    def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int, probs_in: torch.Tensor) -> tuple[List, List]:
         # detect and decode
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations

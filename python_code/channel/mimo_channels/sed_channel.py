@@ -111,6 +111,8 @@ class SEDChannel:
             NUM_SLOTS = int(y_in.shape[1] / NUM_SYMB_PER_SLOT)
             NUM_SAMPLES_TOTAL = int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT)
             n_users_int = n_users
+            n_input_rx_int = 1;
+            n_users_out_int = n_users
             y = np.expand_dims(y_in, axis=1)
 
         st_full = np.zeros((n_users_int, n_input_rx_int, NUM_SAMPLES_TOTAL), dtype=complex)
@@ -151,7 +153,7 @@ class SEDChannel:
             new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
             st_full = st_full*rms_value/new_rms_value
 
-        if tdl_channel:
+        if tdl_channel and td_in_rx:
             st_out, chan_out = TDLChannel.conv_and_noise(st_full,1,0, NUM_SLOTS, external_chan)
             st_full = st_out
         else:
@@ -178,6 +180,41 @@ class SEDChannel:
                 y_out = np.squeeze(y_out_pre, axis=0)
         else:
             y_out = np.squeeze(y_out_pre, axis=1)
+
+        show_impair_tx = False
+        if show_impair_tx:
+            fig, axs = plt.subplots(3, 1, figsize=(8, 10))
+
+            # --- Real part ---
+            axs[0].stem(np.real(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before Clipping')
+            axs[0].stem(np.real(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After Clipping')
+            axs[0].set_ylabel('I')
+            axs[0].grid(True)
+            axs[0].legend()
+
+            # --- Imag part ---
+            axs[1].stem(np.imag(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before Clipping')
+            axs[1].stem(np.imag(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After Clipping')
+            axs[1].set_ylabel('Q')
+            axs[1].grid(True)
+            axs[1].legend()
+
+            # --- Constellation diagram ---
+            axs[2].scatter(np.real(y_out.flatten()), np.imag(y_out.flatten()), color='r', alpha=0.5,
+                           label='After Clipping')
+            axs[2].scatter(np.real(y_in.flatten()), np.imag(y_in.flatten()), color='b', alpha=0.5,
+                           label='Before Clipping')
+            axs[2].set_xlabel('I')
+            axs[2].set_ylabel('Q')
+            axs[2].grid(True)
+            axs[2].axis('equal')
+            axs[2].legend()
+
+            # --- Global title ---
+            fig.suptitle('Impairment effect with clipping = ' + str(clip_percentage_in_tx) + '%', fontsize=14)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            plt.show()
 
         return y_out, chan_out
 

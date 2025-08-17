@@ -7,7 +7,7 @@ n_users: 4
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: -1 # [0..3] - QPSK, [4..9] - 16QAM
 block_length_factor: 3
-num_res: 3
+num_res: 24
 cfo:  0
 clip_percentage_in_tx: 100
 epochs: 50
@@ -49,7 +49,7 @@ run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False
-augment: True
+augment: False
 augment_scale: 10
 separate_pilots: True
 

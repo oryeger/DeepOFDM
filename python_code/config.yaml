@@ -50,7 +50,7 @@ run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False
 augment: True
-augment_scale: -10
+augment_scale: 10
 separate_pilots: True
 
 run_e2e: False

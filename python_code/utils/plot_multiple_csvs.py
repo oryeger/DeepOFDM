@@ -11,15 +11,15 @@ from collections import defaultdict
 CSV_DIR = r"C:\Projects\Scratchpad"
 seeds = [123, 17, 41, 58]
 # seeds = [58]
-ber_target = 0.01
 
-# BER = True  # Set to False if you want to plot SNR instead of BER
-BER = False  # Set to False if you want to plot SNR instead of BER
+BER = 1  # Set to False if you want to plot SNR instead of BER
 
 if BER:
-    search_pattern = r"SNR=(\d+)"
+    search_pattern = r"SNR=(-?\d+)"
+    ber_target = 0.01
 else:
-    search_pattern = r'_SNR=(\d+)_bler\.csv$'
+    search_pattern = r'_SNR=(-?\d+)_bler\.csv$'
+    ber_target = 0.1
 
 snr_ber_dict = defaultdict(lambda: {
     'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
@@ -158,83 +158,83 @@ dashes = [':', '-.', '--', '-', '-']
 
 interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
-             label='DeepSIC1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
-             label='DeepSIC2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='DeepSIC2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
-             label='DeepSIC3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='DeepSIC3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 if np.unique(ber_deeprx).shape[0] != 1:
     interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
-                 label='DeepRx, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepRx, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
     interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
-                 label='DeepSICSB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICSB1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepsicsb_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], color='orange',
-                 label='DeepSICSB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICSB2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepsicsb_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], color='orange',
-                 label='DeepSICSB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICSB3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
     interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
-                 label='DeepSICMB1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICMB1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
-                 label='DeepSICMB2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICMB2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
-                 label='DeepSICMB3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICMB3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 if any(col.startswith("total_ber_deepstag") for col in df.columns):
     interp_func = interp1d(ber_deepstag_1, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepstag_1, linestyle=dashes[0], marker=markers[0], color='pink',
-                 label='DeepSTAG1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSTAG1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepstag_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepstag_2, linestyle=dashes[1], marker=markers[1], color='pink',
-                 label='DeepSTAG2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSTAG2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_deepstag_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_deepstag_3, linestyle=dashes[2], marker=markers[2], color='pink',
-                 label='DeepSTAG3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSTAG3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 
-if any(col.startswith("total_ber_e2e") for col in df.columns):
+if any(col.startswith("total_ber_e2e") for col in df.columns) and np.unique(ber_deeprx).shape[0] != 1:
     interp_func = interp1d(ber_e2e_1, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_e2e_1, linestyle=dashes[0], marker=markers[0], color='magenta',
-                 label='DeepSICe2e1, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICe2e1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_e2e_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_e2e_2, linestyle=dashes[1], marker=markers[1], color='magenta',
-                 label='DeepSICe2e2, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICe2e2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_e2e_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_e2e_3, linestyle=dashes[2], marker=markers[2], color='magenta',
-                 label='DeepSICe2e3, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSICe2e3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 
 interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
 plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
-             label='Legacy, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+             label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
-if np.unique(ber_sphere).shape[0] != 1:
-    interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
-    plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-                 label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+# if np.unique(ber_sphere).shape[0] != 1:
+#     interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+#     plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
+#                  label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel("BER")

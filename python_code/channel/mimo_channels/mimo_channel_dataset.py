@@ -126,25 +126,55 @@ class MIMOChannel:
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
             s, _ = SEDChannel.apply_td_and_impairments(s, False, self.cfo, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor)
 
+        # if show_impair:
+        #     plt.subplot(2,1,1)
+        #     plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
+        #     plt.xlabel('Subcarriers')
+        #     plt.ylabel('Before Impair')
+        #     plt.grid()
+        #     plt.title('Impairment effect')
+        #
+        # if show_impair:
+        #     plt.subplot(2,1,2)
+        #     plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
+        #     plt.xlabel('Subcarriers')
+        #     plt.ylabel('After Impair')
+        #     plt.grid()
+        #     plt.show()
         show_impair = False
         if show_impair:
-            plt.subplot(2,1,1)
-            plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
-            plt.xlabel('Subcarriers')
-            plt.ylabel('Before Impair')
-            plt.grid()
-            plt.title('Impairment effect')
+            fig, axs = plt.subplots(3, 1, figsize=(8, 10))
 
-        if show_impair:
-            plt.subplot(2,1,2)
-            plt.plot( np.abs(s[0,0,:]), linestyle='-', color='b', label='After Clipping')
-            plt.xlabel('Subcarriers')
-            plt.ylabel('After Impair')
-            plt.grid()
+            # --- Real part ---
+            axs[0].stem(np.real(s_orig[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before CFO')
+            axs[0].stem(np.real(s[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After CFO')
+            axs[0].set_ylabel('I')
+            axs[0].grid(True)
+            axs[0].legend()
+
+            # --- Imag part ---
+            axs[1].stem(np.imag(s_orig[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before CFO')
+            axs[1].stem(np.imag(s[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After CFO')
+            axs[1].set_ylabel('Q')
+            axs[1].grid(True)
+            axs[1].legend()
+
+            # --- Constellation diagram ---
+            axs[2].scatter(np.real(s.flatten()), np.imag(s.flatten()), color='r', alpha=0.5,
+                           label='After CFO')
+            axs[2].scatter(np.real(s_orig.flatten()), np.imag(s_orig.flatten()), color='b', alpha=0.5,
+                           label='Before CFO')
+            axs[2].set_xlabel('I')
+            axs[2].set_ylabel('Q')
+            axs[2].grid(True)
+            axs[2].axis('equal')
+            axs[2].legend()
+
+            # --- Global title ---
+            fig.suptitle('Impairment effect with cfo = ' + str(conf.cfo) + ' scs', fontsize=14)
+
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
             plt.show()
-        pass
-
-
 
         # (dim0, dim1, dim2) = s.shape
         # s_real = np.empty((dim0*2, dim1, dim2), dtype=s.real.dtype)

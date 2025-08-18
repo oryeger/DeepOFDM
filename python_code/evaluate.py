@@ -1054,13 +1054,22 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
             df_bler.to_csv(file_path_bler, index=False)
 
-        if conf.save_loss_plot_snr == snr_cur:
+        if snr_cur in conf.save_loss_plot_snr:
             title_string_cur = "deepsic_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
             fig_deepsic.savefig(file_path)
             title_string_cur = "deepsic_per_re_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
             fig_deepsic_per_re.savefig(file_path)
+
+            title_string_cur = "legacy_" + title_string
+            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+            fig_legacy.savefig(file_path)
+            title_string_cur = "legacy_per_re_" + title_string
+            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+            fig_legacy_per_re.savefig(file_path)
+
+
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 title_string_cur = "deepsicsb_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")

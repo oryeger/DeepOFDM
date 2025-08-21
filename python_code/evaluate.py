@@ -372,6 +372,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 equalized = torch.zeros(rx_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
                 for i in range(rx_c.shape[0]):
                     equalized[i, :] = torch.matmul(H_pi, rx_c[i, :, re])
+
+                noise_var = 10 ** (-0.1 * snr_cur)
+                signal_var = np.sum(np.abs(H[:, user]) ** 2)
+                postEqSINR = signal_var / noise_var
+
                 if mod_pilot == 2:
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_for_aug[:, i,re] = torch.from_numpy(
@@ -381,17 +386,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     for user in range(n_users):
                         detected_word_legacy_for_aug[:, user,re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
 
-                        noise_var = 10 ** (-0.1 * snr_cur)
-                        signal_var = np.sum(np.abs(H[:,user])** 2)
-                        postEqSINR = signal_var / noise_var
 
                         llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR
+                            int(llr_out.shape[0] / num_bits), num_bits, 1)*postEqSINR
                 elif mod_pilot == 16:
                     for user in range(n_users):
                         detected_word_legacy_for_aug[:, user,re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
                         llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1)
+                            int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR
                 else:
                     print('Unknown modulator')
 

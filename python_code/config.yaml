@@ -1,10 +1,10 @@
-snr: 25
+snr: 10
 cur_str: testbler
 num_snrs: 1
 n_ants: 4
 snr_step: 1
 n_users: 4
-mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: -1 # [0..3] - QPSK, [4..9] - 16QAM
 block_length_factor: 3
 num_res: 24
@@ -22,7 +22,7 @@ interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
 sphere_radius: 'inf'
-save_loss_plot_snr: [0, 25]
+save_loss_plot_snr: [-5, 0, 25]
 
 dot_product: True
 scale_input: True

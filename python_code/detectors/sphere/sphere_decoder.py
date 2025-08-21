@@ -15,89 +15,81 @@ qam16 = np.array([-3 - 3j, -3 - 1j, -3 + 1j, -3 + 3j,
                   1 - 3j, 1 - 1j, 1 + 1j, 1 + 3j,
                   3 - 3j, 3 - 1j, 3 + 1j, 3 + 3j]) / np.sqrt(10)
 
+import numpy as np
+from itertools import product
 
-def SphereDecoder(H, y, radius_in):
 
+import numpy as np
+from itertools import product
+
+def SphereDecoder(H, y, noise_var=1.0):
     """
-    Sphere decoder for 4 layers with 16-QAM
+    Brute-force ML detector with LLR computation (multi-user MIMO).
+    Each user has 1 spatial layer.
 
-    Parameters:
-        H: 4x4 complex channel matrix
-        y: 4x1 received vector
-        radius: initial search radius
+    Args:
+        H: (N_rx x N_users) channel matrix
+        y: (N_symbols x N_rx) received signals
+        noise_var: noise variance
 
     Returns:
-        x_hat: estimated transmitted symbol vector
+        LLRs_all: (N_symbols, N_users, bits_per_symbol)
+        hard_bits_all: (N_symbols, N_users, bits_per_symbol)
     """
-
-    # generate all constellation points
-    num_bits = int(np.log2(conf.mod_pilot))
-    bit_combinations = np.array(list(product([0, 1], repeat=num_bits)), dtype=np.int64)
-    bit_combinations_flat = bit_combinations.flatten()
+    n_symbols, n_rx = y.shape
+    n_users = H.shape[1]
+    bits_per_symbol = int(np.log2(conf.mod_pilot))
     qam = mod.QAMModem(conf.mod_pilot)
-    candidates = qam.modulate(bit_combinations_flat)
 
-    # QR decomposition of H
+    # constellation and bit mapping
+    constellation = qam.constellation  # ordered complex symbols
+    bit_combinations = np.array(list(product([0, 1], repeat=bits_per_symbol)), dtype=np.int64)
+
+    # Precompute QR
     Q, R = np.linalg.qr(H, mode='reduced')
-    bits_out = np.zeros((y.shape[0]*num_bits, H.shape[1]))
-    for i in range(y.shape[0]):
-        radius = radius_in
-        y_tilde = Q.conj().T @ y[i,:]
 
-        # Initialize variables
-        best_distance_good = float('inf')
-        best_s_good = np.ones((conf.n_users),dtype='complex128')*candidates[0]
+    # Allocate outputs
+    LLRs_all = np.zeros((n_symbols, n_users, bits_per_symbol))
+    hard_bits_all = np.zeros((n_symbols, n_users, bits_per_symbol), dtype=int)
 
-        # distances_list = []
-        # for s3 in candidates:
-        #     for s2 in candidates:
-        #         for s1 in candidates:
-        #             for s0 in candidates:
-        #                 current_s = np.array([s0, s1, s2, s3])
-        #                 dist = np.sum(np.abs(y[i] -  current_s@H) ** 2)
-        #                 distances_list.append(dist)
-        #                 if (dist < best_distance_good):
-        #                     best_distance_good = dist
-        #                     best_s_good = current_s
+    # Loop over all received symbols
+    for idx in range(n_symbols):
+        y_tilde = Q.conj().T @ y[idx, :]
 
-        # Start with the last layer (layer 3)
-        best_distance = float('inf')
-        best_s = np.ones((conf.n_users),dtype='complex128')*candidates[0]
+        candidates_metrics = []
+        best_dist = np.inf
+        best_bits = None
 
-        for s3 in candidates:
-            dist3 = abs(y_tilde[3] - R[3, 3] * s3) ** 2
-            if dist3 > radius:
-                continue
+        # Enumerate all candidate symbol vectors (brute force)
+        for symbol_tuple in product(constellation, repeat=n_users):
+            x_vec = np.array(symbol_tuple)
+            dist = np.linalg.norm(y_tilde - R @ x_vec) ** 2
 
-            # Layer 2
-            for s2 in candidates:
-                e2 = y_tilde[2] - R[2, 3] * s3 - R[2, 2] * s2
-                dist2 = dist3 + abs(e2) ** 2
-                if dist2 > radius:
-                    continue
+            # map each symbol to its bit pattern
+            bits = np.concatenate([
+                bit_combinations[np.where(constellation == s)[0][0]] for s in x_vec
+            ])
 
-                # Layer 1
-                for s1 in candidates:
-                    e1 = y_tilde[1] - R[1, 3] * s3 - R[1, 2] * s2 - R[1, 1] * s1
-                    dist1 = dist2 + abs(e1) ** 2
-                    if dist1 > radius:
-                        continue
+            candidates_metrics.append((bits, dist))
 
-                    # Layer 0
-                    for s0 in candidates:
-                        e0 = y_tilde[0] - R[0, 3] * s3 - R[0, 2] * s2 - R[0, 1] * s1 - R[0, 0] * s0
-                        total_dist = dist1 + abs(e0) ** 2
+            # Track ML solution (hard decision)
+            if dist < best_dist:
+                best_dist = dist
+                best_bits = bits
 
-                        if total_dist < best_distance:
-                            best_distance = total_dist
-                            best_s = np.array([s0, s1, s2, s3])
-                            radius = best_distance  # Update radius
-                            # radius = radius_in
-        bits_matrix = np.array([bit_combinations[np.where(candidates == s)[0][0]] for s in best_s]).T
-        # bits_matrix = np.array([bit_combinations[np.where(candidates == s)[0][0]] for s in best_s_good]).T
-        bits_out[i*num_bits:(i+1)*num_bits,:] = bits_matrix
-        # if not(np.array_equal(np.round(np.unique(best_s_good - best_s)), np.array([0. + 0.j]))):
-        #     pass
-    return bits_out
+        # --- Compute LLRs (Max-Log-MAP) ---
+        n_bits_total = n_users * bits_per_symbol
+        LLRs_flat = np.zeros(n_bits_total)
+        for k in range(n_bits_total):
+            d0 = min(dist for bits, dist in candidates_metrics if bits[k] == 0)
+            d1 = min(dist for bits, dist in candidates_metrics if bits[k] == 1)
+            LLRs_flat[k] = (d1 - d0) / noise_var
 
+        # reshape into (n_users, bits_per_symbol)
+        LLRs_all[idx] = LLRs_flat.reshape(n_users, bits_per_symbol)
+        hard_bits_all[idx] = best_bits.reshape(n_users, bits_per_symbol)
 
+    LLRs_all = LLRs_all.transpose(0, 2, 1).reshape(n_symbols * bits_per_symbol, n_users)
+    hard_bits_all = hard_bits_all.transpose(0, 2, 1).reshape(n_symbols * bits_per_symbol, n_users)
+
+    return LLRs_all, hard_bits_all

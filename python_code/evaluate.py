@@ -198,6 +198,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_ber_legacy = []
     total_bler_legacy = []
     total_ber_sphere = []
+    total_bler_sphere = []
 
     if conf.mcs > -1:
         qm, code_rate = get_mcs(conf.mcs)
@@ -402,10 +403,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     # qam = mod.QAMModem(mod_pilot)
                     for user in range(n_users):
                         detected_word_legacy_for_aug[:, user,re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
-
-
                         llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1)*postEqSINR
+                            int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR
+
                 elif mod_pilot == 16:
                     for user in range(n_users):
                         detected_word_legacy_for_aug[:, user,re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
@@ -534,6 +534,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             # CE Based
             rx_data_c = rx[pilot_chunk:].cpu()
 
+            llrs_mat_sphere = np.zeros((rx_data_c.shape[0], num_bits * n_users, num_res, 1))
             for re in range(conf.num_res):
                 # Regular CE
                 detected_word_legacy = detected_word_legacy_for_aug[pilot_size:, :, re]
@@ -546,7 +547,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     radius = float(conf.sphere_radius)
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
-                detected_word_sphere = SphereDecoder(H_all[:,:,re], rx_data_c[:, :, re].numpy(), radius)
+                if conf.run_sphere:
+                    llr_out, detected_word_sphere  = SphereDecoder(H_all[:,:,re], rx_data_c[:, :, re].numpy(), noise_var)
+                else:
+                    llr_out = np.zeros((rx_data_c.shape[0]*num_bits,n_users))
+                    detected_word_sphere = np.zeros((rx_data_c.shape[0]*num_bits,n_users))
+
+                for user in range(n_users):
+                    llrs_mat_sphere[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out[:,user].reshape(
+                        int(llr_out[:,user].shape[0] / num_bits), num_bits, 1)
 
                 # if (conf.n_users == conf.n_ants):
                 #     detected_word_sphere = SphereDecoder(H, rx_data_c[:, :, re].numpy(), radius)
@@ -801,6 +810,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 for iteration in range(iterations):
                     llr_all_res = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_legacy = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
+                    llr_all_res_sphere = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
                         # DeepSIC
                         llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
@@ -818,10 +828,19 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_data.shape[0], n_users)
                         llr_all_res_legacy[:,re::conf.num_res] = llr_cur_re_legacy.swapaxes(0, 1)
 
+                        # Legacy
+                        llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
+                        llr_cur_re_sphere = llr_cur_re_sphere.squeeze(-1)
+                        llr_cur_re_sphere = llr_cur_re_sphere.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                        num_bits).swapaxes(1, 2).reshape(
+                        tx_data.shape[0], n_users)
+                        llr_all_res_sphere[:,re::conf.num_res] = llr_cur_re_sphere.swapaxes(0, 1)
+
 
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
                     crc_count = 0
                     crc_count_legacy = 0
+                    crc_count_sphere = 0
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
@@ -829,17 +848,23 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         decodedwords_legacy = codec.decode(llr_all_res_legacy[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_legacy = crc.decode(decodedwords_legacy)
                         crc_count_legacy += (~crc_out_legacy).numpy().astype(int).sum()
+                        decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                        crc_out_sphere = crc.decode(decodedwords_sphere)
+                        crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
                     if iteration == 0:
                         bler_legacy = crc_count_legacy / (num_slots * n_users)
                         total_bler_legacy.append(bler_legacy)
+                        bler_sphere = crc_count_sphere / (num_slots * n_users)
+                        total_bler_sphere.append(bler_sphere)
             else:
                 for iteration in range(iterations):
                     bler_list[iteration] = 0
                     total_bler_list[iteration].append(0)
                 bler_legacy = 0
                 total_bler_legacy.append(0)
+                total_bler_sphere.append(0)
 
             if PLOT_MI:
                 for iteration in range(iterations):
@@ -923,7 +948,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if conf.mcs>-1:
                 print(f'current legacy BLER: {block_ind, float(bler_legacy), mi}')
 
-            print(f'current sphere: {block_ind, ber_sphere.item()}')
+            if conf.run_sphere:
+                print(f'current sphere: {block_ind, ber_sphere.item()}')
+                if conf.mcs>-1:
+                    print(f'current sphere BLER: {block_ind, float(ber_sphere), mi}')
+
             if PLOT_CE_ON_DATA:
                 print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
             if conf.TDL_model[0] == 'N':
@@ -939,6 +968,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_legacy),
                            snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy,
                            ber_legacy_genie, 0)
+
+        if conf.run_sphere:
+            fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_sphere),
+                               snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str, ber_sphere, ber_legacy,
+                               ber_legacy_genie, 0)
+
+
         if conf.run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
@@ -990,6 +1026,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         data_bler = {
             "SNR_range": SNR_range[:len(total_ber_legacy)],
             "total_ber_legacy": total_bler_legacy,
+            "total_ber_sphere": total_bler_sphere,
         }
 
         for i in range(conf.iterations):

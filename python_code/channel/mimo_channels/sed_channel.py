@@ -19,63 +19,79 @@ from python_code.channel.sionna.TLD_channel import TDLChannel
 class SEDChannel:
     @staticmethod
     def calculate_channel(n_ant: int, n_users: int, num_res: int, frame_ind: int, fading: bool, spatial: bool, delayspread: bool) -> np.ndarray:
-        H_row = np.array([i for i in range(n_ant)])
-        H_row = np.tile(H_row, [n_users, 1]).T
-        H_column = np.array([i for i in range(n_users)])
-        H_column = np.tile(H_column, [n_ant, 1])
-        H_real = np.exp(-np.abs(H_row - H_column))
-        # Frequency channel
-        sigma = 5*num_res/4
-        linear_phase_slope = 0.5*num_res/4
-        freq_indexes = np.linspace(-num_res // 2, num_res // 2, num_res)
-        ChannelFreq = np.exp(-0.5 * (freq_indexes / sigma) ** 2)
-        ChannelFreq = np.exp(1j * freq_indexes * linear_phase_slope)*ChannelFreq
-        ChannelFreq = ChannelFreq*num_res/np.sum(np.abs(ChannelFreq))
-
-
-        if not spatial:
-            if n_users != 1:
-                H_real = np.eye(H_real.shape[0])
-            else:
-                H_real = np.zeros((H_real.shape[0],1))
-                H_real[0,0] = 1
-
-
-        H_real = H_real * conf.interf_factor
-        for i in range(H_real.shape[1]):
-            H_real[i,i] = 1
-
-        # np.random.seed(42)
-        # real_part = np.random.normal(0, 1, (n_ant, n_user))
-        # imag_part = np.random.normal(0, 1, (n_ant, n_user))
-        # H_real = real_part + 1j * imag_part
-
-        # H_real = np.array([
-        #     [0.8 + 0.2j, 0.75 + 0.25j, 0.78 + 0.22j, 0.79 + 0.21j],
-        #     [0.79 + 0.21j, 0.8 + 0.2j, 0.75 + 0.25j, 0.78 + 0.22j],
-        #     [0.78 + 0.22j, 0.79 + 0.21j, 0.8 + 0.2j, 0.75 + 0.25j],
-        #     [0.75 + 0.25j, 0.78 + 0.22j, 0.79 + 0.21j, 0.8 + 0.2j]
-        # ])
-        #
-        # reg_factor = 0.1
-        # H_real = H_real + reg_factor*np.eye(H_real.shape[0])
-
+        H_real = SEDChannel.mapping_matrix(n_users, n_ant)
         H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
+        for re_index in range(num_res):
+            H_complex[:,:,re_index] = H_real
 
-        if num_res==1:
-            complex_scalar = np.exp(1j * PHASE_OFFSET)
-            H_complex [:,:,0]= np.array(H_real * complex_scalar, dtype=complex)
-        else:
-            for re_index in range(num_res):
-                if delayspread:
-                    H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
-                else:
-                    H_complex[:, :, re_index] = H_real
+        # H_row = np.array([i for i in range(n_ant)])
+        # H_row = np.tile(H_row, [n_users, 1]).T
+        # H_column = np.array([i for i in range(n_users)])
+        # H_column = np.tile(H_column, [n_ant, 1])
+        # H_real = np.exp(-np.abs(H_row - H_column))
+        # # Frequency channel
+        # sigma = 5*num_res/4
+        # linear_phase_slope = 0.5*num_res/4
+        # freq_indexes = np.linspace(-num_res // 2, num_res // 2, num_res)
+        # ChannelFreq = np.exp(-0.5 * (freq_indexes / sigma) ** 2)
+        # ChannelFreq = np.exp(1j * freq_indexes * linear_phase_slope)*ChannelFreq
+        # ChannelFreq = ChannelFreq*num_res/np.sum(np.abs(ChannelFreq))
+        #
+        #
+        # if not spatial:
+        #     if n_users != 1:
+        #         H_real = np.eye(H_real.shape[0])
+        #     else:
+        #         H_real = np.zeros((H_real.shape[0],1))
+        #         H_real[0,0] = 1
+        #
+        #
+        # H_real = H_real * conf.interf_factor
+        # for i in range(H_real.shape[1]):
+        #     H_real[i,i] = 1
+        #
+        # H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
+        #
+        # if num_res==1:
+        #     complex_scalar = np.exp(1j * PHASE_OFFSET)
+        #     H_complex [:,:,0]= np.array(H_real * complex_scalar, dtype=complex)
+        # else:
+        #     for re_index in range(num_res):
+        #         if delayspread:
+        #             H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
+        #         else:
+        #             H_complex[:, :, re_index] = H_real
+        #
+        # if fading:
+        #     for re_index in range(num_res):
+        #         H_complex[:,:,re_index] = SEDChannel._add_fading(H_complex[:,:,re_index], n_ant, frame_ind)
 
-        if fading:
-            for re_index in range(num_res):
-                H_complex[:,:,re_index] = SEDChannel._add_fading(H_complex[:,:,re_index], n_ant, frame_ind)
         return H_complex
+
+
+    @staticmethod
+    def hadamard_matrix(n):
+        """Generate Hadamard matrix of order n (must be power of 2)."""
+        if n == 1:
+            return np.array([[1]])
+        H = SEDChannel.hadamard_matrix(n // 2)
+        return np.block([[H, H], [H, -H]])
+
+    @staticmethod
+    def mapping_matrix(n_layers, n_rx):
+        """Generate mapping matrix using Hadamard construction."""
+        # Find nearest power of 2 >= n_rx
+        N = 1
+        while N < n_rx:
+            N *= 2
+        H = SEDChannel.hadamard_matrix(N)
+
+        # Normalize
+        # H = H / np.sqrt(N)
+
+        # Take first n_rx rows and first n_layers columns
+        return H[:n_rx, :n_layers]
+
 
     @staticmethod
     def _add_fading(H: np.ndarray, n_ant: int, frame_ind: int) -> np.ndarray:

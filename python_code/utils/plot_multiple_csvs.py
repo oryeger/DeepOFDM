@@ -17,9 +17,11 @@ BER = 1 # Set to False if you want to plot SNR instead of BER
 if BER:
     search_pattern = r"SNR=(-?\d+)"
     ber_target = 0.01
+    ylabel_cur = 'BER'
 else:
     search_pattern = r'_SNR=(-?\d+)_bler\.csv$'
     ber_target = 0.1
+    ylabel_cur = 'BLER'
 
 snr_ber_dict = defaultdict(lambda: {
     'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
@@ -237,7 +239,7 @@ plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r'
 #                  label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
-plt.ylabel("BER")
+plt.ylabel(ylabel_cur)
 plt.yscale("log")
 plt.grid(True)
 plt.legend()

@@ -554,7 +554,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_sphere = np.zeros((rx_data_c.shape[0]*num_bits,n_users))
 
                 for user in range(n_users):
-                    llrs_mat_sphere[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out[:,user].reshape(
+                    llrs_mat_sphere[:, (user * num_bits):((user + 1) * num_bits), re, :] = -llr_out[:,user].reshape(
                         int(llr_out[:,user].shape[0] / num_bits), num_bits, 1)
 
                 # if (conf.n_users == conf.n_ants):
@@ -951,7 +951,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             if conf.run_sphere:
                 print(f'current sphere: {block_ind, ber_sphere.item()}')
                 if conf.mcs>-1:
-                    print(f'current sphere BLER: {block_ind, float(ber_sphere), mi}')
+                    print(f'current sphere BLER: {block_ind, float(bler_sphere), mi}')
 
             if PLOT_CE_ON_DATA:
                 print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')

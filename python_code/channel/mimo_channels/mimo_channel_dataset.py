@@ -34,7 +34,7 @@ class MIMOChannel:
         self.go_to_td = go_to_td
 
 
-    def _transmit(self, h: np.ndarray, snr: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         data_length = self._block_length - self._pilots_length
         if conf.mcs<=-1:
@@ -182,7 +182,7 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, snr=snr, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users)
 
         rx = np.transpose(rx, (1, 0, 2))
         if not(conf.separate_pilots):
@@ -197,8 +197,8 @@ class MIMOChannel:
 
         return tx, rx, rx_ce, s_orig
 
-    def _transmit_and_detect(self, snr: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
-        tx, rx, rx_ce, s_orig = self._transmit(h, snr,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
+        tx, rx, rx_ce, s_orig = self._transmit(h, noise_var,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
         return tx, h, rx, rx_ce, s_orig

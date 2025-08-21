@@ -221,6 +221,18 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     if mod_pilot == 4:
         total_mi_legacy = []
     Final_SNR = conf.snr + conf.num_snrs - 1
+
+    if mod_pilot == 2:
+        constellation_factor = 1
+    elif mod_pilot == 4:
+        constellation_factor = 2
+    elif mod_pilot == 16:
+        constellation_factor = 10
+    elif mod_pilot == 64:
+        constellation_factor = 42
+    elif mod_pilot == 256:
+        constellation_factor = 170
+
     for snr_cur in SNR_range:
         ber_sum = np.zeros(iterations)
         ber_per_re = np.zeros((iterations, conf.num_res))
@@ -252,6 +264,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))
+
+        noise_var = 10 ** (-0.1 * snr_cur) * constellation_factor
+
         channel_dataset = ChannelModelDataset(block_length=conf.block_length,
                                               pilots_length=pilot_size,
                                               blocks_num=conf.blocks_num,
@@ -267,7 +282,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                               n_users=n_users)
 
         transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(
-            snr_list=[snr_cur], num_bits=num_bits, n_users
+            noise_var_list=[noise_var], num_bits=num_bits, n_users
             =n_users, mod_pilot=mod_pilot, ldpc_k=ldpc_k, ldpc_n=ldpc_n)
 
         # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
@@ -373,7 +388,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 for i in range(rx_c.shape[0]):
                     equalized[i, :] = torch.matmul(H_pi, rx_c[i, :, re])
 
-                noise_var = 10 ** (-0.1 * snr_cur)
                 signal_var = np.sum(np.abs(H[:, user]) ** 2)
                 postEqSINR = signal_var / noise_var
 

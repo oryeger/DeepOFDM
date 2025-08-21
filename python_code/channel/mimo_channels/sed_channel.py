@@ -221,7 +221,7 @@ class SEDChannel:
 
 
     @staticmethod
-    def transmit(s: np.ndarray, h: np.ndarray, snr: float, num_res: int, go_to_td: bool, cfo: int, cfo_and_clip_in_rx: bool, n_users: int) -> np.ndarray:
+    def transmit(s: np.ndarray, h: np.ndarray, noise_var: float, num_res: int, go_to_td: bool, cfo: int, cfo_and_clip_in_rx: bool, n_users: int) -> np.ndarray:
         """
         The MIMO SED Channel
         :param s: to transmit symbol words
@@ -230,7 +230,6 @@ class SEDChannel:
         :return: received word
         """
 
-        var = 10 ** (-0.1 * snr)
         empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
         y = np.zeros((conf.n_ants, s.shape[1], num_res), dtype=complex)
         if not (conf.separate_pilots):
@@ -285,12 +284,12 @@ class SEDChannel:
 
 
         for re_index in range(num_res):
-            w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
+            w = np.sqrt(noise_var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
             if NOISE_TO_CE:
                 if not(conf.separate_pilots):
                     for user in range(n_users):
-                        # w = np.sqrt(var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
+                        # w = np.sqrt(noise_var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
                         y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
                 else:
                     y_ce[:, :, re_index] = y_ce[:, :, re_index] + w

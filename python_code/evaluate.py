@@ -382,8 +382,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         detected_word_legacy_for_aug[:, user,re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
 
                         noise_var = 10 ** (-0.1 * snr_cur)
-                        signal_var = torch.sum(torch.abs(h[:,user,re])** 2)
-                        postEqSINR = signal_var.cpu().numpy() / noise_var
+                        signal_var = np.sum(np.abs(H[:,user])** 2)
+                        postEqSINR = signal_var / noise_var
 
                         llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
                             int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR

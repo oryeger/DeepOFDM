@@ -1,4 +1,4 @@
-snr: 10
+snr: 0
 cur_str: testbler
 num_snrs: 1
 n_ants: 8
@@ -8,7 +8,7 @@ mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: 4 # [0..3] - QPSK, [4..9] - 16QAM
 block_length_factor: 3
 num_res: 24
-cfo:  0.15
+cfo:  0
 clip_percentage_in_tx: 100
 epochs: 2
 iterations: 1
@@ -39,7 +39,7 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'N' # 'None', 'A', 'B', 'C'
+TDL_model: 'C' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s

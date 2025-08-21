@@ -12,7 +12,7 @@ CSV_DIR = r"C:\Projects\Scratchpad"
 seeds = [123, 17, 41, 58]
 # seeds = [58]
 
-BER = 0 # Set to False if you want to plot SNR instead of BER
+BER = 1 # Set to False if you want to plot SNR instead of BER
 
 if BER:
     search_pattern = r"SNR=(-?\d+)"

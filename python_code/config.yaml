@@ -1,11 +1,11 @@
-snr: 10
+snr: 40
 cur_str: testbler
 num_snrs: 1
 n_ants: 4
 snr_step: 1
-n_users: 1
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-mcs: 4 # [0..3] - QPSK, [4..9] - 16QAM
+n_users: 2
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mcs: 10 # [0..3] - QPSK, [4..9] - 16QAM
 block_length_factor: 3
 num_res: 3
 cfo:  0
@@ -51,7 +51,7 @@ run_deepsicmb: True
 run_deepstag: True
 run_sphere: False
 augment: False
-augment_scale: 10
+sphere_augment: True
 separate_pilots: True
 
 run_e2e: False

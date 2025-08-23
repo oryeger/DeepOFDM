@@ -365,8 +365,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             rx_c = rx.cpu()
             llrs_mat_legacy_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
+            llrs_mat_sphere_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
             detected_word_legacy_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
-            H_all = np.zeros((conf.n_ants, n_users, conf.num_res), dtype=complex)
+            detected_word_sphere_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
             for re in range(conf.num_res):
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
@@ -382,8 +383,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
                                 torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
                 H = H.cpu().numpy()
-
-                H_all[:,:,re] = H
 
                 H_Ht = H @ H.T.conj()
                 H_Ht_inv = np.linalg.pinv(H_Ht)
@@ -414,10 +413,23 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 else:
                     print('Unknown modulator')
 
+                if conf.run_sphere:
+                    llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var)
+                else:
+                    llr_out = np.zeros((rx_c.shape[0]*num_bits,n_users))
+                    detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0]*num_bits,n_users))
+
+                for user in range(n_users):
+                    llrs_mat_sphere_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = -llr_out[:,user].reshape(
+                        int(llr_out[:,user].shape[0] / num_bits), num_bits, 1)
+
+
             llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
-            probs_for_aug = torch.sigmoid(torch.tensor(conf.augment_scale*llrs_mat_legacy_for_aug, dtype=torch.float32))
-
-
+            llrs_mat_sphere = llrs_mat_sphere_for_aug[pilot_chunk:, :, :, :]
+            if conf.sphere_augment and conf.run_sphere:
+                probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
+            else:
+                probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_legacy_for_aug, dtype=torch.float32))
 
             # online training main function
             if deepsic_trainer.is_online_training:
@@ -534,10 +546,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             # CE Based
             rx_data_c = rx[pilot_chunk:].cpu()
 
-            llrs_mat_sphere = np.zeros((rx_data_c.shape[0], num_bits * n_users, num_res, 1))
             for re in range(conf.num_res):
                 # Regular CE
                 detected_word_legacy = detected_word_legacy_for_aug[pilot_size:, :, re]
+                detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
 
                 # Sphere:
                 if conf.sphere_radius == 'inf':
@@ -546,21 +558,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 else:
                     radius = float(conf.sphere_radius)
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
-
-                if conf.run_sphere:
-                    llr_out, detected_word_sphere  = SphereDecoder(H_all[:,:,re], rx_data_c[:, :, re].numpy(), noise_var)
-                else:
-                    llr_out = np.zeros((rx_data_c.shape[0]*num_bits,n_users))
-                    detected_word_sphere = np.zeros((rx_data_c.shape[0]*num_bits,n_users))
-
-                for user in range(n_users):
-                    llrs_mat_sphere[:, (user * num_bits):((user + 1) * num_bits), re, :] = -llr_out[:,user].reshape(
-                        int(llr_out[:,user].shape[0] / num_bits), num_bits, 1)
-
-                # if (conf.n_users == conf.n_ants):
-                #     detected_word_sphere = SphereDecoder(H, rx_data_c[:, :, re].numpy(), radius)
-                # else:
-                #     detected_word_sphere = SphereDecoder(np.eye(conf.n_users), equalized.numpy(), radius)
 
                 if PLOT_CE_ON_DATA:
                     # CE on data
@@ -828,7 +825,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_data.shape[0], n_users)
                         llr_all_res_legacy[:,re::conf.num_res] = llr_cur_re_legacy.swapaxes(0, 1)
 
-                        # Legacy
+                        # Sphere
                         llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
                         llr_cur_re_sphere = llr_cur_re_sphere.squeeze(-1)
                         llr_cur_re_sphere = llr_cur_re_sphere.reshape(int(tx_data.shape[0] / num_bits), n_users,

@@ -233,10 +233,10 @@ interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate"
 plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
              label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
-# if np.unique(ber_sphere).shape[0] != 1:
-#     interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
-#     plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-#                  label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+if np.unique(ber_sphere).shape[0] != 1:
+    interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+    plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
+                 label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
 
 plt.xlabel("SNR (dB)")
 plt.ylabel(ylabel_cur)

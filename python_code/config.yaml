@@ -1,7 +1,7 @@
 snr: 10
 cur_str: testbler
 num_snrs: 1
-n_ants: 8
+n_ants: 4
 snr_step: 1
 n_users: 1
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
@@ -46,10 +46,10 @@ speed: 0 # in m/s
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: False
-run_deepsicmb: False
-run_deepstag: False
-run_sphere: True
+run_deepsicsb: True
+run_deepsicmb: True
+run_deepstag: True
+run_sphere: False
 augment: False
 augment_scale: 10
 separate_pilots: True

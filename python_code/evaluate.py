@@ -1020,6 +1020,20 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         for i in range(iters_e2e_disp):
             data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
+
+        if conf.run_deepsicsb and deepsicsb_trainer is not None:
+            for i in range(conf.iterations):
+                data[f"total_ber_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
+
+        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            for i in range(conf.iterations):
+                data[f"total_ber_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
+
+        if conf.run_deepstag and deepstag_trainer is not None:
+            for i in range(conf.iterations):
+                data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
+
+
         df = pd.DataFrame(data)
 
 

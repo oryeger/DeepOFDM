@@ -368,6 +368,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             llrs_mat_sphere_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
             detected_word_legacy_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
             detected_word_sphere_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
+            # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 # Regular CE
                 H = torch.zeros_like(h[:, :, re])
@@ -418,7 +419,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
                     end = time.time()
                     print(f"SphereDecoder took {end - start:.4f} seconds")
-
                 else:
                     llr_out = np.zeros((rx_c.shape[0]*num_bits,n_users))
                     detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0]*num_bits,n_users))

@@ -5,7 +5,7 @@ n_ants: 4
 snr_step: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-mcs: 10 # [0..3] - QPSK, [4..9] - 16QAM
+mcs: 28 # [0..3] - QPSK, [4..9] - 16QAM
 block_length_factor: 3
 num_res: 3
 cfo:  0
@@ -13,7 +13,7 @@ clip_percentage_in_tx: 100
 epochs: 2
 iterations: 1
 num_trainings: 1
-pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
 separate_nns: False # just for 16QAM
@@ -21,7 +21,7 @@ full_e2e: True
 interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
-sphere_radius: .inf # .inf
+sphere_radius: 200 # .inf
 save_loss_plot_snr: [-5, 0, 25]
 
 dot_product: True

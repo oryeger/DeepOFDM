@@ -2,6 +2,7 @@ import numpy as np
 from itertools import product
 import commpy.modulation as mod
 from python_code import conf
+# import time
 
 
 # ---------------- Helper functions ---------------- #
@@ -21,7 +22,9 @@ def sphere_search(level, partial_x, partial_dist, y_tilde, R, sym2bits, best, ca
     """
     Depth-first sphere search with pruning.
     """
-    if partial_dist > best["dist"] or partial_dist > radius_sq:
+    # if partial_dist > best["dist"] or partial_dist > radius_sq:
+    #     return
+    if partial_dist > radius_sq:
         return
 
     if level < 0:  # leaf node
@@ -32,6 +35,8 @@ def sphere_search(level, partial_x, partial_dist, y_tilde, R, sym2bits, best, ca
     rhs = y_tilde[level] - np.dot(R[level, level + 1:], partial_x[level + 1:])
     est = rhs / r_diag
     order = np.argsort(np.abs(constellation - est))
+    # if (level < conf.n_users - 1):
+    # order = order[:1]
 
     for idx in order:
         s = constellation[idx]
@@ -90,6 +95,8 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     hard_bits_all = np.zeros((n_symbols, n_users, bits_per_symbol), dtype=int)
 
     # Loop over received symbols
+#     for idx in range(1):
+#     for idx in np.array([0,1,2, 3]):
     for idx in range(n_symbols):
         y_tilde = Q.conj().T @ y[idx, :]
 
@@ -100,6 +107,7 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
         # Sphere search
         sphere_search(n_users - 1, np.zeros(n_users, dtype=complex), 0.0,
                       y_tilde, R, sym2bits, best, candidates, radius_sq, constellation)
+
 
         # Fallback if sphere too tight
         if len(candidates) == 0:
@@ -117,6 +125,8 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
             if not (has0 and has1):
                 need_full = True
                 break
+        # start = time.time()
+
         if need_full:
             best, candidates = brute_force_candidates(y_tilde, R, n_users, constellation, sym2bits)
 
@@ -128,6 +138,9 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
         # Store outputs
         LLRs_all[idx] = LLRs_flat.reshape(n_users, bits_per_symbol)
         hard_bits_all[idx] = best["bits"].reshape(n_users, bits_per_symbol)
+        # end = time.time()
+        # print(f"SphereDecoder took {end - start:.4f} seconds")
+
 
     # Final reshape
     LLRs_all = LLRs_all.transpose(0, 2, 1).reshape(n_symbols * bits_per_symbol, n_users)

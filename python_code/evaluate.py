@@ -414,7 +414,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     print('Unknown modulator')
 
                 if conf.run_sphere:
-                    llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var)
+                    llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
                 else:
                     llr_out = np.zeros((rx_c.shape[0]*num_bits,n_users))
                     detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0]*num_bits,n_users))

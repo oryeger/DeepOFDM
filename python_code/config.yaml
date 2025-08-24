@@ -1,4 +1,4 @@
-snr: 40
+snr: 20
 cur_str: testbler
 num_snrs: 1
 n_ants: 4
@@ -21,7 +21,7 @@ full_e2e: True
 interf_factor: 1
 ber_on_one_user: -1
 half_probs: False
-sphere_radius: 'inf'
+sphere_radius: .inf
 save_loss_plot_snr: [-5, 0, 25]
 
 dot_product: True
@@ -46,10 +46,10 @@ speed: 0 # in m/s
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: True
-run_deepsicmb: True
-run_deepstag: True
-run_sphere: False
+run_deepsicsb: False
+run_deepsicmb: False
+run_deepstag: False
+run_sphere: True
 augment: False
 sphere_augment: True
 separate_pilots: True

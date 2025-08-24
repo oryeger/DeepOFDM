@@ -958,13 +958,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'current legacy ce on data: {block_ind, ber_legacy_ce_on_data}')
             if conf.TDL_model[0] == 'N':
                 print(f'current legacy genie: {block_ind, ber_legacy_genie.item()}')
-        if conf.cfo != 0:
-            if conf.cfo_and_clip_in_rx:
-                cfo_str = 'cfo in Rx=' + str(conf.cfo) + ' scs'
-            else:
-                cfo_str = 'cfo in Tx=' + str(conf.cfo) + ' scs'
-        else:
-            cfo_str = 'cfo=0'
+        cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
 
         fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_legacy),
                            snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy,

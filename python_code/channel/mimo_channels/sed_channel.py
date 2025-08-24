@@ -9,6 +9,8 @@ import matplotlib.pyplot as plt
 import tensorflow as tf
 from typing import Tuple
 
+from python_code.analog.iqmm_model import apply_iq_mismatch
+
 
 
 H_COEF = 0.8
@@ -101,7 +103,7 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
+    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor, iqmm_gain, iqmm_phase) -> Tuple[np.ndarray, tf.Tensor]:
         if td_in_rx:
             if not(tdl_channel):
                 if y_in.ndim == 4:
@@ -168,6 +170,9 @@ class SEDChannel:
             st_full = magnitude_clipped * np.exp(1j * phase)
             new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
             st_full = st_full*rms_value/new_rms_value
+
+        if iqmm_gain!=0 or iqmm_phase!=0:
+            st_full = apply_iq_mismatch(st_full, iqmm_gain, iqmm_phase)
 
         if tdl_channel and td_in_rx:
             st_out, chan_out = TDLChannel.conv_and_noise(st_full,1,0, NUM_SLOTS, external_chan)
@@ -276,26 +281,26 @@ class SEDChannel:
 
 
             if cfo_and_clip_in_rx and ((cfo!=0) or (conf.clip_percentage_in_tx<100) or go_to_td ):
-                y , _ = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
-                y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False, empty_tf_tensor)
+                y , _ = SEDChannel.apply_td_and_impairments(y, True, cfo, 100, num_res, n_users, False, empty_tf_tensor, 0, 0)
+                y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, cfo, 100, num_res, n_users, False, empty_tf_tensor, 0, 0)
 
         else:
 
-            y, channel_used = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True, empty_tf_tensor)
+            y, channel_used = SEDChannel.apply_td_and_impairments(s, True, cfo, 100, num_res, n_users, True, empty_tf_tensor, 0, 0)
             all_values = list(range(n_users))
             if not(conf.separate_pilots):
                 for user in range(n_users):
                     idx = np.setdiff1d(all_values, user)
                     s_cur_user = s.copy()
                     s_cur_user[idx, :, :] = 0
-                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used)
+                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, cfo, 100, num_res, 1, True, channel_used, 0, 0)
                     y_ce[user, :, :, :] = conv_ce
             else:
                 s_separate_pilots = np.zeros_like(s, dtype=complex)
                 for user in range(n_users):
                     s_separate_pilots[user, user::n_users,:] = s[user, user::n_users, :]
 
-                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, cfo, 100, num_res, 1, True,                                                                 channel_used)
+                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, cfo, 100, num_res, 1, True, channel_used, 0, 0)
                 y_ce[:, :, :] = conv_ce
 
 
@@ -310,6 +315,8 @@ class SEDChannel:
                 else:
                     y_ce[:, :, re_index] = y_ce[:, :, re_index] + w
 
+        y , _ = SEDChannel.apply_td_and_impairments(y, True, 0, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase)
+        y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase)
 
 
         if conf.plot_channel:

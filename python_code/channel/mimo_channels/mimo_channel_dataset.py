@@ -122,9 +122,13 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        if (not(self.cfo_and_clip_in_rx) and (self.cfo!=0)) or (self.clip_percentage_in_tx<100):
+        cfo_tx = self.cfo
+        if self.cfo_and_clip_in_rx:
+            cfo_tx = 0
+
+        if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-            s, _ = SEDChannel.apply_td_and_impairments(s, False, self.cfo, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor)
+            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, 0, 0)
 
         # if show_impair:
         #     plt.subplot(2,1,1)

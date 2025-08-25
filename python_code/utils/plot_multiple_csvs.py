@@ -9,12 +9,13 @@ from collections import defaultdict
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
-seeds = [41]
-# seeds = [58]
+seeds = [123, 17, 41, 58]
+# seeds = [41, 58]
 
 # BER = 0 # Set to False if you want to plot SNR instead of BER
 
-for BER in [1, 0]:
+# for BER in [1, 0]:
+for BER in [0]:
     if BER:
         search_pattern = r"SNR=(-?\d+)"
         ber_target = 0.01
@@ -237,7 +238,7 @@ for BER in [1, 0]:
     if np.unique(ber_sphere).shape[0] != 1:
         interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
         plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-                     label='Sphere, SNR @1%=' + str(np.round(interp_func(ber_target), 1)))
+                     label='Sphere, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     plt.xlabel("SNR (dB)")
     plt.ylabel(ylabel_cur)

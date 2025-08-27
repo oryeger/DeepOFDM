@@ -235,7 +235,7 @@ for BER in [0]:
     plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
                  label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
-    if np.unique(ber_sphere).shape[0] != 1:
+    if not((np.unique(ber_sphere).shape[0] == 1) and (np.unique(ber_sphere) == 0)):
         interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
         plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
                      label='Sphere, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))

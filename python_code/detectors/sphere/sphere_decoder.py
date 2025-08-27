@@ -118,22 +118,19 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
         LLRs_flat = np.zeros(n_bits_total)
 
         # Check coverage; fallback to brute-force if missing hypotheses
-        need_full = False
         for k in range(n_bits_total):
-            has0 = any(bits[k] == 0 for bits, _ in candidates)
-            has1 = any(bits[k] == 1 for bits, _ in candidates)
-            if not (has0 and has1):
-                need_full = True
-                break
-        # start = time.time()
+            # collect d0 and d1 across candidates
+            d0_candidates = [dist for bits, dist in candidates if bits[k] == 0]
+            d1_candidates = [dist for bits, dist in candidates if bits[k] == 1]
 
-        if need_full:
-            best, candidates = brute_force_candidates(y_tilde, R, n_users, constellation, sym2bits)
-
-        for k in range(n_bits_total):
-            d0 = min(dist for bits, dist in candidates if bits[k] == 0)
-            d1 = min(dist for bits, dist in candidates if bits[k] == 1)
-            LLRs_flat[k] = (d1 - d0) / noise_var
+            if d0_candidates and d1_candidates:
+                # both hypotheses exist → normal LLR
+                d0 = min(d0_candidates)
+                d1 = min(d1_candidates)
+                LLRs_flat[k] = (d1 - d0) / noise_var
+            else:
+                # missing one side → set to zero
+                LLRs_flat[k] = 0.0
 
         # Store outputs
         LLRs_all[idx] = LLRs_flat.reshape(n_users, bits_per_symbol)

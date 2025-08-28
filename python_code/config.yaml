@@ -51,7 +51,7 @@ run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False
-run_sphere: True
+run_sphere: False
 augment: False
 sphere_augment: False
 

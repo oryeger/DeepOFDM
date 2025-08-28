@@ -14,8 +14,7 @@ seeds = [123, 17, 41, 58]
 
 # BER = 0 # Set to False if you want to plot SNR instead of BER
 
-# for BER in [1, 0]:
-for BER in [0]:
+for BER in [1, 0]:
     if BER:
         search_pattern = r"SNR=(-?\d+)"
         ber_target = 0.01

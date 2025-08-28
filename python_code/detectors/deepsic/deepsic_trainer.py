@@ -86,10 +86,11 @@ class DeepSICTrainer(Trainer):
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
-        if conf.augment:
-            initial_probs = probs_in
-        else:
+        if conf.which_augment == 'NO_AUGMENT':
             initial_probs = self._initialize_probs(tx, num_bits, n_users)
+        else:
+            initial_probs = probs_in
+
         if conf.separate_nns:
             num_nns = int(num_bits / 2)
         else:
@@ -100,10 +101,10 @@ class DeepSICTrainer(Trainer):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits, bit_type)
             train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, bit_type, first_half_flag)
         # Initializing the probabilities
-        if conf.augment:
-            probs_vec = probs_in.to(DEVICE)
-        else:
+        if conf.which_augment == 'NO_AUGMENT':
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
+        else:
+            probs_vec = probs_in.to(DEVICE)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iterations):
             # Training the DeepSIC networks for the iteration>1
@@ -133,10 +134,10 @@ class DeepSICTrainer(Trainer):
         # detect and decode
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations
-        if conf.augment:
-            probs_vec = probs_in.to(DEVICE)
-        else:
+        if conf.which_augment == 'NO_AUGMENT':
             probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
+        else:
+            probs_vec = probs_in.to(DEVICE)
 
         if conf.separate_nns:
             nns = torch.arange(int(num_bits / 2))

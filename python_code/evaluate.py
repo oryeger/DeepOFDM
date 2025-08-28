@@ -384,7 +384,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
                                 torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
 
-                H = torch.tensor(H, dtype=torch.complex128)
                 I_users = torch.eye(n_users, dtype=H.dtype, device=H.device)
                 W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()
                 bias = (W@H).diag().real
@@ -417,6 +416,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
                 if conf.run_sphere:
                     # start = time.time()
+                    H = H.cpu().numpy()
                     llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
                     # end = time.time()
                     # print(f"SphereDecoder took {end - start:.4f} seconds")
@@ -431,10 +431,24 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
             llrs_mat_sphere = llrs_mat_sphere_for_aug[pilot_chunk:, :, :, :]
-            if conf.sphere_augment and conf.run_sphere:
+            if conf.which_augment == 'AUGMENT_SPHERE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
-            else:
+            elif conf.which_augment == 'AUGMENT_LMMSE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_legacy_for_aug, dtype=torch.float32))
+            else:
+                probs_for_aug = torch.tensor([], dtype=torch.float32)
+
+            if conf.run_deeprx:
+                if deeprx_trainer.is_online_training:
+                    for _ in range(conf.num_trainings):
+                        train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot,
+                                                                                                       num_bits, n_users,
+                                                                                                       iterations, epochs, False, torch.empty(0))
+                    detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
+                                                                                    iterations, torch.empty(0))
+                    if conf.which_augment == 'AUGMENT_DEEPRX':
+                        _ , llrs_mat_deeprx_pilot = deeprx_trainer._forward(rx_pilot, num_bits, n_users,iterations, torch.empty(0))
+                        probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deeprx_pilot), torch.sigmoid(llrs_mat_deeprx)), dim=0).cpu()
 
             # online training main function
             if deepsic_trainer.is_online_training:
@@ -457,7 +471,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,
-                                                                                      epochs, False, probs_for_aug)
+                                                                                      epochs, False, probs_for_aug[:pilot_chunk])
                 elif conf.use_data_as_pilots:
                     H_all = torch.zeros(s_orig.shape[0], conf.n_ants * conf.n_users, conf.num_res, dtype=torch.complex64)
                     for re in range(conf.num_res):
@@ -519,14 +533,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users,
                                                                                             iters_e2e, torch.empty(0))
 
-            if conf.run_deeprx:
-                if deeprx_trainer.is_online_training:
-                    for _ in range(conf.num_trainings):
-                        train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot,
-                                                                                                       num_bits, n_users,
-                                                                                                       iterations, epochs, False, torch.empty(0))
-                    detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
-                                                                                    iterations, torch.empty(0))
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 if deepsicsb_trainer.is_online_training:
                     for _ in range(conf.num_trainings):

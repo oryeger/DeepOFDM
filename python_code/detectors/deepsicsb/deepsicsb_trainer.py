@@ -171,6 +171,7 @@ class DeepSICSBTrainer(Trainer):
         Propagates the probabilities through the learnt networks.
         """
         next_probs_vec = probs_vec.clone()
+        llrs_out = torch.zeros_like(next_probs_vec)
         for re in range(conf.num_res):
             for user in range(n_users):
                 if conf.mod_pilot <= 2:
@@ -200,7 +201,8 @@ class DeepSICSBTrainer(Trainer):
                 with torch.no_grad():
                     output, llrs = model[re][user][i - 1](preprocessed_input)
                 next_probs_vec[:, user_indexes,re] = output[:, local_user_indexes]
-        return next_probs_vec, llrs
+                llrs_out[:, user_indexes,re] = llrs
+        return next_probs_vec, llrs_out
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):
         return HALF * torch.ones(rx.shape[0], n_users*num_bits, conf.num_res).to(DEVICE).float()

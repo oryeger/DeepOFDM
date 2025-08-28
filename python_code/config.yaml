@@ -47,12 +47,12 @@ carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 channel_seed: 58
 
-run_deeprx: True
-run_deepsicsb: False
+run_deeprx: False
+run_deepsicsb: True
 run_deepsicmb: False
 run_deepstag: False
 run_sphere: False
-which_augment: 'AUGMENT_DEEPRX' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_DEEPSICSB' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSICSB', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 
 run_e2e: False
 iters_e2e: 2

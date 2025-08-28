@@ -438,6 +438,18 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 
+            if conf.run_deepsicsb and deepsicsb_trainer is not None:
+                if deepsicsb_trainer.is_online_training:
+                    for _ in range(conf.num_trainings):
+                        train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
+                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
+                    detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
+                                                                                         iterations, torch.empty(0))
+                    if conf.which_augment == 'AUGMENT_DEEPSICSB':
+                        _ , llrs_mat_deepsicsb_pilot_list = deepsicsb_trainer._forward(rx_pilot, num_bits, n_users, iterations, torch.empty(0))
+                        probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deepsicsb_pilot_list[0]), torch.sigmoid(llrs_mat_deepsicsb_list[0])), dim=0).cpu()
+                        probs_for_aug = probs_for_aug.unsqueeze(-1)
+
             if conf.run_deeprx:
                 if deeprx_trainer.is_online_training:
                     for _ in range(conf.num_trainings):
@@ -533,13 +545,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users,
                                                                                             iters_e2e, torch.empty(0))
 
-            if conf.run_deepsicsb and deepsicsb_trainer is not None:
-                if deepsicsb_trainer.is_online_training:
-                    for _ in range(conf.num_trainings):
-                        train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
-                            tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
-                    detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
-                                                                                         iterations, torch.empty(0))
             if conf.run_deepsicmb and deepsicmb_trainer is not None:
                 if deepsicmb_trainer.is_online_training:
                     for _ in range(conf.num_trainings):

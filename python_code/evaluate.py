@@ -199,6 +199,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     total_bler_legacy = []
     total_ber_sphere = []
     total_bler_sphere = []
+    total_bler_deeprx = []
 
     if conf.mcs > -1:
         qm, code_rate = get_mcs(conf.mcs)
@@ -824,6 +825,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     llr_all_res = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_legacy = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_sphere = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
+                    llr_all_res_deeprx = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
                         # DeepSIC
                         llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
@@ -849,11 +851,19 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         tx_data.shape[0], n_users)
                         llr_all_res_sphere[:,re::conf.num_res] = llr_cur_re_sphere.swapaxes(0, 1)
 
+                        # DeepRx
+                        llr_cur_re_deeprx = llrs_mat_deeprx[:, :, re, :]
+                        llr_cur_re_deeprx = llr_cur_re_deeprx.squeeze(-1)
+                        llr_cur_re_deeprx = llr_cur_re_deeprx.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                        num_bits).swapaxes(1, 2).reshape(
+                        tx_data.shape[0], n_users)
+                        llr_all_res_deeprx[:,re::conf.num_res] = llr_cur_re_deeprx.swapaxes(0, 1).cpu()
 
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
                     crc_count = 0
                     crc_count_legacy = 0
                     crc_count_sphere = 0
+                    crc_count_deeprx = 0
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
@@ -864,6 +874,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_sphere = crc.decode(decodedwords_sphere)
                         crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
+                        decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                        crc_out_deeprx = crc.decode(decodedwords_deeprx)
+                        crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
                     if iteration == 0:
@@ -871,6 +884,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         total_bler_legacy.append(bler_legacy)
                         bler_sphere = crc_count_sphere / (num_slots * n_users)
                         total_bler_sphere.append(bler_sphere)
+                        bler_deeprx = crc_count_deeprx / (num_slots * n_users)
+                        total_bler_deeprx.append(bler_deeprx)
             else:
                 for iteration in range(iterations):
                     bler_list[iteration] = 0
@@ -878,6 +893,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 bler_legacy = 0
                 total_bler_legacy.append(0)
                 total_bler_sphere.append(0)
+                total_bler_deeprx.append(0)
 
             if PLOT_MI:
                 for iteration in range(iterations):
@@ -907,10 +923,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_e2e_list[iteration] = ber_sum_e2e[iteration] / num_res
                 total_ber_e2e_list[iteration].append(ber_e2e_list[iteration])
 
-            # ber_deeprx = ber_sum_deeprx / (num_res - 2*conf.kernel_size)
-            ber_deeprx = ber_sum_deeprx / num_res
             ber_legacy = ber_sum_legacy / num_res
             ber_sphere = ber_sum_sphere / num_res
+            ber_deeprx = ber_sum_deeprx / num_res
             if PLOT_CE_ON_DATA:
                 ber_legacy_ce_on_data = ber_sum_legacy_ce_on_data / num_res
             ber_legacy_genie = ber_sum_legacy_genie / num_res
@@ -947,6 +962,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if conf.run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
+                if conf.mcs>-1:
+                    print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi}')
+
             if conf.run_deepsicsb and deepsicsb_trainer is not None:
                 print(f'current DeepSICSB: {block_ind, float(ber_deepsicsb_list[iterations - 1])}')
             if conf.run_deepsicmb and deepsicmb_trainer is not None:
@@ -1048,6 +1066,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             "SNR_range": SNR_range[:len(total_ber_legacy)],
             "total_ber_legacy": total_bler_legacy,
             "total_ber_sphere": total_bler_sphere,
+            "total_ber_deeprx": total_bler_sphere,
         }
 
         for i in range(conf.iterations):

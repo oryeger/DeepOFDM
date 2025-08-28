@@ -396,12 +396,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
                 postEqSINR = bias/(1-bias)
 
-                # signal_var = np.sum(np.abs(H[:, user]) ** 2)
-                # postEqSINR[0] = signal_var / noise_var
-                # postEqSINR[1] = signal_var / noise_var
-                # postEqSINR[2] = signal_var / noise_var
-                # postEqSINR[3] = signal_var / noise_var
-
                 if mod_pilot == 2:
                     for i in range(equalized.shape[1]):
                         detected_word_legacy_for_aug[:, i,re] = torch.from_numpy(

@@ -47,7 +47,7 @@ carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 channel_seed: 58
 
-run_deeprx: True
+run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False

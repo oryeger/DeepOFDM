@@ -852,12 +852,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         llr_all_res_sphere[:,re::conf.num_res] = llr_cur_re_sphere.swapaxes(0, 1)
 
                         # DeepRx
-                        llr_cur_re_deeprx = llrs_mat_deeprx[:, :, re, :]
-                        llr_cur_re_deeprx = llr_cur_re_deeprx.squeeze(-1)
-                        llr_cur_re_deeprx = llr_cur_re_deeprx.reshape(int(tx_data.shape[0] / num_bits), n_users,
-                                                                        num_bits).swapaxes(1, 2).reshape(
-                        tx_data.shape[0], n_users)
-                        llr_all_res_deeprx[:,re::conf.num_res] = llr_cur_re_deeprx.swapaxes(0, 1).cpu()
+                        if conf.run_deeprx:
+                            llr_cur_re_deeprx = llrs_mat_deeprx[:, :, re, :]
+                            llr_cur_re_deeprx = llr_cur_re_deeprx.squeeze(-1)
+                            llr_cur_re_deeprx = llr_cur_re_deeprx.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                                            num_bits).swapaxes(1, 2).reshape(
+                            tx_data.shape[0], n_users)
+                            llr_all_res_deeprx[:,re::conf.num_res] = llr_cur_re_deeprx.swapaxes(0, 1).cpu()
 
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
                     crc_count = 0
@@ -871,21 +872,33 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         decodedwords_legacy = codec.decode(llr_all_res_legacy[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_legacy = crc.decode(decodedwords_legacy)
                         crc_count_legacy += (~crc_out_legacy).numpy().astype(int).sum()
-                        decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
-                        crc_out_sphere = crc.decode(decodedwords_sphere)
-                        crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
-                        decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
-                        crc_out_deeprx = crc.decode(decodedwords_deeprx)
-                        crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
+                        if conf.run_sphere:
+                            decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                            crc_out_sphere = crc.decode(decodedwords_sphere)
+                            crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
+                        if conf.run_deeprx:
+                            decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                            crc_out_deeprx = crc.decode(decodedwords_deeprx)
+                            crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
                     if iteration == 0:
                         bler_legacy = crc_count_legacy / (num_slots * n_users)
                         total_bler_legacy.append(bler_legacy)
-                        bler_sphere = crc_count_sphere / (num_slots * n_users)
-                        total_bler_sphere.append(bler_sphere)
-                        bler_deeprx = crc_count_deeprx / (num_slots * n_users)
-                        total_bler_deeprx.append(bler_deeprx)
+                        if conf.run_deeprx:
+                            bler_sphere = crc_count_sphere / (num_slots * n_users)
+                            total_bler_sphere.append(bler_sphere)
+                        else:
+                            bler_sphere = 0
+                            total_bler_sphere.append(bler_sphere)
+
+                        if conf.run_deeprx:
+                            bler_deeprx = crc_count_deeprx / (num_slots * n_users)
+                            total_bler_deeprx.append(bler_deeprx)
+                        else:
+                            bler_deeprx = 0
+                            total_bler_deeprx.append(bler_deeprx)
+
             else:
                 for iteration in range(iterations):
                     bler_list[iteration] = 0

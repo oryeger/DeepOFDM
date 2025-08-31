@@ -1,11 +1,11 @@
-snr: 40
+snr: -10
 cur_str: mcs28noaug
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-mcs: 4 # [0..4] - QPSK, [5..10] - 16QAM
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mcs: 28 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 3
 num_res: 3
 cfo:  0
@@ -47,7 +47,7 @@ carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 channel_seed: 58
 
-run_deeprx: False
+run_deeprx: True
 run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False

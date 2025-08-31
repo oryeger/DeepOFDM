@@ -1079,7 +1079,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             "SNR_range": SNR_range[:len(total_ber_legacy)],
             "total_ber_legacy": total_bler_legacy,
             "total_ber_sphere": total_bler_sphere,
-            "total_ber_deeprx": total_bler_sphere,
+            "total_ber_deeprx": total_bler_deeprx,
         }
 
         for i in range(conf.iterations):

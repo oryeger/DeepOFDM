@@ -104,6 +104,13 @@ class SEDChannel:
 
     @staticmethod
     def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor, iqmm_gain, iqmm_phase) -> Tuple[np.ndarray, tf.Tensor]:
+        # # OryEger - one tone
+        # if iqmm_gain != 0:
+        #     y_in_temp = y_in.copy()
+        #     y_in = np.zeros_like(y_in_temp)
+        #     index = 3
+        #     y_in[0,0,index] = y_in_temp[0,0,index]
+
         if td_in_rx:
             if not(tdl_channel):
                 if y_in.ndim == 4:
@@ -204,35 +211,43 @@ class SEDChannel:
 
         show_impair_tx = False
         if show_impair_tx:
-            fig, axs = plt.subplots(3, 1, figsize=(8, 10))
+            fig, axs = plt.subplots(4, 1, figsize=(8, 10))
 
             # --- Real part ---
-            axs[0].stem(np.real(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before Clipping')
-            axs[0].stem(np.real(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After Clipping')
+            axs[0].stem(np.real(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before')
+            axs[0].stem(np.real(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After')
             axs[0].set_ylabel('I')
             axs[0].grid(True)
             axs[0].legend()
 
             # --- Imag part ---
-            axs[1].stem(np.imag(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before Clipping')
-            axs[1].stem(np.imag(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After Clipping')
+            axs[1].stem(np.imag(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before')
+            axs[1].stem(np.imag(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After')
             axs[1].set_ylabel('Q')
             axs[1].grid(True)
             axs[1].legend()
 
-            # --- Constellation diagram ---
-            axs[2].scatter(np.real(y_out.flatten()), np.imag(y_out.flatten()), color='r', alpha=0.5,
-                           label='After Clipping')
-            axs[2].scatter(np.real(y_in.flatten()), np.imag(y_in.flatten()), color='b', alpha=0.5,
-                           label='Before Clipping')
-            axs[2].set_xlabel('I')
-            axs[2].set_ylabel('Q')
+            # --- Abs ---
+            axs[2].stem(np.abs(y_in[0, 0, :]), linefmt='b-', markerfmt='bo', basefmt=" ", label='Before')
+            axs[2].stem(np.abs(y_out[0, 0, :]), linefmt='r--', markerfmt='ro', basefmt=" ", label='After')
+            axs[2].set_ylabel('Abs')
             axs[2].grid(True)
-            axs[2].axis('equal')
             axs[2].legend()
 
+            # --- Constellation diagram ---
+            axs[3].scatter(np.real(y_out.flatten()), np.imag(y_out.flatten()), color='r', alpha=0.5,
+                           label='After')
+            axs[3].scatter(np.real(y_in.flatten()), np.imag(y_in.flatten()), color='b', alpha=0.5,
+                           label='Before')
+            axs[3].set_xlabel('I')
+            axs[3].set_ylabel('Q')
+            axs[3].grid(True)
+            axs[3].axis('equal')
+            axs[3].legend()
+
             # --- Global title ---
-            fig.suptitle('Impairment effect with clipping = ' + str(clip_percentage_in_tx) + '%', fontsize=14)
+            # fig.suptitle('Impairment effect with clipping = ' + str(clip_percentage_in_tx) + '%', fontsize=14)
+            fig.suptitle('Impairment effect with IQMM gain = ' + str(conf.iqmm_gain) + 'dB, phase=' + str(conf.iqmm_phase) + '°', fontsize=14)
 
             plt.tight_layout(rect=[0, 0, 1, 0.96])
             plt.show()

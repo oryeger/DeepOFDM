@@ -6,6 +6,7 @@ import re
 from scipy.interpolate import interp1d
 import numpy as np
 from collections import defaultdict
+from scipy.io import savemat
 
 # 🔧 Adjust path as needed
 CSV_DIR = r"C:\Projects\Scratchpad"
@@ -161,8 +162,9 @@ for BER in [1, 0]:
     dashes = [':', '-.', '--', '-', '-']
 
     interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
+    snr_target = np.round(interp_func(ber_target), 1)
     plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
-                 label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target))
 
     interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
@@ -174,13 +176,16 @@ for BER in [1, 0]:
 
     if np.unique(ber_deeprx).shape[0] != 1:
         interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_deeprx = np.round(interp_func(ber_target), 1)
         plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
-                     label='DeepRx, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                     label='DeepRx, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deeprx))
 
     if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
         interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_deepsicsb = np.round(interp_func(ber_target), 1)
         plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
-                     label='DeepSICSB1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                     label='DeepSICSB1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deepsicsb))
+        ber_deepsicsb = ber_deepsicsb_1
 
         interp_func = interp1d(ber_deepsicsb_2, snrs, kind='linear', fill_value="extrapolate")
         plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], color='orange',
@@ -232,16 +237,18 @@ for BER in [1, 0]:
 
 
     interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
+    snr_target_legacy = np.round(interp_func(ber_target), 1)
     plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
-                 label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_legacy))
 
     if not (np.unique(ber_sphere).shape[0] == 1) and (BER == 1):
         plot_sphere = True
 
     if plot_sphere:
         interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_sphere = np.round(interp_func(ber_target), 1)
         plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-                     label='Sphere, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                     label='Sphere, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_sphere))
 
     plt.xlabel("SNR (dB)")
     plt.ylabel(ylabel_cur)
@@ -267,3 +274,20 @@ for BER in [1, 0]:
     plt.title("Averaged across seeds: " + ", ".join(map(str, seeds)) + "\n" + cleaned_name)
     plt.tight_layout()
     plt.show()
+
+
+relevant = 'deepsicsb'
+snr_target_no_aug = globals()['snr_target_' + relevant]
+ber_no_aug =  globals()['ber_' + relevant]
+
+data = {
+    'snrs': snrs,
+    'snr_target_no_aug': snr_target_no_aug,
+    'snr_target_aug': snr_target,
+    'bler_no_aug': ber_no_aug,
+    'bler_aug': ber_1
+}
+project_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..'))  # Goes from utils -> python_code -> DeepOFDM
+output_dir = os.path.join(project_dir, 'Scratchpad', 'mat_files')
+file_path = os.path.abspath(os.path.join(output_dir, relevant) + ".mat")
+savemat(file_path,data)

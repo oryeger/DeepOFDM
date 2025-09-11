@@ -1118,7 +1118,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         if conf.run_deepsicsb and deepsicsb_trainer is not None:
             for i in range(conf.iterations):
-                data[f"total_ber_deepsicsb_{i + 1}"] = total_bler_deepsicsb_list[i]
+                data_bler[f"total_ber_deepsicsb_{i + 1}"] = total_bler_deepsicsb_list[i]
 
 
         df_bler = pd.DataFrame(data_bler)

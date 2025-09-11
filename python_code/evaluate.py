@@ -374,7 +374,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 # Regular CE
-                LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug)
+                if conf.pilot_channel_seed < 0:
+                    LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug)
+                else:
+                    LmmseDemod(rx_ce[:,:pilot_chunk,:,:], rx_c[:pilot_chunk,:,:], s_orig[:pilot_chunk,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[:pilot_chunk,:,:,:], detected_word_legacy_for_aug[:pilot_size,:,:])
+                    LmmseDemod(rx_ce[:,pilot_chunk:,:,:], rx_c[pilot_chunk:,:,:], s_orig[pilot_chunk:,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[pilot_chunk:,:,:,:], detected_word_legacy_for_aug[pilot_size:,:,:])
+
                 if conf.run_sphere:
                     # start = time.time()
                     H = H.cpu().numpy()

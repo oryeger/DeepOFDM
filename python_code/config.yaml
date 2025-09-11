@@ -3,8 +3,8 @@ cur_str: mcs28noaug
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 1
-mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+n_users: 4
+mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: -1 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 3
 num_res: 24
@@ -45,8 +45,8 @@ TDL_model: 'C' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
+pilot_channel_seed: 21
 channel_seed: 58
-pilot_channel_seed: -1
 
 run_deeprx: False
 run_deepsicsb: False

@@ -128,7 +128,7 @@ class MIMOChannel:
 
         if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, 0, 0)
+            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
 
         # if show_impair:
         #     plt.subplot(2,1,1)
@@ -186,7 +186,7 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users, pilots_length=self._pilots_length)
 
         rx = np.transpose(rx, (1, 0, 2))
         if not(conf.separate_pilots):

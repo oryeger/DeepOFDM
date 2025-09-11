@@ -32,6 +32,7 @@ from scipy.stats import entropy
 from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
+from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
 
 from datetime import datetime
 from scipy.io import savemat
@@ -373,49 +374,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 # Regular CE
-                H = torch.zeros_like(h[:, :, re])
-                for user in range(n_users):
-                    if not(conf.separate_pilots):
-                        rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
-                        s_orig_pilot = s_orig[:pilot_chunk, user, re]
-                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
-                    else:
-                        rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:n_users, :, re]
-                        s_orig_pilot = s_orig[user:pilot_chunk:n_users, user, re]
-                        H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                                torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
-
-                I_users = torch.eye(n_users, dtype=H.dtype, device=H.device)
-                W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()
-                bias = (W@H).diag().real
-                W = W.cpu()
-                bias = bias.cpu()
-                equalized = torch.zeros(rx_c.shape[0], n_users, dtype=torch.cfloat)
-                for i in range(rx_c.shape[0]):
-                    equalized[i, :] = torch.matmul(W, rx_c[i, :, re])/bias
-
-                postEqSINR = bias/(1-bias)
-
-                if mod_pilot == 2:
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy_for_aug[:, i,re] = torch.from_numpy(
-                            BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
-                elif mod_pilot == 4:
-                    # qam = mod.QAMModem(mod_pilot)
-                    for user in range(n_users):
-                        detected_word_legacy_for_aug[:, user,re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
-                        llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
-
-                elif mod_pilot == 16:
-                    for user in range(n_users):
-                        detected_word_legacy_for_aug[:, user,re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
-                        llrs_mat_legacy_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                            int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
-                else:
-                    print('Unknown modulator')
-
+                LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug)
                 if conf.run_sphere:
                     # start = time.time()
                     H = H.cpu().numpy()

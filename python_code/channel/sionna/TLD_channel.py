@@ -53,10 +53,9 @@ from typing import Tuple
 
 class TDLChannel:
     @staticmethod
-    def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor) -> Tuple[np.ndarray, tf.Tensor]:
+    def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
-        sionna.config.seed = conf.channel_seed
-        # 42 731
+        sionna.config.seed = seed
 
         tdl = TDL(model=conf.TDL_model,
                           delay_spread=float(conf.delay_spread),

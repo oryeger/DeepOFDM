@@ -1,9 +1,11 @@
 from python_code import conf
 import torch
 from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator
+import time
 
-def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug):
-    H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
+def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H):
+    if re>0:
+        start = time.time()
     for user in range(conf.n_users):
         if not (conf.separate_pilots):
             rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
@@ -16,6 +18,14 @@ def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_m
             H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
                     torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
 
+    if re>0:
+        end = time.time()
+        time_ce = end - start
+        print(f"CE for index {re} took {time_ce:.4f} seconds")
+    else:
+        time_ce = 0
+    if re>0:
+        start = time.time()
     I_users = torch.eye(conf.n_users, dtype=H.dtype, device=H.device)
     W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()
     bias = (W @ H).diag().real
@@ -44,4 +54,12 @@ def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_m
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
     else:
         print('Unknown modulator')
+    end = time.time()
+    if re>0:
+        time_lmmse = end - start
+        print(f"LMMSE for index {re} took {time_lmmse:.4f} seconds")
+    else:
+        time_lmmse = 0
+
+    return time_ce, time_lmmse
 

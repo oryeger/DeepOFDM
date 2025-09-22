@@ -15,7 +15,7 @@ iqmm_phase: 5 # in degrees
 epochs: 2
 iterations: 1
 num_trainings: 1
-pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
 separate_nns: False # just for 16QAM
@@ -41,18 +41,18 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-pilot_channel_seed: 21
+pilot_channel_seed: -1
 channel_seed: 58
 
 run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False
-run_sphere: False
+run_sphere: True
 which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSICSB', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 
 run_e2e: False

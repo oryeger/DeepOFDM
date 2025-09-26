@@ -1,4 +1,4 @@
-snr: 40
+snr: 10
 cur_str: mcs28noaug
 num_snrs: 1
 n_ants: 8
@@ -49,11 +49,12 @@ pilot_channel_seed: -1
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: False
+run_deepsicsb: True
 run_deepsicmb: False
 run_deepstag: False
 run_sphere: False
-which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSICSB', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_DEEPSICSB' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSICSB', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+override_augment_with_lmmse: False
 
 run_e2e: False
 iters_e2e: 2

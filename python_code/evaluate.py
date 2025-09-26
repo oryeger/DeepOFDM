@@ -405,6 +405,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
             elif conf.which_augment == 'AUGMENT_LMMSE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_legacy_for_aug, dtype=torch.float32))
+
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 
@@ -431,6 +432,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     if conf.which_augment == 'AUGMENT_DEEPRX':
                         _ , llrs_mat_deeprx_pilot = deeprx_trainer._forward(rx_pilot, num_bits, n_users,iterations, torch.empty(0))
                         probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deeprx_pilot), torch.sigmoid(llrs_mat_deeprx)), dim=0).cpu()
+
+            if conf.override_augment_with_lmmse:
+                probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_legacy_for_aug, dtype=torch.float32))
 
             # online training main function
             if deepsic_trainer.is_online_training:
@@ -493,6 +497,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         train_loss_vect = train_loss_vect_1 + train_loss_vect_2
                         val_loss_vect = val_loss_vect_1 + val_loss_vect_2
 
+                if conf.override_augment_with_lmmse:
+                    probs_for_aug.copy_(probs_for_aug_lmmse)
 
                 if conf.train_on_ce_no_pilots:
                     H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)

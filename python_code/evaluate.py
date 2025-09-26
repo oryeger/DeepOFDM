@@ -379,22 +379,14 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
                 # Regular CE
                 if conf.pilot_channel_seed < 0:
-                    time_ce_cur, time_lmmse_cur = LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H)
-                    time_ce += time_ce_cur
-                    time_lmmse += time_lmmse_cur
+                    _, _ = LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H)
                 else:
-                    time_ce_cur, time_lmmse_cur = LmmseDemod(rx_ce[:,:pilot_chunk,:,:], rx_c[:pilot_chunk,:,:], s_orig[:pilot_chunk,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[:pilot_chunk,:,:,:], detected_word_legacy_for_aug[:pilot_size,:,:])
-                    time_ce_cur, time_lmmse_cur = LmmseDemod(rx_ce[:,pilot_chunk:,:,:], rx_c[pilot_chunk:,:,:], s_orig[pilot_chunk:,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[pilot_chunk:,:,:,:], detected_word_legacy_for_aug[pilot_size:,:,:])
+                    _, _ = LmmseDemod(rx_ce[:,:pilot_chunk,:,:], rx_c[:pilot_chunk,:,:], s_orig[:pilot_chunk,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[:pilot_chunk,:,:,:], detected_word_legacy_for_aug[:pilot_size,:,:])
+                    _, _ = LmmseDemod(rx_ce[:,pilot_chunk:,:,:], rx_c[pilot_chunk:,:,:], s_orig[pilot_chunk:,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[pilot_chunk:,:,:,:], detected_word_legacy_for_aug[pilot_size:,:,:])
 
                 if conf.run_sphere:
-                    if re>0:
-                        start = time.time()
                     H = H.cpu().numpy()
                     llr_out, detected_word_sphere_for_aug[:, :,re]  = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
-                    if re > 0:
-                        end = time.time()
-                        print(f"SphereDecoder for index {re} took {end - start:.4f} seconds")
-                        time_sphere = time_sphere + (end - start)
                 else:
                     llr_out = np.zeros((rx_c.shape[0]*num_bits,n_users))
                     detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0]*num_bits,n_users))
@@ -406,10 +398,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             time_ce = time_ce / (conf.num_res-1) * conf.num_res
             time_lmmse = time_lmmse / (conf.num_res-1) * conf.num_res
             time_sphere = time_sphere / (conf.num_res-1) * conf.num_res
-
-            print(f"CE took {time_ce:.4f} seconds")
-            print(f"LMMSE took {time_lmmse:.4f} seconds")
-            print(f"SphereDecoder took {time_sphere:.4f} seconds")
 
             llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
             llrs_mat_sphere = llrs_mat_sphere_for_aug[pilot_chunk:, :, :, :]
@@ -427,11 +415,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                             tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations, torch.empty(0))
-                    start = time.time()
-                    _, _ = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
-                                                                                         iterations, torch.empty(0))
-                    end = time.time()
-                    print(f"DeepSICSB  took {end - start:.4f} seconds")
                     if conf.which_augment == 'AUGMENT_DEEPSICSB':
                         _ , llrs_mat_deepsicsb_pilot_list = deepsicsb_trainer._forward(rx_pilot, num_bits, n_users, iterations, torch.empty(0))
                         probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deepsicsb_pilot_list[0]), torch.sigmoid(llrs_mat_deepsicsb_list[0])), dim=0).cpu()
@@ -445,11 +428,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                                        iterations, epochs, False, torch.empty(0))
                     detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits, n_users,
                                                                                     iterations, torch.empty(0))
-                    start = time.time()
-                    _, _ = deeprx_trainer._forward(rx_data, num_bits, n_users,
-                                                                                    iterations, torch.empty(0))
-                    end = time.time()
-                    print(f"DeepRx  took {end - start:.4f} seconds")
                     if conf.which_augment == 'AUGMENT_DEEPRX':
                         _ , llrs_mat_deeprx_pilot = deeprx_trainer._forward(rx_pilot, num_bits, n_users,iterations, torch.empty(0))
                         probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deeprx_pilot), torch.sigmoid(llrs_mat_deeprx)), dim=0).cpu()
@@ -528,10 +506,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                  iterations, probs_for_aug[pilot_chunk:])
                 else:
                     detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
-                    start = time.time()
-                    _, _ = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
-                    end = time.time()
-                    print(f"DeepSIC  took {end - start:.4f} seconds")
 
 
             if conf.run_e2e:

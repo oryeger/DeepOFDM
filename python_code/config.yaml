@@ -24,7 +24,6 @@ save_loss_plot_snr: [10]
 scale_input: True
 plot_only_last_iteration: False
 plot_channel: False
-plot_genie: False
 
 TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds

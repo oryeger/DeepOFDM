@@ -96,7 +96,7 @@ def get_next_divisible(num, divisor):
 
 
 def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples,
-                       val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie, iteration):
+                       val_samples, mod_text, cfo_str, ber, ber_legacy, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
     if detector == 'DeepSIC':
@@ -132,8 +132,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     axes[1].set_ylabel('#Values')
     axes[1].grid()
     text = 'BER ' + detector + ':' + str(f"{ber:.4f}") + '\
-             BER legacy:' + str(f"{ber_legacy:.4f}") + '\
-             BER legacy genie:' + (f"{ber_legacy_genie:.4f}")
+             BER legacy:' + str(f"{ber_legacy:.4f}")
     fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=8)
     plt.tight_layout()
     plt.show()
@@ -208,8 +207,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
 
 
-    total_ber_legacy_genie = []
-
     SNR_range = list(range(conf.snr, conf.snr + conf.num_snrs, conf.snr_step))
     total_mi_list = [[] for _ in range(iterations)]
     total_mi_e2e_list = [[] for _ in range(iters_e2e_disp)]
@@ -259,7 +256,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         ber_sum_deepsicsb = np.zeros(iterations)
         ber_sum_deepsicmb = np.zeros(iterations)
         ber_sum_deepstag = np.zeros(iterations*2)
-        ber_sum_legacy_genie = 0
         deepsic_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
@@ -486,47 +482,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     radius = float(conf.sphere_radius)
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
-                # GENIE
-                equalized = torch.zeros(rx_data_c.shape[0], tx_data.shape[1], dtype=torch.cfloat)
-                for i in range(rx_data_c.shape[0]):
-                    H_genie = h[:, :, re].cpu().numpy()
-                    if (conf.cfo != 0) & (CFO_COMP == 'ON_CE'):
-                        H_genie = H_genie * cfo_comp_vect[i]
-                    H_Ht = H_genie @ H_genie.T.conj()
-                    H_Ht_inv = np.linalg.pinv(H_Ht)
-                    W = torch.tensor(H_genie.T.conj() @ H_Ht_inv)
-                    equalized[i, :] = torch.matmul(W, rx_data_c[i, :, re])
-                detected_word_legacy_genie = torch.zeros(int(equalized.shape[0] * np.log2(mod_pilot)),
-                                                         equalized.shape[1])
-                if mod_pilot > 2:
-                    qam = mod.QAMModem(mod_pilot)
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy_genie[:, i] = torch.from_numpy(
-                            qam.demodulate(equalized[:, i].numpy(), 'hard'))
-                else:
-                    for i in range(equalized.shape[1]):
-                        detected_word_legacy_genie[:, i] = torch.from_numpy(
-                            BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
-
-                ###############################################################
-                # llr_for_mi = torch.stack([equalized.real , equalized.imag], dim=1).flatten()
-                # tx_data_for_mi = tx_data[:, :rx.shape[1], re]
-                # H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.005)
-                # # H_y_x calculation
-                # # x=0
-                # zero_indexes = np.where(tx_data_for_mi.cpu() == 0)[0]
-                # H_y_x_0 = entropy_with_bin_width(llr_for_mi[zero_indexes].numpy(), 0.005)
-                # # x=1
-                # one_indexes = np.where(tx_data_for_mi.cpu() == 1)[0]
-                # H_y_x_1 = entropy_with_bin_width(llr_for_mi[one_indexes].numpy(), 0.005)
-                #
-                # H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
-                #
-                # mi = H_y - H_y_x
-                # mi = np.maximum(mi, 0)
-                # pass
-                ###############################################################
-
                 # calculate accuracy
                 target = tx_data[:, :rx.shape[1], re]
                 for iteration in range(iterations):
@@ -655,20 +610,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
                 ber_per_re_legacy[re] = ber_legacy
 
-                if conf.ber_on_one_user >= 0:
-                    ber_legacy_genie = calculate_ber(
-                        detected_word_legacy_genie[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
-                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
-                else:
-                    ber_legacy_genie = calculate_ber(detected_word_legacy_genie.cpu(), target.cpu(), num_bits)
-
                 if run_deeprx:
                     # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
                     #     ber_sum_deeprx += ber_deeprx
                     ber_sum_deeprx += ber_deeprx
                 ber_sum_legacy += ber_legacy
                 ber_sum_sphere += ber_sphere
-                ber_sum_legacy_genie += ber_legacy_genie
 
             # LDPC decoding
             bler_list = [None] * iterations
@@ -825,7 +772,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             ber_legacy = ber_sum_legacy / num_res
             ber_sphere = ber_sum_sphere / num_res
             ber_deeprx = ber_sum_deeprx / num_res
-            ber_legacy_genie = ber_sum_legacy_genie / num_res
 
             ber_deepsicsb_list = [None] * iterations
             for iteration in range(iterations):
@@ -848,7 +794,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             total_ber_deeprx.append(ber_deeprx)
             total_ber_legacy.append(ber_legacy)
             total_ber_sphere.append(ber_sphere)
-            total_ber_legacy_genie.append(ber_legacy_genie)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current DeepSIC: {block_ind, float(ber_list[iterations - 1]), mi}')
             if conf.mcs>-1:
@@ -881,55 +826,46 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if conf.mcs>-1:
                     print(f'current sphere BLER: {block_ind, float(bler_sphere), mi}')
 
-            if conf.TDL_model[0] == 'N':
-                print(f'current legacy genie: {block_ind, ber_legacy_genie.item()}')
         cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
 
         fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_legacy),
-                           snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy,
-                           ber_legacy_genie, 0)
+                           snr_cur, "Legacy", 0, train_samples, val_samples, mod_text, cfo_str, ber_legacy, ber_legacy,0)
 
         if run_sphere:
             fig_legacy = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect), torch.from_numpy(llrs_mat_sphere),
-                               snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str, ber_sphere, ber_legacy,
-                               ber_legacy_genie, 0)
+                               snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str, ber_sphere, ber_legacy, 0)
 
 
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
-                               train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, ber_legacy_genie,
-                               0)
+                               train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, 0)
         if run_deepsicsb and deepsicsb_trainer is not None:
             for iteration in range(iterations):
                 fig_deepsicsb = plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicsb_list[iteration], ber_legacy, ber_legacy_genie,
-                                   conf.iterations)
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicsb_list[iteration], ber_legacy, conf.iterations)
 
 
         if conf.run_deepsicmb and deepsicmb_trainer is not None:
             for iteration in range(iterations):
                 fig_deepsicmb = plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicmb_list[iteration], ber_legacy, ber_legacy_genie,
-                                   conf.iterations)
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicmb_list[iteration], ber_legacy, conf.iterations)
         if conf.run_deepstag and deepstag_trainer is not None:
             for iteration in range(iterations*2):
                 fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag, llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deepstag_list[iteration], ber_legacy, ber_legacy_genie,
-                                   conf.iterations)
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepstag_list[iteration], ber_legacy, conf.iterations)
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
                 fig_e2e = plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration], snr_cur,
                                    "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
-                                   ber_e2e_list[iteration], ber_legacy, ber_legacy_genie, iteration)
+                                   ber_e2e_list[iteration], ber_legacy, iteration)
         for iteration in range(iterations):
             fig_deepsic = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "DeepSIC",
                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration],
-                               ber_legacy, ber_legacy_genie, iteration)
+                               ber_legacy, iteration)
 
         data = {
             "SNR_range": SNR_range[:len(total_ber_legacy)],
             "total_ber_legacy": total_ber_legacy,
-            "total_ber_legacy_genie": total_ber_legacy_genie,
             "total_ber_deeprx": total_ber_deeprx,
             "total_ber_sphere": total_ber_sphere,
         }
@@ -1103,16 +1039,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 fig_e2e.savefig(file_path)
 
 
-        # for iteration in range(iterations):
-        #     np.save('C:\\Projects\\Misc\\total_ber_deepseek'+str(iteration)+'.npy', np.array(total_ber_list[iteration]))
-        # if run_deeprx:
-        #     np.save('C:\\Projects\\Misc\\total_ber_deeprx.npy', np.array(total_ber_deeprx))
-        # np.save('C:\\Projects\\Misc\\total_ber_legacy.npy', np.array(total_ber_legacy))
-        # np.save('C:\\Projects\\Misc\\total_ber_legacy_genie.npy', np.array(total_ber_legacy_genie))
-
-        # np.save('C:\\Projects\\Misc\\tx_data_-10dB_QPSK.npy', tx_data.cpu())
-        # np.save('C:\\Projects\\Misc\\llrs_mat_-10dB_QPSK.npy', llrs_mat.cpu())
-
     markers = ['o', '*', 'x', 'D', '+', 'o']
     dashes = [':', '-.', '--', '-', '-', '-']
     if PLOT_MI:
@@ -1173,8 +1099,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         snr_at_target_legacy = np.round(interp_func(bler_target), 1)
         interp_func = interp1d(total_ber_sphere, SNR_range, kind='linear', fill_value="extrapolate")
         snr_at_target_sphere = np.round(interp_func(bler_target), 1)
-        interp_func = interp1d(total_ber_legacy_genie, SNR_range, kind='linear', fill_value="extrapolate")
-        snr_at_target_legacy_genie = np.round(interp_func(bler_target), 1)
     else:
         for iteration in range(iterations):
             snr_at_target_list[iteration] = float('inf')
@@ -1194,7 +1118,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 snr_at_target_deepstag_list[iteration] = float('inf')
         snr_at_target_legacy = float('inf')
         snr_at_target_sphere = float('inf')
-        snr_at_target_legacy_genie = float('inf')
 
     if not conf.plot_only_last_iteration:
         iterations_for_plot = list(range(iterations))
@@ -1238,9 +1161,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     plt.semilogy(SNR_range, total_ber_sphere, '-o', color='brown',
                  label=modulator_text + ',        SNR @1%=' + str(snr_at_target_sphere))
 
-    if conf.plot_genie:
-        plt.semilogy(SNR_range, total_ber_legacy_genie, '-o', color='k',
-                     label='Legacy Genie, SNR @1%=' + str(snr_at_target_legacy_genie))
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
     title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(

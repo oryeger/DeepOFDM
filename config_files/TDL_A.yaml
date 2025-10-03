@@ -17,7 +17,6 @@ sphere_radius: 'inf'
 scale_input: True
 plot_only_last_iteration: False
 plot_channel: False
-plot_genie: False
 
 TDL_model: 'A' # 'None', 'A', 'B', 'C'
 delay_spread: 30e-9 # in Seconds

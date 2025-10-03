@@ -10,10 +10,7 @@ class DeepSTAGDetConv(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSTAGDetConv, self).__init__()
         torch.manual_seed(42)
-        if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
-            conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
-        else:
-            conv_num_channels =  int(num_bits*n_users+conf.n_ants*2)
+        conv_num_channels =  int(num_bits*n_users+conf.n_ants*2)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:
             self.scale = nn.Parameter(torch.ones(conv_num_channels*conf.num_res))

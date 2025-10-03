@@ -22,9 +22,6 @@ sphere_radius: 200
 save_loss_plot_snr: [10]
 
 scale_input: True
-train_on_ce_no_pilots: False
-
-use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False

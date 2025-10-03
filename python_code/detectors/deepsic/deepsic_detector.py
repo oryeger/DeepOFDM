@@ -10,13 +10,10 @@ class DeepSICDetector(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSICDetector, self).__init__()
         torch.manual_seed(42)
-        if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
-            conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
+        if conf.no_probs:
+            conv_num_channels = int(conf.n_ants * 2)
         else:
-            if conf.no_probs:
-                conv_num_channels = int(conf.n_ants * 2)
-            else:
-                conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
+            conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
 
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:

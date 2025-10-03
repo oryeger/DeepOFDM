@@ -15,9 +15,6 @@ ber_on_one_user: -1
 sphere_radius: 'inf'
 
 scale_input: True
-train_on_ce_no_pilots: False
-
-use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False

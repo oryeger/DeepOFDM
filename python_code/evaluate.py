@@ -450,66 +450,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
             # online training main function
             if deepsic_trainer.is_online_training:
-                if conf.train_on_ce_no_pilots:
-                    H_all = torch.zeros(conf.n_ants, conf.num_res, dtype=torch.complex64)
-                    for re in range(conf.num_res):
-                        rx_pilot_cur = rx[:pilot_chunk, :, re]
-                        row_means = torch.mean(rx_pilot_cur, axis=1, keepdims=True)
-                        row_means[row_means == 0] = 1e-12
-                        H_all[:, re] = torch.mean(rx_pilot_cur / row_means, axis=0)
-
-                    real_part = H_all.real
-                    imag_part = H_all.imag
-                    H_all_real = torch.empty((H_all.shape[0] * 2, H_all.shape[1]), dtype=torch.float32)
-                    H_all_real[0::2, :] = real_part  # Real parts in even rows
-                    H_all_real[1::2, :] = imag_part  # Imaginary parts in odd rows
-
-                    H_repeated = H_all_real.unsqueeze(0).repeat(rx_pilot.shape[0], 1, 1)
-                    rx_pilot_and_H = torch.cat((rx_pilot, H_repeated), dim=1)
-                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
-                                                                                      rx_pilot_and_H.to('cpu'),
-                                                                                      num_bits, n_users, iterations,
-                                                                                      epochs, False, probs_for_aug[:pilot_chunk])
-                elif conf.use_data_as_pilots:
-                    H_all = torch.zeros(s_orig.shape[0], conf.n_ants * conf.n_users, conf.num_res, dtype=torch.complex64)
-                    for re in range(conf.num_res):
-                        H = torch.zeros(s_orig.shape[0], conf.n_ants, conf.n_users, dtype=torch.complex64)
-                        for user in range(n_users):
-                            s_orig_pilot = s_orig[:, user, re]
-                            rx_pilot_ce_cur = rx_ce[user, :, :, re]
-
-                            H[:, :, user] = (s_orig_pilot[:, None].conj() / (
-                                    torch.abs(s_orig_pilot[:, None]) ** 2)) * rx_pilot_ce_cur  # shape: [56, 4]
-                        H_all[:, :, re] = H.reshape(H.shape[0], conf.n_ants * conf.n_users)
-                    real_part = H_all.real
-                    imag_part = H_all.imag
-                    H_all_real = torch.empty((H_all.shape[0], H_all.shape[1] * 2, H_all.shape[2]),
-                                             dtype=torch.float32)
-                    H_all_real[:, 0::2, :] = real_part  # Real parts in even rows
-                    H_all_real[:, 1::2, :] = imag_part  # Imaginary parts in odd rows
-                    rx_pilot_and_H = torch.cat((rx_pilot, H_all_real[:pilot_chunk]), dim=1)
-
-                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot,
-                                                                                      rx_pilot_and_H.to('cpu'),
-                                                                                      num_bits, n_users, iterations,epochs, False, probs_for_aug[:pilot_chunk])
-                else:
-                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
-                if conf.train_on_ce_no_pilots:
-                    H_repeated = H_all_real.unsqueeze(0).repeat(rx_data.shape[0], 1, 1)
-                    rx_data_and_H = torch.cat((rx_data, H_repeated), dim=1)
-                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,
-                                                                                 iterations, probs_for_aug[pilot_chunk:])
-
-                elif conf.use_data_as_pilots:
-                    rx_data_and_H = torch.cat((rx_data, H_all_real[pilot_chunk:]), dim=1)
-                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data_and_H, num_bits, n_users,
-                                                                                 iterations, probs_for_aug[pilot_chunk:])
-                else:
-                    detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
+                detected_word_list, llrs_mat_list = deepsic_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
 
 
             if conf.run_e2e:

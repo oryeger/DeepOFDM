@@ -17,19 +17,7 @@ FFT_size = 128
 FIRST_CP = 11
 CP = 9
 SAMPLING_RATE = 3.84e6
-# FFT_size = 512
-# FIRST_CP = 44
-# CP = 36
-# SAMPLING_RATE = 15.36e6
 NUM_SAMPLES_PER_SLOT = int(0.5e-3 * SAMPLING_RATE)
-
-# Testing
-
-# FFT_size = 1024
-# FIRST_CP = 88
-# CP = 72
-# SAMPLING_RATE = 30.72e6
-
 
 class Phase(Enum):
     TRAIN = 'train'

@@ -10,7 +10,6 @@ CFO_COMP = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
 GENIE_CFO = True
 NOISE_TO_CE = True
 PLOT_MI = False
-PLOT_CE_ON_DATA = False
 
 NUM_SYMB_PER_SLOT = 14 # 500
 FFT_size = 128

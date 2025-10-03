@@ -14,7 +14,6 @@ iqmm_gain: 1 # in dB
 iqmm_phase: 5 # in degrees
 epochs: 2
 iterations: 1
-num_trainings: 1
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3

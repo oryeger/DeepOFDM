@@ -18,7 +18,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, CFO_COMP, GENIE_CFO,
+from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, GENIE_CFO,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI)
 
 import commpy.modulation as mod
@@ -313,7 +313,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
                 received_words_ce[block_ind], s_orig_words[block_ind]
 
-            if (conf.cfo != 0) & (CFO_COMP != 'NONE'):
+            if conf.cfo != 0:
                 pointer = 0
                 NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
@@ -333,10 +333,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         cfo_est_vect[user] = -np.angle(grad_sum) * FFT_size / (2 * np.pi * (FFT_size + CP))
                     cfo_est = np.mean(cfo_est_vect)
 
-                if (CFO_COMP == 'ON_CE'):
-                    cfo_phase = 2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
-                else:
-                    cfo_phase = -2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
+                cfo_phase = -2 * np.pi * cfo_est * n / FFT_size  # CFO phase shift
                 cfo_comp_vect = np.array([])
                 cp_length = FIRST_CP
                 for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
@@ -347,12 +344,9 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     cp_length = CP
                 cfo_comp_vect = np.tile(cfo_comp_vect, NUM_SLOTS)
 
-                if (CFO_COMP == 'ON_CE'):
-                    cfo_comp_vect = cfo_comp_vect[pilot_chunk:]
-                else:  # 'ON_Y'
-                    for i in range(s_orig.shape[0]):
-                        rx[i, :, :] = rx[i, :, :] * cfo_comp_vect[i]
-                        rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
+                for i in range(s_orig.shape[0]):
+                    rx[i, :, :] = rx[i, :, :] * cfo_comp_vect[i]
+                    rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
             # Interleave real and imaginary parts of Rx into a real tensor
             if IS_COMPLEX:

@@ -18,7 +18,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
-from python_code.utils.constants import (IS_COMPLEX, TRAIN_PERCENTAGE, GENIE_CFO,
+from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI)
 
 import commpy.modulation as mod
@@ -349,15 +349,12 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
             # Interleave real and imaginary parts of Rx into a real tensor
-            if IS_COMPLEX:
-                real_part = rx.real
-                imag_part = rx.imag
-                rx_real = torch.empty((rx.shape[0], rx.shape[1] * 2, rx.shape[2]), dtype=torch.float32)
-                rx_real[:, 0::2, :] = real_part  # Real parts in even rows
-                rx_real[:, 1::2, :] = imag_part  # Imaginary parts in odd rows
-            else:
-                rx_real = rx
-
+            real_part = rx.real
+            imag_part = rx.imag
+            rx_real = torch.empty((rx.shape[0], rx.shape[1] * 2, rx.shape[2]), dtype=torch.float32)
+            rx_real[:, 0::2, :] = real_part  # Real parts in even rows
+            rx_real[:, 1::2, :] = imag_part  # Imaginary parts in odd rows
+            
             # split words into data and pilot part
             tx_pilot, tx_data = tx[:pilot_size], tx[pilot_size:]
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]

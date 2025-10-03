@@ -3,7 +3,6 @@ import numpy as np
 
 HALF = 0.5
 TRAIN_PERCENTAGE = 80
-IS_COMPLEX = 1
 SHOW_ALL_ITERATIONS = True
 GENIE_CFO = True
 PLOT_MI = False

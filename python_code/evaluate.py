@@ -134,10 +134,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     text = 'BER ' + detector + ':' + str(f"{ber:.4f}") + '\
              BER legacy:' + str(f"{ber_legacy:.4f}") + '\
              BER legacy genie:' + (f"{ber_legacy_genie:.4f}")
-    # axes[2].text(0.5, 0.5, text, fontsize=12, ha="center", va="center")
-    # axes[2].axis('off')
     fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=8)
-    # fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=12)
     plt.tight_layout()
     plt.show()
     return fig

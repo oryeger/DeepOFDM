@@ -8,7 +8,6 @@ PHASE_OFFSET = np.pi / 3
 SHOW_ALL_ITERATIONS = True
 CFO_COMP = 'ON_Y' # 'NONE', 'ON_CE', 'ON_Y'
 GENIE_CFO = True
-NOISE_TO_CE = True
 PLOT_MI = False
 
 NUM_SYMB_PER_SLOT = 14 # 500

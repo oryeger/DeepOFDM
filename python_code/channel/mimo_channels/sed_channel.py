@@ -3,7 +3,7 @@ from sympy import false
 
 from python_code import conf
 from python_code.utils.constants import (PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
-                                         CP, NUM_SAMPLES_PER_SLOT,NOISE_TO_CE)
+                                         CP, NUM_SAMPLES_PER_SLOT)
 
 import matplotlib.pyplot as plt
 import tensorflow as tf
@@ -292,13 +292,11 @@ class SEDChannel:
         for re_index in range(num_res):
             w = np.sqrt(noise_var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
             y[:, :, re_index] = y[:, :, re_index] + w
-            if NOISE_TO_CE:
-                if not(conf.separate_pilots):
-                    for user in range(n_users):
-                        # w = np.sqrt(noise_var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))
-                        y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
-                else:
-                    y_ce[:, :, re_index] = y_ce[:, :, re_index] + w
+            if not conf.separate_pilots:
+                for user in range(n_users):
+                    y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
+            else:
+                y_ce[:, :, re_index] = y_ce[:, :, re_index] + w
 
         y , _ = SEDChannel.apply_td_and_impairments(y, True, 0, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed)
         y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed)

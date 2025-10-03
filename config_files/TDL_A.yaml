@@ -14,7 +14,6 @@ full_e2e: False
 ber_on_one_user: -1
 sphere_radius: 'inf'
 
-dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
 

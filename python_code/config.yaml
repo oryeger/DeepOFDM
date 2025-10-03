@@ -13,7 +13,7 @@ clip_percentage_in_tx: 100
 iqmm_gain: 1 # in dB
 iqmm_phase: 5 # in degrees
 epochs: 2
-iterations: 1
+iterations: 2
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
@@ -22,7 +22,6 @@ ber_on_one_user: -1
 sphere_radius: 200
 save_loss_plot_snr: [10]
 
-dot_product: True
 scale_input: True
 train_on_ce_no_pilots: False
 stag_conv_two_layers: False
@@ -47,7 +46,7 @@ channel_seed: 58
 run_deeprx: False
 run_deepsicsb: False
 run_deepsicmb: False
-run_deepstag: False
+run_deepstag: True
 run_sphere: False
 which_augment: 'AUGMENT_DEEPSICSB' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSICSB', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False

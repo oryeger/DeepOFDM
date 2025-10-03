@@ -21,9 +21,6 @@ import matplotlib.pyplot as plt
 from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI)
 
-import commpy.modulation as mod
-
-from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator
 import pandas as pd
 
 from python_code.channel.channel_dataset import ChannelModelDataset
@@ -259,13 +256,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         deepsic_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             deepsicsb_trainer._initialize_detector(num_bits, n_users, n_ants)
 
-        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        if conf.run_deepsicmb:
             deepsicmb_trainer._initialize_detector(num_bits, n_users, n_ants)
 
-        if conf.run_deepstag and deepstag_trainer is not None:
+        if conf.run_deepstag:
             deepstag_trainer._initialize_detector(num_bits, n_users, n_ants)
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
@@ -291,18 +288,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             noise_var_list=[noise_var], num_bits=num_bits, n_users
             =n_users, mod_pilot=mod_pilot, ldpc_k=ldpc_k, ldpc_n=ldpc_n)
 
-        # fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(10, 6))
-        # REs = np.arange(conf.num_res)
-        # axes[0].plot(REs, np.abs(hs[0,0,0,:]), linestyle='-', color='b', label='Channel')
-        # axes[0].set_ylabel('abs(channel)')
-        # axes[0].grid()
-        # axes[1].plot(REs, np.unwrap(np.angle((hs[0,0,0,:]))), linestyle='-', color='b', label='Channel')
-        # axes[1].set_xlabel('REs')
-        # axes[1].set_ylabel('angle(channel)')
-        # axes[1].grid()
-        # axes[0].set_title('Channel with ' + str(conf.num_res) + ' REs')
-        # plt.show()
-
         train_samples = int(pilot_size * TRAIN_PERCENTAGE / 100)
         val_samples = pilot_size - train_samples
 
@@ -314,6 +299,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 received_words_ce[block_ind], s_orig_words[block_ind]
 
             if conf.cfo != 0:
+                # Compensate for CFO linear phase
                 pointer = 0
                 NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
@@ -359,7 +345,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             tx_pilot, tx_data = tx[:pilot_size], tx[pilot_size:]
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
-            rx_c = rx.cpu()
+            rx_c = rx.cpu() # rx_c is the rx in CPU
             llrs_mat_legacy_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
             llrs_mat_sphere_for_aug = np.zeros((rx_c.shape[0], num_bits * n_users, num_res, 1))
             detected_word_legacy_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_pilot)), n_users,num_res))
@@ -372,10 +358,11 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
                 # Regular CE
                 if conf.pilot_channel_seed < 0:
-                    _, _ = LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H)
+                    LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H)
                 else:
-                    _, _ = LmmseDemod(rx_ce[:,:pilot_chunk,:,:], rx_c[:pilot_chunk,:,:], s_orig[:pilot_chunk,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[:pilot_chunk,:,:,:], detected_word_legacy_for_aug[:pilot_size,:,:])
-                    _, _ = LmmseDemod(rx_ce[:,pilot_chunk:,:,:], rx_c[pilot_chunk:,:,:], s_orig[pilot_chunk:,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[pilot_chunk:,:,:,:], detected_word_legacy_for_aug[pilot_size:,:,:])
+                    # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
+                    LmmseDemod(rx_ce[:,:pilot_chunk,:,:], rx_c[:pilot_chunk,:,:], s_orig[:pilot_chunk,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[:pilot_chunk,:,:,:], detected_word_legacy_for_aug[:pilot_size,:,:], H)
+                    LmmseDemod(rx_ce[:,pilot_chunk:,:,:], rx_c[pilot_chunk:,:,:], s_orig[pilot_chunk:,:,:], noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug[pilot_chunk:,:,:,:], detected_word_legacy_for_aug[pilot_size:,:,:], H)
 
                 if run_sphere:
                     H = H.cpu().numpy()
@@ -388,9 +375,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     llrs_mat_sphere_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = -llr_out[:,user].reshape(
                         int(llr_out[:,user].shape[0] / num_bits), num_bits, 1)
 
-            time_ce = time_ce / (conf.num_res-1) * conf.num_res
-            time_lmmse = time_lmmse / (conf.num_res-1) * conf.num_res
-            time_sphere = time_sphere / (conf.num_res-1) * conf.num_res
+            # Time measurements - currently not used
+            # time_ce = time_ce / (conf.num_res-1) * conf.num_res
+            # time_lmmse = time_lmmse / (conf.num_res-1) * conf.num_res
+            # time_sphere = time_sphere / (conf.num_res-1) * conf.num_res
 
             llrs_mat_legacy = llrs_mat_legacy_for_aug[pilot_chunk:, :, :, :]
             llrs_mat_sphere = llrs_mat_sphere_for_aug[pilot_chunk:, :, :, :]
@@ -398,11 +386,10 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
             elif conf.which_augment == 'AUGMENT_LMMSE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_legacy_for_aug, dtype=torch.float32))
-
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 
-            if run_deepsicsb and deepsicsb_trainer is not None:
+            if run_deepsicsb:
                 if deepsicsb_trainer.is_online_training:
                     train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
@@ -445,13 +432,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits, n_users,
                                                                                             iters_e2e, torch.empty(0))
 
-            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            if conf.run_deepsicmb:
                 if deepsicmb_trainer.is_online_training:
                     train_loss_vect_deepsicmb, val_loss_vect_deepsicmb = deepsicmb_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepsicmb_list, llrs_mat_deepsicmb_list = deepsicmb_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations, torch.empty(0))
-            if conf.run_deepstag and deepstag_trainer is not None:
+            if conf.run_deepstag:
                 if deepstag_trainer.is_online_training:
                     train_loss_vect_deepstag, val_loss_vect_deepstag = deepstag_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
@@ -488,8 +475,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(), num_bits)
 
-                    # if (re>=half_kernel) & (re<=conf.num_res-half_kernel-1):
-                    #     ber_sum[iteration] += ber
                     ber_sum[iteration] += ber
                     ber_per_re[iteration, re] = ber
 
@@ -514,10 +499,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     detected_word_cur_re_deeprx = detected_word_deeprx[:, :, re, :]
                     detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.squeeze(-1)
                     detected_word_cur_re_deeprx = detected_word_cur_re_deeprx.reshape(int(tx_data.shape[0] / num_bits),
-                                                                                      n_users,
-                                                                                      num_bits).swapaxes(1, 2).reshape(
-                        tx_data.shape[0],
-                        n_users)
+                                                                                      n_users,num_bits).swapaxes(1, 2).reshape(
+                                                                                      tx_data.shape[0],n_users)
                     if conf.ber_on_one_user >= 0:
                         ber_deeprx = calculate_ber(
                             detected_word_cur_re_deeprx[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
@@ -525,7 +508,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     else:
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(), num_bits)
 
-                if run_deepsicsb and deepsicsb_trainer is not None:
+                if run_deepsicsb:
                     for iteration in range(iterations):
                         detected_word_cur_re_deepsicsb = detected_word_deepsicsb_list[iteration][:, :, re]
                         detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.squeeze(-1)
@@ -540,50 +523,40 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
-                        # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                        #     ber_sum_deepsicsb[iteration] += ber_deepsicsb
                         ber_sum_deepsicsb[iteration] += ber_deepsicsb
                         ber_per_re_deepsicsb[iteration, re] = ber_deepsicsb
 
 
-                if conf.run_deepsicmb and deepsicmb_trainer is not None:
+                if conf.run_deepsicmb:
                     for iteration in range(iterations):
                         detected_word_cur_re_deepsicmb = detected_word_deepsicmb_list[iteration][:, :, re]
                         detected_word_cur_re_deepsicmb = detected_word_cur_re_deepsicmb.squeeze(-1)
                         detected_word_cur_re_deepsicmb = detected_word_cur_re_deepsicmb.reshape(int(tx_data.shape[0] / num_bits),
-                                                                                    n_users,
-                                                                                    num_bits).swapaxes(1, 2).reshape(
-                            tx_data.shape[0],
-                            n_users)
+                                                                                    n_users,num_bits).swapaxes(1, 2).reshape(
+                                                                                    tx_data.shape[0],n_users)
                         if conf.ber_on_one_user >= 0:
                             ber_deepsicmb = calculate_ber(
                                 detected_word_cur_re_deepsicmb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepsicmb = calculate_ber(detected_word_cur_re_deepsicmb.cpu(), target.cpu(), num_bits)
-                        # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                        #     ber_sum_deepsicmb[iteration] += ber_deepsicmb
                         ber_sum_deepsicmb[iteration] += ber_deepsicmb
                         ber_per_re_deepsicmb[iteration, re] = ber_deepsicmb
 
 
-                if conf.run_deepstag and deepstag_trainer is not None:
+                if conf.run_deepstag:
                     for iteration in range(iterations*2):
                         detected_word_cur_re_deepstag = detected_word_deepstag_list[iteration][:, :, re]
                         detected_word_cur_re_deepstag = detected_word_cur_re_deepstag.squeeze(-1)
                         detected_word_cur_re_deepstag = detected_word_cur_re_deepstag.reshape(int(tx_data.shape[0] / num_bits),
-                                                                                    n_users,
-                                                                                    num_bits).swapaxes(1, 2).reshape(
-                            tx_data.shape[0],
-                            n_users)
+                                                                                    n_users,num_bits).swapaxes(1, 2).reshape(
+                                                                                    tx_data.shape[0],n_users)
                         if conf.ber_on_one_user >= 0:
                             ber_deepstag = calculate_ber(
                                 detected_word_cur_re_deepstag[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
                             ber_deepstag = calculate_ber(detected_word_cur_re_deepstag.cpu(), target.cpu(), num_bits)
-                        # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                        #     ber_sum_deepstag[iteration] += ber_deepstag
                         ber_sum_deepstag[iteration] += ber_deepstag
                         ber_per_re_deepstag[iteration, re] = ber_deepstag
 
@@ -602,8 +575,6 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 ber_per_re_legacy[re] = ber_legacy
 
                 if run_deeprx:
-                    # if (re >= half_kernel) & (re <= conf.num_res - half_kernel - 1):
-                    #     ber_sum_deeprx += ber_deeprx
                     ber_sum_deeprx += ber_deeprx
                 ber_sum_legacy += ber_legacy
                 ber_sum_sphere += ber_sphere
@@ -650,7 +621,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                         llr_all_res_sphere[:,re::conf.num_res] = llr_cur_re_sphere.swapaxes(0, 1)
 
                         # DeepSICSB
-                        if run_deepsicsb and deepsicsb_trainer is not None:
+                        if run_deepsicsb:
                             llr_cur_re_deepsicsb = llrs_mat_deepsicsb_list[iteration][:, :, re]
                             llr_cur_re_deepsicsb = llr_cur_re_deepsicsb.squeeze(-1)
                             llr_cur_re_deepsicsb = llr_cur_re_deepsicsb.reshape(int(tx_data.shape[0] / num_bits), n_users,
@@ -696,7 +667,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
 
-                    if run_deepsicsb and deepsicsb_trainer is not None:
+                    if run_deepsicsb:
                         bler_deepsicsb_list[iteration] = crc_count_deepsicsb / (num_slots * n_users)
                         total_bler_deepsicsb_list[iteration].append(bler_deepsicsb_list[iteration])
                     else:
@@ -796,13 +767,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 if conf.mcs>-1:
                     print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi}')
 
-            if run_deepsicsb and deepsicsb_trainer is not None:
+            if run_deepsicsb:
                 print(f'current DeepSICSB: {block_ind, float(ber_deepsicsb_list[iterations - 1])}')
                 if conf.mcs > -1:
                     print(f'current DeepSICSB BLER: {block_ind, float(bler_deepsicsb_list[iterations - 1])}')
-            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            if conf.run_deepsicmb:
                 print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
-            if conf.run_deepstag and deepstag_trainer is not None:
+            if conf.run_deepstag:
                 print(f'current DeepSTAG: {block_ind, float(ber_deepstag_list[iterations*2 - 1])}')
             if mod_pilot == 4:
                 print(f'current legacy: {block_ind, ber_legacy.item(), mi_legacy}')
@@ -830,17 +801,17 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_legacy, 0)
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             for iteration in range(iterations):
                 fig_deepsicsb = plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepsicsb_list[iteration], ber_legacy, conf.iterations)
 
 
-        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        if conf.run_deepsicmb:
             for iteration in range(iterations):
                 fig_deepsicmb = plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb, llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepsicmb_list[iteration], ber_legacy, conf.iterations)
-        if conf.run_deepstag and deepstag_trainer is not None:
+        if conf.run_deepstag:
             for iteration in range(iterations*2):
                 fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag, llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
                                    train_samples, val_samples, mod_text, cfo_str, ber_deepstag_list[iteration], ber_legacy, conf.iterations)
@@ -868,15 +839,15 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         for i in range(iters_e2e_disp):
             data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
 
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             for i in range(conf.iterations):
                 data[f"total_ber_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
 
-        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        if conf.run_deepsicmb:
             for i in range(conf.iterations):
                 data[f"total_ber_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
 
-        if conf.run_deepstag and deepstag_trainer is not None:
+        if conf.run_deepstag:
             for i in range(conf.iterations):
                 data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
 
@@ -894,7 +865,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         for i in range(conf.iterations):
             data_bler[f"total_ber_{i + 1}"] = total_bler_list[i]
 
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             for i in range(conf.iterations):
                 data_bler[f"total_ber_deepsicsb_{i + 1}"] = total_bler_deepsicsb_list[i]
 
@@ -999,21 +970,21 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             fig_legacy_per_re.savefig(file_path)
 
 
-            if run_deepsicsb and deepsicsb_trainer is not None:
+            if run_deepsicsb:
                 title_string_cur = "deepsicsb_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deepsicsb.savefig(file_path)
                 title_string_cur = "deepsicsb_per_re_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deepsicsb_per_re.savefig(file_path)
-            if conf.run_deepsicmb and deepsicmb_trainer is not None:
+            if conf.run_deepsicmb:
                 title_string_cur = "deepsicmb_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deepsicmb.savefig(file_path)
                 title_string_cur = "deepsicmb_per_re_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deepsicmb_per_re.savefig(file_path)
-            if conf.run_deepstag and deepstag_trainer is not None:
+            if conf.run_deepstag:
                 title_string_cur = "deepstag_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deepstag.savefig(file_path)
@@ -1068,17 +1039,17 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                        fill_value="extrapolate")
                 snr_at_target_e2e_list[iteration] = np.round(interp_func(bler_target), 1)
 
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             for iteration in range(iterations):
                 interp_func = interp1d(total_ber_deepsicsb_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
                 snr_at_target_deepsicsb_list[iteration] = np.round(interp_func(bler_target), 1)
-        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        if conf.run_deepsicmb:
             for iteration in range(iterations):
                 interp_func = interp1d(total_ber_deepsicmb_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
                 snr_at_target_deepsicmb_list[iteration] = np.round(interp_func(bler_target), 1)
-        if conf.run_deepstag and deepstag_trainer is not None:
+        if conf.run_deepstag:
             for iteration in range(iterations):
                 interp_func = interp1d(total_ber_deepstag_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
@@ -1098,13 +1069,13 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                 snr_at_target_e2e_list[iteration] = float('inf')
         if run_deeprx:
             snr_at_target_deeprx = float('inf')
-        if run_deepsicsb and deepsicsb_trainer is not None:
+        if run_deepsicsb:
             for iteration in range(iterations):
                 snr_at_target_deepsicsb_list[iteration] = float('inf')
-        if conf.run_deepsicmb and deepsicmb_trainer is not None:
+        if conf.run_deepsicmb:
             for iteration in range(iterations):
                 snr_at_target_deepsicmb_list[iteration] = float('inf')
-        if conf.run_deepstag and deepstag_trainer is not None:
+        if conf.run_deepstag:
             for iteration in range(iterations):
                 snr_at_target_deepstag_list[iteration] = float('inf')
         snr_at_target_legacy = float('inf')
@@ -1129,17 +1100,17 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
             plt.semilogy(SNR_range, total_ber_e2e_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='m',
                          label=e2e_text + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_e2e_list[iteration]))
-    if run_deepsicsb and deepsicsb_trainer is not None:
+    if run_deepsicsb:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_ber_deepsicsb_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='orange',
                          label='DeepSICSB' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsicsb_list[iteration]))
-    if conf.run_deepsicmb and deepsicmb_trainer is not None:
+    if conf.run_deepsicmb:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_ber_deepsicmb_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='black',
                          label='DeepSICMB' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsicmb_list[iteration]))
-    if conf.run_deepstag and deepstag_trainer is not None:
+    if conf.run_deepstag:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_ber_deepstag_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='pink',

@@ -4,7 +4,7 @@ from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Mod
 
 def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_legacy_for_aug, detected_word_legacy_for_aug, H):
     for user in range(conf.n_users):
-        if not (conf.separate_pilots):
+        if not conf.separate_pilots:
             rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
             s_orig_pilot = s_orig[:pilot_chunk, user, re]
             H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
@@ -43,7 +43,4 @@ def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_m
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
     else:
         print('Unknown modulator')
-    time_ce = 0
-    time_lmmse = 0
-    return time_ce, time_lmmse
 

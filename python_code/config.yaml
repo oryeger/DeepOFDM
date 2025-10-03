@@ -17,7 +17,6 @@ iterations: 2
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
-full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
 save_loss_plot_snr: [10]
@@ -52,6 +51,7 @@ which_augment: 'AUGMENT_DEEPSICSB' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT
 override_augment_with_lmmse: False
 
 run_e2e: False
+full_e2e: True
 iters_e2e: 2
 no_probs: False
 separate_pilots: True

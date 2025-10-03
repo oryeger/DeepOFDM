@@ -10,19 +10,16 @@ class DeepSICDetector(nn.Module):
     def __init__(self, num_bits, n_users):
         super(DeepSICDetector, self).__init__()
         torch.manual_seed(42)
-        if conf.separate_nns:
-            conv_num_channels =  int(num_bits/2)*n_users+conf.n_ants*2
+        if conf.half_probs:
+            conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+conf.n_ants*2)
         else:
-            if conf.half_probs:
-                conv_num_channels =  int(num_bits+(num_bits/2)*(n_users-1)+conf.n_ants*2)
+            if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
+                conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
             else:
-                if conf.train_on_ce_no_pilots or conf.use_data_as_pilots:
-                    conv_num_channels = int(num_bits * n_users + conf.n_ants * 4)
+                if conf.no_probs:
+                    conv_num_channels = int(conf.n_ants * 2)
                 else:
-                    if conf.no_probs:
-                        conv_num_channels = int(conf.n_ants * 2)
-                    else:
-                        conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
+                    conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
 
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         if conf.scale_input:
@@ -35,13 +32,7 @@ class DeepSICDetector(nn.Module):
                     self.fc0.weight.copy_(torch.eye(matrix_size) + 1e-6 * torch.ones(matrix_size, matrix_size))
 
         self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')
-
-        if conf.separate_nns:
-            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=int(num_bits/2), kernel_size=(conf.kernel_size, 1),padding='same')
-        else:
-            # self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1),padding='same')
-            self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
-
+        self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
         self.fc3 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same')
 
         self.activation1 = nn.ReLU()

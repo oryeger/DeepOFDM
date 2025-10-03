@@ -1423,11 +1423,8 @@ if __name__ == '__main__':
     conf.reload_config(args.config)
 
     # Now conf has the updated config, proceed as before
-    assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
     assert not (conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
-    assert not (conf.separate_nns and conf.mod_pilot <= 4), "Assert: Can't use separate nns with QPSK"
-    assert not (
-                conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
+    assert not (conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
 
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))

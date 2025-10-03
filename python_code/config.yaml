@@ -23,7 +23,6 @@ save_loss_plot_snr: [10]
 
 scale_input: True
 train_on_ce_no_pilots: False
-stag_conv_two_layers: False
 stag_half_iteration: False
 
 enable_two_stage_train: False

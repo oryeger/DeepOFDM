@@ -60,41 +60,7 @@ class MIMOChannel:
             tx_data_coded[:,(num_slots*ldpc_n):data_length*num_res] = self._bits_generator.integers(0, 2, size=(n_users,remainder))
             tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(int)
 
-        if conf.enable_two_stage_train:
-            if conf.mod_pilot > 4:
-                if conf.two_stage_train == 'VAL_0_all':
-                    value = 0
-                    tx_pilots[1::2,:,:] = value
-                    tx_data[1::2,:,:] = value
-                elif conf.two_stage_train == 'VAL_1_all':
-                    value = 1
-                    tx_pilots[1::2,:,:] = value
-                    tx_data[1::2,:,:] = value
-                elif conf.two_stage_train == 'VAL_0_second':
-                    value = 0
-                    tx_pilots[1:int(tx_pilots.shape[0] / 2):2, :, :] = value
-                elif conf.two_stage_train == 'VAL_1_second':
-                    value = 1
-                    tx_pilots[1:int(tx_pilots.shape[0] / 2):2, :, :] = value
-
-        # OryEger - Just the inner constellation of 16QAM:
-
-        # if conf.mod_pilot>4:
-        #     value = 1
-        #     if conf.ber_on_one_user>=0:
-        #         tx_data[1::2, conf.ber_on_one_user] = value
-        #         tx_pilots[1::2, conf.ber_on_one_user] = value
-        #
-        #     users_list = list(range(0, n_users))
-        #     filtered_users_list = [user for user in users_list if user != conf.ber_on_one_user]
-        #     for user in filtered_users_list:
-        #         tx_pilots[1::2, user] = value
-        #         tx_data[1::2, user] = value
-
-
         tx = np.concatenate([tx_pilots, tx_data])
-
-
 
         # modulation
         if mod_pilot == 2:

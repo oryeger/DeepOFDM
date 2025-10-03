@@ -24,10 +24,6 @@ save_loss_plot_snr: [10]
 scale_input: True
 train_on_ce_no_pilots: False
 
-enable_two_stage_train: False
-two_stage_train: 'New' # VAL_0_all, VAL_1_all, VAL_0_second , VAL_1_second
-
-
 use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False

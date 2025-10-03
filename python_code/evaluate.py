@@ -100,8 +100,6 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
                        val_samples, mod_text, cfo_str, ber, ber_legacy, ber_legacy_genie, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
-    if conf.enable_two_stage_train:
-        p_len = p_len * 2
     if detector == 'DeepSIC':
         iters_txt = ', #iterations=' + str(conf.iterations)
     elif detector == 'DeepSICe2e':
@@ -121,7 +119,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
         val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
-                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size) + ', two_stage=' + str(conf.enable_two_stage_train))
+                    cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size))
 
     axes[0].set_title(title_string, fontsize=8)
     axes[0].legend()
@@ -495,22 +493,8 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
                                                                                       rx_pilot_and_H.to('cpu'),
                                                                                       num_bits, n_users, iterations,epochs, False, probs_for_aug[:pilot_chunk])
                 else:
-                    if not conf.enable_two_stage_train:
-                        train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                    train_loss_vect, val_loss_vect = deepsic_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
-                    else:
-                        tx_pilot_cur = tx_pilot[:int(pilot_chunk*num_bits/2),:,:]
-                        rx_pilot_cur = rx_pilot[:int(pilot_chunk / 2), :, :]
-                        train_loss_vect_1, val_loss_vect_1 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, epochs, True, probs_for_aug[:pilot_chunk])
-
-                        tx_pilot_cur = tx_pilot[int(pilot_chunk*num_bits/2):,:,:]
-                        rx_pilot_cur = rx_pilot[int(pilot_chunk / 2):, :, :]
-                        train_loss_vect_2, val_loss_vect_2 = deepsic_trainer._online_training(tx_pilot_cur, rx_pilot_cur, num_bits,
-                                                                                          n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
-                        train_loss_vect = train_loss_vect_1 + train_loss_vect_2
-                        val_loss_vect = val_loss_vect_1 + val_loss_vect_2
-
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 

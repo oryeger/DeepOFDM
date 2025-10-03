@@ -3,8 +3,8 @@ cur_str: mcs28noaug
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 4
-mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+n_users: 2
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: -1 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 3
 num_res: 24
@@ -15,7 +15,7 @@ iqmm_phase: 5 # in degrees
 epochs: 2
 iterations: 1
 num_trainings: 1
-pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
 separate_nns: False # just for 16QAM
@@ -49,7 +49,7 @@ pilot_channel_seed: -1
 channel_seed: 58
 
 run_deeprx: False
-run_deepsicsb: True
+run_deepsicsb: False
 run_deepsicmb: False
 run_deepstag: False
 run_sphere: False

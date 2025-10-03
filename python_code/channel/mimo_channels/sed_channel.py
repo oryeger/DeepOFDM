@@ -25,49 +25,6 @@ class SEDChannel:
         H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
         for re_index in range(num_res):
             H_complex[:,:,re_index] = H_real
-
-        # H_row = np.array([i for i in range(n_ant)])
-        # H_row = np.tile(H_row, [n_users, 1]).T
-        # H_column = np.array([i for i in range(n_users)])
-        # H_column = np.tile(H_column, [n_ant, 1])
-        # H_real = np.exp(-np.abs(H_row - H_column))
-        # # Frequency channel
-        # sigma = 5*num_res/4
-        # linear_phase_slope = 0.5*num_res/4
-        # freq_indexes = np.linspace(-num_res // 2, num_res // 2, num_res)
-        # ChannelFreq = np.exp(-0.5 * (freq_indexes / sigma) ** 2)
-        # ChannelFreq = np.exp(1j * freq_indexes * linear_phase_slope)*ChannelFreq
-        # ChannelFreq = ChannelFreq*num_res/np.sum(np.abs(ChannelFreq))
-        #
-        #
-        # if not spatial:
-        #     if n_users != 1:
-        #         H_real = np.eye(H_real.shape[0])
-        #     else:
-        #         H_real = np.zeros((H_real.shape[0],1))
-        #         H_real[0,0] = 1
-        #
-        #
-        # H_real = H_real * conf.interf_factor
-        # for i in range(H_real.shape[1]):
-        #     H_real[i,i] = 1
-        #
-        # H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
-        #
-        # if num_res==1:
-        #     complex_scalar = np.exp(1j * PHASE_OFFSET)
-        #     H_complex [:,:,0]= np.array(H_real * complex_scalar, dtype=complex)
-        # else:
-        #     for re_index in range(num_res):
-        #         if delayspread:
-        #             H_complex[:,:,re_index] = H_real*ChannelFreq[re_index]
-        #         else:
-        #             H_complex[:, :, re_index] = H_real
-        #
-        # if fading:
-        #     for re_index in range(num_res):
-        #         H_complex[:,:,re_index] = SEDChannel._add_fading(H_complex[:,:,re_index], n_ant, frame_ind)
-
         return H_complex
 
 

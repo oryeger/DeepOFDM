@@ -11,7 +11,6 @@ iterations: 3
 pilot_size: 10000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 full_e2e: False
-interf_factor: 1
 ber_on_one_user: -1
 sphere_radius: 'inf'
 

@@ -119,7 +119,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     axes[0].set_ylabel('Loss')
     title_string = (detector + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(
         val_samples) + ', SNR=' + str(
-        snr_cur) + ", #REs=" + str(num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(
+        snr_cur) + ", #REs=" + str(num_res) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size) + ', two_stage=' + str(conf.enable_two_stage_train))
 
@@ -1117,7 +1117,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
 
         # print('\n'+title_string)
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
-            conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
+            conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                         cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
                     iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx) + '%')
@@ -1267,7 +1267,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
         plt.xlabel('SNR (dB)')
         plt.ylabel('MI')
         title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
-            conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
+            conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                         cfo_str + ', Epochs=' + str(epochs) + ', #iters_e2e=' + str(
                     conf.iters_e2e) + ', CNN kernel size=' + str(conf.kernel_size))
         plt.title(title_string, fontsize=10)
@@ -1394,7 +1394,7 @@ def run_evaluate(deepsic_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_
     plt.xlabel('SNR (dB)')
     plt.ylabel('BER')
     title_string = (chan_text  + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(val_samples) + ", #REs=" + str(
-        conf.num_res) + ', Interf=' + str(conf.interf_factor) + ', #UEs=' + str(n_users) + '\n ' +
+        conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
                 iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
                 conf.clip_percentage_in_tx) + '%')

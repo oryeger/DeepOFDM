@@ -8,7 +8,7 @@ HIDDEN_BASE_SIZE = 64
 
 class DeepSTAGDetRe(nn.Module):
     """
-    The DeepSIC Network Architecture
+    The DeepSTAGDetRe Network Architecture
 
     ===========Architecture=========
     DeepSICNet(

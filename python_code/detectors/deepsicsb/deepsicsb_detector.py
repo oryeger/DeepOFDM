@@ -8,7 +8,7 @@ HIDDEN_BASE_SIZE = 64
 
 class DeepSICSBDetector(nn.Module):
     """
-    The DeepSIC Network Architecture
+    The DeepSICSBD Network Architecture
 
     ===========Architecture=========
     DeepSICNet(
@@ -23,12 +23,10 @@ class DeepSICSBDetector(nn.Module):
         torch.manual_seed(42)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         base_rx_size = conf.n_ants *2
-        # OryEger
-        # linear_input = base_rx_size + num_bits * (conf.n_users - 1)  # from DeepSIC paper
-        if not(conf.no_probs):
-            linear_input = base_rx_size + num_bits * conf.n_users  # from DeepSIC paper
+        if not conf.no_probs:
+            linear_input = base_rx_size + num_bits * conf.n_users
         else:
-            linear_input = base_rx_size  # from DeepSIC paper
+            linear_input = base_rx_size
 
         self.fc1 = nn.Linear(linear_input, hidden_size)
         self.activation1 = nn.ReLU()

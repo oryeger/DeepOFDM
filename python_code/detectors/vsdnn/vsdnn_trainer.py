@@ -5,7 +5,7 @@ from torch import nn
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
-from python_code.detectors.deepsic.deepsic_detector import DeepSICDetector
+from python_code.detectors.vsdnn.vsdnn_detector import DeepSICDetector
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
@@ -21,16 +21,16 @@ class DeepSICTrainer(Trainer):
         super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
-        return 'DeepSIC'
+        return 'VSDNN'
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
         self.detector = [[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
-                         range(n_users)]  # 2D list for Storing the DeepSIC Networks
+                         range(n_users)]  # 2D list for Storing the VSDNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool) -> list[float]:
         """
-        Trains a DeepSIC Network and returns the total training loss.
+        Trains a VSDNN Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -74,7 +74,7 @@ class DeepSICTrainer(Trainer):
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
-        Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
+        Main training function for VSDNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
@@ -83,7 +83,7 @@ class DeepSICTrainer(Trainer):
         else:
             initial_probs = probs_in
 
-        # Training the DeepSIC network for each user for iteration=1
+        # Training the VSDNN network for each user for iteration=1
         tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag)
         # Initializing the probabilities
@@ -93,7 +93,7 @@ class DeepSICTrainer(Trainer):
             probs_vec = probs_in.to(DEVICE)
         # Training the DeepSICNet for each user-symbol/iteration
         for i in range(1, iterations):
-            # Training the DeepSIC networks for the iteration>1
+            # Training the VSDNN networks for the iteration>1
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, 0)
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)

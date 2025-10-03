@@ -28,7 +28,7 @@ class DeepSTAGTrainer(Trainer):
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
         self.det_re = [[[DeepSTAGDetRe(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
-                         range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
+                         range(conf.num_res)]  # 2D list for Storing the DeepSTAG Networks
 
         self.det_conv = [[DeepSTAGDetConv(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in range(n_users)]  # 2D list for Storing the DeepSTAG Networks
 
@@ -46,7 +46,7 @@ class DeepSTAGTrainer(Trainer):
 
     def _train_model_re(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
         """
-        Trains a DeepSIC Network and returns the total training loss.
+        Trains a DeepSTAG Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)

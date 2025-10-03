@@ -26,11 +26,11 @@ class DeepSICMBTrainer(Trainer):
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
         self.detector = [[[DeepSICMBDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
-                         range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
+                         range(conf.num_res)]  # 2D list for Storing the DeepSICMB Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
         """
-        Trains a DeepSIC Network and returns the total training loss.
+        Trains a VSDNN Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -71,13 +71,13 @@ class DeepSICMBTrainer(Trainer):
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
-        Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
+        Main training function for DeepSICMB trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
         initial_probs = self._initialize_probs(tx, num_bits, n_users)
         tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits)
-        # Training the DeepSIC network for each user for iteration=1
+        # Training the DeepSICMB network for each user for iteration=1
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_all, num_bits, n_users, epochs)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
@@ -85,9 +85,9 @@ class DeepSICMBTrainer(Trainer):
         for i in range(1, iterations):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, probs_vec, rx_real.to(device=DEVICE), num_bits, n_users)
-            # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
+            # Obtaining the DeepSICMB networks for each user-symbol and the i-th iteration
             tx_all, rx_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users , num_bits)
-            # Training the DeepSIC networks for the iteration>1
+            # Training the DeepSICMB networks for the iteration>1
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_all, num_bits , n_users , epochs)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur

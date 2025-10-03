@@ -19,16 +19,16 @@ class DeepRxTrainer(Trainer):
         super().__init__(num_res, n_users, n_ants)
 
     def __str__(self):
-        return 'DeepSIC'
+        return 'DeepRx'
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
         self.detector = [DeepRxDetector(18,2,1, 64, num_bits, n_ants ).to(DEVICE) for _ in
-                         range(n_users)]  # 2D list for Storing the DeepSIC Networks
+                         range(n_users)]  # 2D list for Storing the DeepRx Networks
 
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits: int, epochs: int, first_half_flag: bool) -> list[float]:
         """
-        Trains a DeepSIC Network and returns the total training loss.
+        Trains a DeepRx Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -61,7 +61,7 @@ class DeepRxTrainer(Trainer):
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
-        Main training function for DeepSIC trainer.
+        Main training function for DeepRx trainer.
         """
 
         tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, n_users)

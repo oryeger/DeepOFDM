@@ -2,8 +2,7 @@ import numpy as np
 from sympy import false
 
 from python_code import conf
-from python_code.utils.constants import (PHASE_OFFSET, NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,
-                                         CP, NUM_SAMPLES_PER_SLOT)
+from python_code.utils.constants import (NUM_SYMB_PER_SLOT, FFT_size, FIRST_CP,CP, NUM_SAMPLES_PER_SLOT)
 
 import matplotlib.pyplot as plt
 import tensorflow as tf

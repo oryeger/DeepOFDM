@@ -4,7 +4,6 @@ import numpy as np
 HALF = 0.5
 TRAIN_PERCENTAGE = 80
 IS_COMPLEX = 1
-PHASE_OFFSET = np.pi / 3
 SHOW_ALL_ITERATIONS = True
 GENIE_CFO = True
 PLOT_MI = False

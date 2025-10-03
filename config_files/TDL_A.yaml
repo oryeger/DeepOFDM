@@ -13,7 +13,6 @@ kernel_size: 3
 full_e2e: False
 interf_factor: 1
 ber_on_one_user: -1
-half_probs: False
 sphere_radius: 'inf'
 
 dot_product: True

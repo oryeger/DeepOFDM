@@ -21,7 +21,6 @@ stag_re_kernel_size: 3
 full_e2e: True
 interf_factor: 1
 ber_on_one_user: -1
-half_probs: False
 sphere_radius: 200
 save_loss_plot_snr: [10]
 
@@ -59,19 +58,6 @@ run_e2e: False
 iters_e2e: 2
 no_probs: False
 separate_pilots: True
-
-
-
-#snr: 0 # validation SNR value. values: float.
-#num_snrs: 20
-#n_users: 4
-#mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-#num_res: 1
-#cfo:  0
-#epochs: 300
-#iterations: 3
-#pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
-#kernel_size: 1
 
 
 # general

@@ -29,7 +29,7 @@ for BER in [1, 0]:
     snr_ber_dict = defaultdict(lambda: {
         'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
         'ber_e2e_1': [], 'ber_e2e_2': [], 'ber_e2e_3': [], 'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
-        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_legacy': [], 'ber_sphere': []
+        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_lmmse': [], 'ber_sphere': []
     })
 
 
@@ -126,8 +126,8 @@ for BER in [1, 0]:
             if any(col.startswith("total_ber_deeprx") for col in df.columns):
                 ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
                 snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
-            ber_legacy_val = str(df["total_ber_legacy"].iloc[0]).replace("tensor(", "").replace(")", "")
-            snr_ber_dict[snr]['ber_legacy'].append(float(ber_legacy_val))
+            ber_lmmse_val = str(df["total_ber_lmmse"].iloc[0]).replace("tensor(", "").replace(")", "")
+            snr_ber_dict[snr]['ber_lmmse'].append(float(ber_lmmse_val))
             if any(col.startswith("total_ber_sphere") for col in df.columns):
                 ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
                 snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
@@ -152,7 +152,7 @@ for BER in [1, 0]:
     ber_e2e_3 = [np.mean(snr_ber_dict[snr]['ber_e2e_3']) for snr in snrs]
 
 
-    ber_legacy = [np.mean(snr_ber_dict[snr]['ber_legacy']) for snr in snrs]
+    ber_lmmse = [np.mean(snr_ber_dict[snr]['ber_lmmse']) for snr in snrs]
     ber_sphere = [np.mean(snr_ber_dict[snr]['ber_sphere']) for snr in snrs]
 
 
@@ -236,10 +236,10 @@ for BER in [1, 0]:
                      label='DeepSICe2e3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
 
-    interp_func = interp1d(ber_legacy, snrs, kind='linear', fill_value="extrapolate")
-    snr_target_legacy = np.round(interp_func(ber_target), 1)
-    plt.semilogy(snrs, ber_legacy, linestyle=dashes[4], marker=markers[4], color='r',
-                 label='Legacy, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_legacy))
+    interp_func = interp1d(ber_lmmse, snrs, kind='linear', fill_value="extrapolate")
+    snr_target_lmmse = np.round(interp_func(ber_target), 1)
+    plt.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color='r',
+                 label='lmmse, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_lmmse))
 
     if not (np.unique(ber_sphere).shape[0] == 1) and (BER == 1):
         plot_sphere = True

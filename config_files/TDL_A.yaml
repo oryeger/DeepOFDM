@@ -47,9 +47,6 @@ no_probs: False
 seed: 0 # run seed
 
 # channel
-fading_in_channel: False # If the channel is fading/non-fading. values: [True, False]
-spatial_in_channel: True # If the channel is fading/non-fading. values: [True, False]
-delayspread_in_channel: False # If the channel is fading/non-fading. values: [True, False]
 cfo_and_clip_in_rx: True
 
 

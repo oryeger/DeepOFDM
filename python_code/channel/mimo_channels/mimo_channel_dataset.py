@@ -17,17 +17,13 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, fading_in_channel: bool, spatial_in_channel: bool, delayspread_in_channel: bool,
-                 clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, n_users: int):
+    def __init__(self, block_length: int, pilots_length: int, clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, n_users: int):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
         self.tx_length = n_users
         self._h_shape = [conf.n_ants, n_users]
         self.rx_length = conf.n_ants
-        self.fading_in_channel = fading_in_channel
-        self.spatial_in_channel = spatial_in_channel
-        self.delayspread_in_channel = delayspread_in_channel
         self.clip_percentage_in_tx = clip_percentage_in_tx
         self.cfo = cfo
         self.cfo_and_clip_in_rx = cfo_and_clip_in_rx
@@ -169,6 +165,6 @@ class MIMOChannel:
 
     def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
-        h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res, index, self.fading_in_channel, self.spatial_in_channel, self.delayspread_in_channel)
+        h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res)
         tx, rx, rx_ce, s_orig = self._transmit(h, noise_var,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
         return tx, h, rx, rx_ce, s_orig

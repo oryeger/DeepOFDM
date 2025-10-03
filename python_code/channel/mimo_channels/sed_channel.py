@@ -19,7 +19,7 @@ from python_code.channel.sionna.TLD_channel import TDLChannel
 
 class SEDChannel:
     @staticmethod
-    def calculate_channel(n_ant: int, n_users: int, num_res: int, frame_ind: int, fading: bool, spatial: bool, delayspread: bool) -> np.ndarray:
+    def calculate_channel(n_ant: int, n_users: int, num_res: int) -> np.ndarray:
         H_real = SEDChannel.mapping_matrix(n_users, n_ant)
         H_complex = np.zeros((H_real.shape[0], H_real.shape[1], num_res), dtype=complex)
         for re_index in range(num_res):

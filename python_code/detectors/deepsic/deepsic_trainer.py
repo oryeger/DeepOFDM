@@ -5,7 +5,7 @@ from torch import nn
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
-from python_code.detectors.deepsicsb.deepsicsb_detector import DeepSICSBDetector
+from python_code.detectors.deepsic.deepsic_detector import DeepSICDetector
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
@@ -15,7 +15,7 @@ import numpy as np
 
 Softmax = torch.nn.Softmax(dim=1)
 
-class DeepSICSBTrainer(Trainer):
+class DeepSICTrainer(Trainer):
 
     def __init__(self, num_bits: int, n_users: int, n_ants: int):
         self.lr = 5e-3
@@ -25,7 +25,7 @@ class DeepSICSBTrainer(Trainer):
         return 'DeepSICSB'
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
-        self.detector = [[[DeepSICSBDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
+        self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
                          range(conf.num_res)]  # 2D list for Storing the DeepSICSB Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
@@ -54,7 +54,7 @@ class DeepSICSBTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[List[List[DeepSICSBDetector]]], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[List[List[DeepSICDetector]]], i: int, tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int):
         train_loss_vect_user = []
         val_loss_vect_user = []

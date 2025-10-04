@@ -27,7 +27,7 @@ for BER in [1, 0]:
         ylabel_cur = 'BLER'
 
     snr_ber_dict = defaultdict(lambda: {
-        'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsicsb_1': [], 'ber_deepsicsb_2': [], 'ber_deepsicsb_3': [],
+        'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsic_1': [], 'ber_deepsic_2': [], 'ber_deepsic_3': [],
         'ber_e2e_1': [], 'ber_e2e_2': [], 'ber_e2e_3': [], 'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
         'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_lmmse': [], 'ber_sphere': []
     })
@@ -64,21 +64,21 @@ for BER in [1, 0]:
             else:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
 
-            if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
-                if "total_ber_deepsicsb" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb"]))
-                    snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb"]))
-                    snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb"]))
+            if any(col.startswith("total_ber_deepsic") for col in df.columns):
+                if "total_ber_deepsic" in df.columns:
+                    snr_ber_dict[snr]['ber_deepsic_1'].append(float(df["total_ber_deepsic"]))
+                    snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic"]))
+                    snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsicsb_1'].append(float(df["total_ber_deepsicsb_1"]))
-                    if "total_ber_deepsicsb_2" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_2"]))
+                    snr_ber_dict[snr]['ber_deepsic_1'].append(float(df["total_ber_deepsic_1"]))
+                    if "total_ber_deepsic_2" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic_2"]))
                     else:
-                        snr_ber_dict[snr]['ber_deepsicsb_2'].append(float(df["total_ber_deepsicsb_1"]))
-                    if "total_ber_deepsicsb_3" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_3"]))
+                        snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic_1"]))
+                    if "total_ber_deepsic_3" in df.columns:
+                        snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic_3"]))
                     else:
-                        snr_ber_dict[snr]['ber_deepsicsb_3'].append(float(df["total_ber_deepsicsb_1"]))
+                        snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic_1"]))
 
             if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
                 if "total_ber_deepsicmb" in df.columns:
@@ -137,9 +137,9 @@ for BER in [1, 0]:
     ber_1 = [np.mean(snr_ber_dict[snr]['ber_1']) for snr in snrs]
     ber_2 = [np.mean(snr_ber_dict[snr]['ber_2']) for snr in snrs]
     ber_3 = [np.mean(snr_ber_dict[snr]['ber_3']) for snr in snrs]
-    ber_deepsicsb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_1']) for snr in snrs]
-    ber_deepsicsb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_2']) for snr in snrs]
-    ber_deepsicsb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicsb_3']) for snr in snrs]
+    ber_deepsic_1 = [np.mean(snr_ber_dict[snr]['ber_deepsic_1']) for snr in snrs]
+    ber_deepsic_2 = [np.mean(snr_ber_dict[snr]['ber_deepsic_2']) for snr in snrs]
+    ber_deepsic_3 = [np.mean(snr_ber_dict[snr]['ber_deepsic_3']) for snr in snrs]
     ber_deepsicmb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_1']) for snr in snrs]
     ber_deepsicmb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_2']) for snr in snrs]
     ber_deepsicmb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_3']) for snr in snrs]
@@ -164,15 +164,15 @@ for BER in [1, 0]:
     interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
     snr_target = np.round(interp_func(ber_target), 1)
     plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
-                 label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target))
+                 label='VSDNN1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target))
 
     interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
-                 label='DeepSIC2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='VSDNN2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
-                 label='DeepSIC3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='VSDNN3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     if np.unique(ber_deeprx).shape[0] != 1:
         interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
@@ -180,20 +180,20 @@ for BER in [1, 0]:
         plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
                      label='DeepRx, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deeprx))
 
-    if any(col.startswith("total_ber_deepsicsb") for col in df.columns):
-        interp_func = interp1d(ber_deepsicsb_1, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_deepsicsb = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_deepsicsb_1, linestyle=dashes[0], marker=markers[0], color='orange',
-                     label='DeepSICSB1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deepsicsb))
-        ber_deepsicsb = ber_deepsicsb_1
+    if any(col.startswith("total_ber_deepsic") for col in df.columns):
+        interp_func = interp1d(ber_deepsic_1, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_deepsic = np.round(interp_func(ber_target), 1)
+        plt.semilogy(snrs, ber_deepsic_1, linestyle=dashes[0], marker=markers[0], color='orange',
+                     label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deepsic))
+        ber_deepsic = ber_deepsic_1
 
-        interp_func = interp1d(ber_deepsicsb_2, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsicsb_2, linestyle=dashes[1], marker=markers[1], color='orange',
-                     label='DeepSICSB2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+        interp_func = interp1d(ber_deepsic_2, snrs, kind='linear', fill_value="extrapolate")
+        plt.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color='orange',
+                     label='DeepSIC2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
-        interp_func = interp1d(ber_deepsicsb_3, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsicsb_3, linestyle=dashes[2], marker=markers[2], color='orange',
-                     label='DeepSICSB3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+        interp_func = interp1d(ber_deepsic_3, snrs, kind='linear', fill_value="extrapolate")
+        plt.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color='orange',
+                     label='DeepSIC3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
         interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")

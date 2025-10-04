@@ -6,12 +6,12 @@ from python_code import conf
 
 HIDDEN_BASE_SIZE = 64
 
-class DeepSICSBDetector(nn.Module):
+class DeepSICDetector(nn.Module):
     """
-    The DeepSICSBD Network Architecture
+    The DeepSIC Network Architecture
 
     ===========Architecture=========
-    DeepSICSBDetector(
+    DeepSICDetector(
       (fullyConnectedLayer): Linear(...)
       (reluLayer): ReLU()
       (fullyConnectedLayer2): Linear(...)
@@ -19,7 +19,7 @@ class DeepSICSBDetector(nn.Module):
     """
 
     def __init__(self, num_bits, n_users):
-        super(DeepSICSBDetector, self).__init__()
+        super(DeepSICDetector, self).__init__()
         torch.manual_seed(42)
         hidden_size = HIDDEN_BASE_SIZE * num_bits
         base_rx_size = conf.n_ants *2

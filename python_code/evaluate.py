@@ -6,7 +6,7 @@ import time
 from python_code.detectors.vsdnn.vsdnn_trainer import VSDNNTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
-from python_code.detectors.deepsicsb.deepsicsb_trainer import DeepSICSBTrainer
+from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deepsicmb.deepsicmb_trainer import DeepSICMBTrainer
 from python_code.detectors.deepstag.deepstag_trainer import DeepSTAGTrainer
 
@@ -136,7 +136,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     return fig
 
 
-def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer, deepsicmb_trainer, deepstag_trainer) -> List[float]:
+def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -182,8 +182,8 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
     total_ber_list = [[] for _ in range(iterations)]
     total_bler_list = [[] for _ in range(iterations)]
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
-    total_ber_deepsicsb_list = [[] for _ in range(iterations)]
-    total_bler_deepsicsb_list = [[] for _ in range(iterations)]
+    total_ber_deepsic_list = [[] for _ in range(iterations)]
+    total_bler_deepsic_list = [[] for _ in range(iterations)]
     total_ber_deepsicmb_list = [[] for _ in range(iterations)]
     total_ber_deepstag_list = [[] for _ in range(iterations*2)]
     total_ber_deeprx = []
@@ -229,10 +229,10 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
     else:
         run_sphere = False
 
-    if conf.run_deepsicsb or conf.which_augment == 'AUGMENT_DEEPSICSB':
-        run_deepsicsb = True
+    if conf.run_deepsic or conf.which_augment == 'AUGMENT_DEEPSIC':
+        run_deepsic = True
     else:
-        run_deepsicsb = False
+        run_deepsic = False
 
     if conf.run_deeprx or conf.which_augment == 'AUGMENT_DEEPRX':
         run_deeprx = True
@@ -242,7 +242,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
     for snr_cur in SNR_range:
         ber_sum = np.zeros(iterations)
         ber_per_re = np.zeros((iterations, conf.num_res))
-        ber_per_re_deepsicsb = np.zeros((iterations, conf.num_res))
+        ber_per_re_deepsic = np.zeros((iterations, conf.num_res))
         ber_per_re_deepsicmb = np.zeros((iterations, conf.num_res))
         ber_per_re_deepstag = np.zeros((iterations*2, conf.num_res))
         ber_sum_e2e = np.zeros(iters_e2e_disp)
@@ -250,14 +250,14 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
         ber_sum_lmmse = 0
         ber_per_re_lmmse = np.zeros(conf.num_res)
         ber_sum_sphere = 0
-        ber_sum_deepsicsb = np.zeros(iterations)
+        ber_sum_deepsic = np.zeros(iterations)
         ber_sum_deepsicmb = np.zeros(iterations)
         ber_sum_deepstag = np.zeros(iterations*2)
         vsdnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
-        if run_deepsicsb:
-            deepsicsb_trainer._initialize_detector(num_bits, n_users, n_ants)
+        if run_deepsic:
+            deepsic_trainer._initialize_detector(num_bits, n_users, n_ants)
 
         if conf.run_deepsicmb:
             deepsicmb_trainer._initialize_detector(num_bits, n_users, n_ants)
@@ -386,15 +386,15 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 
-            if run_deepsicsb:
-                if deepsicsb_trainer.is_online_training:
-                    train_loss_vect_deepsicsb, val_loss_vect_deepsicsb = deepsicsb_trainer._online_training(
+            if run_deepsic:
+                if deepsic_trainer.is_online_training:
+                    train_loss_vect_deepsic, val_loss_vect_deepsic = deepsic_trainer._online_training(
                         tx_pilot, rx_pilot, num_bits, n_users, iterations, epochs, False, torch.empty(0))
-                    detected_word_deepsicsb_list, llrs_mat_deepsicsb_list = deepsicsb_trainer._forward(rx_data, num_bits, n_users,
+                    detected_word_deepsic_list, llrs_mat_deepsic_list = deepsic_trainer._forward(rx_data, num_bits, n_users,
                                                                                          iterations, torch.empty(0))
-                    if conf.which_augment == 'AUGMENT_DEEPSICSB':
-                        _ , llrs_mat_deepsicsb_pilot_list = deepsicsb_trainer._forward(rx_pilot, num_bits, n_users, iterations, torch.empty(0))
-                        probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deepsicsb_pilot_list[0]), torch.sigmoid(llrs_mat_deepsicsb_list[0])), dim=0).cpu()
+                    if conf.which_augment == 'AUGMENT_DEEPSIC':
+                        _ , llrs_mat_deepsic_pilot_list = deepsic_trainer._forward(rx_pilot, num_bits, n_users, iterations, torch.empty(0))
+                        probs_for_aug = torch.cat((torch.sigmoid(llrs_mat_deepsic_pilot_list[0]), torch.sigmoid(llrs_mat_deepsic_list[0])), dim=0).cpu()
                         probs_for_aug = probs_for_aug.unsqueeze(-1)
 
             if run_deeprx:
@@ -505,23 +505,23 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                     else:
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(), num_bits)
 
-                if run_deepsicsb:
+                if run_deepsic:
                     for iteration in range(iterations):
-                        detected_word_cur_re_deepsicsb = detected_word_deepsicsb_list[iteration][:, :, re]
-                        detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.squeeze(-1)
-                        detected_word_cur_re_deepsicsb = detected_word_cur_re_deepsicsb.reshape(int(tx_data.shape[0] / num_bits),
+                        detected_word_cur_re_deepsic = detected_word_deepsic_list[iteration][:, :, re]
+                        detected_word_cur_re_deepsic = detected_word_cur_re_deepsic.squeeze(-1)
+                        detected_word_cur_re_deepsic = detected_word_cur_re_deepsic.reshape(int(tx_data.shape[0] / num_bits),
                                                                                     n_users,
                                                                                     num_bits).swapaxes(1, 2).reshape(
                             tx_data.shape[0],
                             n_users)
                         if conf.ber_on_one_user >= 0:
-                            ber_deepsicsb = calculate_ber(
-                                detected_word_cur_re_deepsicsb[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                            ber_deepsic = calculate_ber(
+                                detected_word_cur_re_deepsic[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
                                 target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
                         else:
-                            ber_deepsicsb = calculate_ber(detected_word_cur_re_deepsicsb.cpu(), target.cpu(), num_bits)
-                        ber_sum_deepsicsb[iteration] += ber_deepsicsb
-                        ber_per_re_deepsicsb[iteration, re] = ber_deepsicsb
+                            ber_deepsic = calculate_ber(detected_word_cur_re_deepsic.cpu(), target.cpu(), num_bits)
+                        ber_sum_deepsic[iteration] += ber_deepsic
+                        ber_per_re_deepsic[iteration, re] = ber_deepsic
 
 
                 if conf.run_deepsicmb:
@@ -578,7 +578,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
 
             # LDPC decoding
             bler_list = [None] * iterations
-            bler_deepsicsb_list = [None] * iterations
+            bler_deepsic_list = [None] * iterations
             if conf.mcs>-1:
                 if ldpc_k > 3824:
                     crc_length = 24
@@ -591,7 +591,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                     llr_all_res_lmmse = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_sphere = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_deeprx = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
-                    llr_all_res_deepsicsb = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
+                    llr_all_res_deepsic = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
                         # VSDNN
                         llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
@@ -617,14 +617,14 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                         tx_data.shape[0], n_users)
                         llr_all_res_sphere[:,re::conf.num_res] = llr_cur_re_sphere.swapaxes(0, 1)
 
-                        # DeepSICSB
-                        if run_deepsicsb:
-                            llr_cur_re_deepsicsb = llrs_mat_deepsicsb_list[iteration][:, :, re]
-                            llr_cur_re_deepsicsb = llr_cur_re_deepsicsb.squeeze(-1)
-                            llr_cur_re_deepsicsb = llr_cur_re_deepsicsb.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                        # DeepSIC
+                        if run_deepsic:
+                            llr_cur_re_deepsic = llrs_mat_deepsic_list[iteration][:, :, re]
+                            llr_cur_re_deepsic = llr_cur_re_deepsic.squeeze(-1)
+                            llr_cur_re_deepsic = llr_cur_re_deepsic.reshape(int(tx_data.shape[0] / num_bits), n_users,
                                                                             num_bits).swapaxes(1, 2).reshape(
                             tx_data.shape[0], n_users)
-                            llr_all_res_deepsicsb[:,re::conf.num_res] = llr_cur_re_deepsicsb.swapaxes(0, 1).cpu()
+                            llr_all_res_deepsic[:,re::conf.num_res] = llr_cur_re_deepsic.swapaxes(0, 1).cpu()
 
 
                         # DeepRx
@@ -641,7 +641,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                     crc_count_lmmse = 0
                     crc_count_sphere = 0
                     crc_count_deeprx = 0
-                    crc_count_deepsicsb = 0
+                    crc_count_deepsic = 0
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
@@ -657,19 +657,19 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                             decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_deeprx = crc.decode(decodedwords_deeprx)
                             crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
-                        if run_deepsicsb:
-                            decodedwords_deepsicsb = codec.decode(llr_all_res_deepsicsb[:, slot * ldpc_n:(slot + 1) * ldpc_n])
-                            crc_out_deepsicsb = crc.decode(decodedwords_deepsicsb)
-                            crc_count_deepsicsb += (~crc_out_deepsicsb).numpy().astype(int).sum()
+                        if run_deepsic:
+                            decodedwords_deepsic = codec.decode(llr_all_res_deepsic[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                            crc_out_deepsic = crc.decode(decodedwords_deepsic)
+                            crc_count_deepsic += (~crc_out_deepsic).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
 
-                    if run_deepsicsb:
-                        bler_deepsicsb_list[iteration] = crc_count_deepsicsb / (num_slots * n_users)
-                        total_bler_deepsicsb_list[iteration].append(bler_deepsicsb_list[iteration])
+                    if run_deepsic:
+                        bler_deepsic_list[iteration] = crc_count_deepsic / (num_slots * n_users)
+                        total_bler_deepsic_list[iteration].append(bler_deepsic_list[iteration])
                     else:
-                        bler_deepsicsb_list[iteration] = 0
-                        total_bler_deepsicsb_list[iteration].append(bler_deepsicsb_list[iteration])
+                        bler_deepsic_list[iteration] = 0
+                        total_bler_deepsic_list[iteration].append(bler_deepsic_list[iteration])
 
                     if iteration == 0:
                         bler_lmmse = crc_count_lmmse / (num_slots * n_users)
@@ -693,8 +693,8 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                 for iteration in range(iterations):
                     bler_list[iteration] = 0
                     total_bler_list[iteration].append(0)
-                    bler_deepsicsb_list[iteration] = 0
-                    total_bler_deepsicsb_list[iteration].append(0)
+                    bler_deepsic_list[iteration] = 0
+                    total_bler_deepsic_list[iteration].append(0)
                 bler_lmmse = 0
                 total_bler_lmmse.append(0)
                 total_bler_sphere.append(0)
@@ -732,11 +732,11 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
             ber_sphere = ber_sum_sphere / num_res
             ber_deeprx = ber_sum_deeprx / num_res
 
-            ber_deepsicsb_list = [None] * iterations
+            ber_deepsic_list = [None] * iterations
             for iteration in range(iterations):
-                # ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / (num_res - 2*conf.kernel_size)
-                ber_deepsicsb_list[iteration] = ber_sum_deepsicsb[iteration]  / num_res
-                total_ber_deepsicsb_list[iteration].append(ber_deepsicsb_list[iteration])
+                # ber_deepsic_list[iteration] = ber_sum_deepsic[iteration]  / (num_res - 2*conf.kernel_size)
+                ber_deepsic_list[iteration] = ber_sum_deepsic[iteration]  / num_res
+                total_ber_deepsic_list[iteration].append(ber_deepsic_list[iteration])
 
             ber_deepsicmb_list = [None] * iterations
             for iteration in range(iterations):
@@ -764,10 +764,10 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                 if conf.mcs>-1:
                     print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi}')
 
-            if run_deepsicsb:
-                print(f'current DeepSICSB: {block_ind, float(ber_deepsicsb_list[iterations - 1])}')
+            if run_deepsic:
+                print(f'current DeepSIC: {block_ind, float(ber_deepsic_list[iterations - 1])}')
                 if conf.mcs > -1:
-                    print(f'current DeepSICSB BLER: {block_ind, float(bler_deepsicsb_list[iterations - 1])}')
+                    print(f'current DeepSIC BLER: {block_ind, float(bler_deepsic_list[iterations - 1])}')
             if conf.run_deepsicmb:
                 print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
             if conf.run_deepstag:
@@ -798,10 +798,10 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur, "DeepRx", 3,
                                train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0)
-        if run_deepsicsb:
+        if run_deepsic:
             for iteration in range(iterations):
-                fig_deepsicsb = plot_loss_and_LLRs(train_loss_vect_deepsicsb, val_loss_vect_deepsicsb, llrs_mat_deepsicsb_list[iteration], snr_cur, "DeepSICSB", 3,
-                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsicsb_list[iteration], ber_lmmse, conf.iterations)
+                fig_deepsic = plot_loss_and_LLRs(train_loss_vect_deepsic, val_loss_vect_deepsic, llrs_mat_deepsic_list[iteration], snr_cur, "DeepSIC", 3,
+                                   train_samples, val_samples, mod_text, cfo_str, ber_deepsic_list[iteration], ber_lmmse, conf.iterations)
 
 
         if conf.run_deepsicmb:
@@ -836,9 +836,9 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
         for i in range(iters_e2e_disp):
             data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
 
-        if run_deepsicsb:
+        if run_deepsic:
             for i in range(conf.iterations):
-                data[f"total_ber_deepsicsb_{i + 1}"] = total_ber_deepsicsb_list[i]
+                data[f"total_ber_deepsic_{i + 1}"] = total_ber_deepsic_list[i]
 
         if conf.run_deepsicmb:
             for i in range(conf.iterations):
@@ -862,9 +862,9 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
         for i in range(conf.iterations):
             data_bler[f"total_ber_{i + 1}"] = total_bler_list[i]
 
-        if run_deepsicsb:
+        if run_deepsic:
             for i in range(conf.iterations):
-                data_bler[f"total_ber_deepsicsb_{i + 1}"] = total_bler_deepsicsb_list[i]
+                data_bler[f"total_ber_deepsic_{i + 1}"] = total_bler_deepsic_list[i]
 
 
         df_bler = pd.DataFrame(data_bler)
@@ -896,13 +896,13 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
 
         fig, ax = plt.subplots()
         for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re_deepsicsb[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))
+            plt.plot(np.arange(conf.num_res), ber_per_re_deepsic[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))
         ax.legend()
-        ax.set_title('DeepSICSB, ' + title_string)
+        ax.set_title('DeepSIC, ' + title_string)
         ax.grid(True)
         fig.tight_layout()
         plt.show()
-        fig_deepsicsb_per_re = fig
+        fig_deepsic_per_re = fig
 
         fig, ax = plt.subplots()
         for iter in range(iterations):
@@ -967,13 +967,13 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
             fig_lmmse_per_re.savefig(file_path)
 
 
-            if run_deepsicsb:
-                title_string_cur = "deepsicsb_"+title_string
+            if run_deepsic:
+                title_string_cur = "deepsic_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsicsb.savefig(file_path)
-                title_string_cur = "deepsicsb_per_re_"+title_string
+                fig_deepsic.savefig(file_path)
+                title_string_cur = "deepsic_per_re_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsicsb_per_re.savefig(file_path)
+                fig_deepsic_per_re.savefig(file_path)
             if conf.run_deepsicmb:
                 title_string_cur = "deepsicmb_"+title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
@@ -1022,7 +1022,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
 
     snr_at_target_list = np.zeros(iterations)
     snr_at_target_e2e_list = np.zeros(iters_e2e)
-    snr_at_target_deepsicsb_list = np.zeros(iterations)
+    snr_at_target_deepsic_list = np.zeros(iterations)
     snr_at_target_deepsicmb_list = np.zeros(iterations)
     snr_at_target_deepstag_list = np.zeros(iterations)
     if len(SNR_range) > 1:
@@ -1036,11 +1036,11 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                                        fill_value="extrapolate")
                 snr_at_target_e2e_list[iteration] = np.round(interp_func(bler_target), 1)
 
-        if run_deepsicsb:
+        if run_deepsic:
             for iteration in range(iterations):
-                interp_func = interp1d(total_ber_deepsicsb_list[iteration], SNR_range, kind='linear',
+                interp_func = interp1d(total_ber_deepsic_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
-                snr_at_target_deepsicsb_list[iteration] = np.round(interp_func(bler_target), 1)
+                snr_at_target_deepsic_list[iteration] = np.round(interp_func(bler_target), 1)
         if conf.run_deepsicmb:
             for iteration in range(iterations):
                 interp_func = interp1d(total_ber_deepsicmb_list[iteration], SNR_range, kind='linear',
@@ -1066,9 +1066,9 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
                 snr_at_target_e2e_list[iteration] = float('inf')
         if run_deeprx:
             snr_at_target_deeprx = float('inf')
-        if run_deepsicsb:
+        if run_deepsic:
             for iteration in range(iterations):
-                snr_at_target_deepsicsb_list[iteration] = float('inf')
+                snr_at_target_deepsic_list[iteration] = float('inf')
         if conf.run_deepsicmb:
             for iteration in range(iterations):
                 snr_at_target_deepsicmb_list[iteration] = float('inf')
@@ -1097,11 +1097,11 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_tr
             plt.semilogy(SNR_range, total_ber_e2e_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='m',
                          label=e2e_text + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_e2e_list[iteration]))
-    if run_deepsicsb:
+    if run_deepsic:
         for iteration in range(iterations):
-            plt.semilogy(SNR_range, total_ber_deepsicsb_list[iteration], linestyle=dashes[iteration],
+            plt.semilogy(SNR_range, total_ber_deepsic_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='orange',
-                         label='DeepSICSB' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsicsb_list[iteration]))
+                         label='DeepSIC' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_deepsic_list[iteration]))
     if conf.run_deepsicmb:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_ber_deepsicmb_list[iteration], linestyle=dashes[iteration],
@@ -1160,7 +1160,7 @@ if __name__ == '__main__':
     vsdnn_trainer = VSDNNTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
-    deepsicsb_trainer = DeepSICSBTrainer(num_bits, conf.n_users, conf.n_ants)
+    deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsicmb_trainer = DeepSICMBTrainer(num_bits, conf.n_users, conf.n_ants)
     deepstag_trainer = DeepSTAGTrainer(num_bits, conf.n_users, conf.n_ants)
 
@@ -1193,14 +1193,14 @@ if __name__ == '__main__':
     # )
     # print(f"Parameters DeepRx: {total_params}")
     #
-    # detectors = deepsicsb_trainer.detector
+    # detectors = deepsic_trainer.detector
     # total_params = sum(
     #     p.numel()
     #     for module in iter_modules(detectors)  # your nested structure
     #     for p in module.parameters()
     #     if p.requires_grad
     # )
-    # print(f"Parameters DeepSICSB: {total_params}")
+    # print(f"Parameters DeepSIC: {total_params}")
     #
     # detectors = deepsicmb_trainer.detector
     # total_params = sum(
@@ -1229,7 +1229,7 @@ if __name__ == '__main__':
     # print(f"Parameters DeepSTAG: {total_params_conv+total_params_re}")
 
 
-    run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsicsb_trainer, deepsicmb_trainer, deepstag_trainer)
+    run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

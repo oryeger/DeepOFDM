@@ -7,7 +7,7 @@ if [ $# -ne 1 ]; then
 fi
 
 new_line="$1"
-target_file="run_deepsic_batch.bash"
+target_file="run_vsdnn_batch.bash"
 
 # Escape slashes for sed
 escaped_line=$(printf '%s\n' "$new_line" | sed 's/[&/\]/\\&/g')

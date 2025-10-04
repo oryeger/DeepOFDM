@@ -11,7 +11,7 @@ class DeepSTAGDetRe(nn.Module):
     The DeepSTAGDetRe Network Architecture
 
     ===========Architecture=========
-    DeepSICNet(
+    DeepSTAGDetRe(
       (fullyConnectedLayer): Linear(...)
       (reluLayer): ReLU()
       (fullyConnectedLayer2): Linear(...)

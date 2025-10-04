@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import time
-from python_code.detectors.vsdnn.vsdnn_trainer import DeepSICTrainer
+from python_code.detectors.vsdnn.vsdnn_trainer import VSDNNTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
 from python_code.detectors.deepsicsb.deepsicsb_trainer import DeepSICSBTrainer
@@ -1157,7 +1157,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))
-    vsdnn_trainer = DeepSICTrainer(num_bits, conf.n_users, conf.n_ants)
+    vsdnn_trainer = VSDNNTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
     deepsicsb_trainer = DeepSICSBTrainer(num_bits, conf.n_users, conf.n_ants)

@@ -5,7 +5,7 @@ from torch import nn
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
-from python_code.detectors.vsdnn.vsdnn_detector import DeepSICDetector
+from python_code.detectors.vsdnn.vsdnn_detector import VSDNNDetector
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
@@ -14,7 +14,7 @@ from python_code.utils.probs_utils import ensure_tensor_iterable
 
 Softmax = torch.nn.Softmax(dim=1)
 
-class DeepSICTrainer(Trainer):
+class VSDNNTrainer(Trainer):
 
     def __init__(self, num_bits: int, n_users: int, n_ants: int):
         self.lr = 5e-3
@@ -25,7 +25,7 @@ class DeepSICTrainer(Trainer):
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
-        self.detector = [[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
+        self.detector = [[VSDNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)]  # 2D list for Storing the VSDNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool) -> list[float]:
@@ -58,7 +58,7 @@ class DeepSICTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[List[DeepSICDetector]], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[List[VSDNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):
         train_loss_vect_user = []
         val_loss_vect_user = []
@@ -91,7 +91,7 @@ class DeepSICTrainer(Trainer):
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         else:
             probs_vec = probs_in.to(DEVICE)
-        # Training the DeepSICNet for each user-symbol/iteration
+        # Training the VSDNN for each user-symbol/iteration
         for i in range(1, iterations):
             # Training the VSDNN networks for the iteration>1
             # Generating soft symbols for training purposes

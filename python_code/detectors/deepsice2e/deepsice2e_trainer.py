@@ -92,7 +92,7 @@ class DeepSICe2eTrainer(Trainer):
         else:
             train_loss_vect, val_loss_vect = self._train_model(self.detector[0], tx_cur, rx_prob,num_bits, epochs, 0)
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
-            # Training the DeepSICNet for each user-symbol/iteration
+            # Training the DeepSICe2e for each user-symbol/iteration
             for i in range(1, iters_e2e):
                 probs_vec, llrs_mat = self._calculate_posteriors(self.detector, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec,num_bits, n_users,i)
                 # Training the DeepSICe2e networks for the iteration>1

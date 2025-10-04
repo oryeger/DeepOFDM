@@ -81,7 +81,7 @@ class DeepSICMBTrainer(Trainer):
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_all, num_bits, n_users, epochs)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
-        # Training the DeepSICNet for each user-symbol/iteration
+        # Training the DeepSICMB for each user-symbol/iteration
         for i in range(1, iterations):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, probs_vec, rx_real.to(device=DEVICE), num_bits, n_users)

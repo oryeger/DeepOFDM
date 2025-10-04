@@ -11,7 +11,7 @@ class DeepSICMBDetector(nn.Module):
     The DeepSICMB Network Architecture
 
     ===========Architecture=========
-    DeepSICNet(
+    DeepSICMBDetector(
       (fullyConnectedLayer): Linear(...)
       (reluLayer): ReLU()
       (fullyConnectedLayer2): Linear(...)

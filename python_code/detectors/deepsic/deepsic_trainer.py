@@ -22,15 +22,15 @@ class DeepSICTrainer(Trainer):
         super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
-        return 'DeepSICSB'
+        return 'DeepSIC'
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
         self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
-                         range(conf.num_res)]  # 2D list for Storing the DeepSICSB Networks
+                         range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
         """
-        Trains a DeepSICSB Network and returns the total training loss.
+        Trains a DeepSIC Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -71,23 +71,23 @@ class DeepSICTrainer(Trainer):
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
-        Main training function for DeepSICSB trainer. Initializes the probabilities, then propagates them through the
+        Main training function for DeepSIC trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
         initial_probs = self._initialize_probs(tx, num_bits, n_users)
         tx_all, rx_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users, num_bits)
-        # Training the DeepSICSB network for each user for iteration=1
+        # Training the DeepSIC network for each user for iteration=1
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_all, num_bits, n_users, epochs)
         # Initializing the probabilities
         probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
-        # Training the DeepSICSB for each user-symbol/iteration
+        # Training the DeepSIC for each user-symbol/iteration
         for i in range(1, iterations):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, probs_vec, rx_real.to(device=DEVICE), num_bits, n_users)
-            # Obtaining the DeepSICSB networks for each user-symbol and the i-th iteration
+            # Obtaining the DeepSIC networks for each user-symbol and the i-th iteration
             tx_all, rx_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users , num_bits)
-            # Training the DeepSICSB networks for the iteration>1
+            # Training the DeepSIC networks for the iteration>1
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_all, num_bits , n_users , epochs)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur
@@ -138,12 +138,6 @@ class DeepSICTrainer(Trainer):
             else:
                 max_value = probs_vec.shape[1]
                 all_values = list(range(max_value))
-
-                # Compute the excluded range for the current `i`
-                exclude_start = k*num_bits
-                exclude_end = (k+1)*num_bits
-                # oryeger
-                # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
                 idx = all_values
 
             if not(conf.no_probs):
@@ -185,10 +179,8 @@ class DeepSICTrainer(Trainer):
                     # Compute the excluded range for the current `i`
                     exclude_start = user*num_bits
                     exclude_end = (user+1)*num_bits
-                    # oryeger
                     idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
                     user_indexes = np.setdiff1d(all_values, idx)
-                    # oryeger
                     idx = all_values
                     local_user_indexes = range(0, num_bits)
 

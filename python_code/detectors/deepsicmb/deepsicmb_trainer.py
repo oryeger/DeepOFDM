@@ -30,7 +30,7 @@ class DeepSICMBTrainer(Trainer):
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
         """
-        Trains a VSDNN Network and returns the total training loss.
+        Trains a DeepSICMB Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -133,19 +133,6 @@ class DeepSICMBTrainer(Trainer):
         tx_all = []
         rx_all = []
         for k in range(n_users):
-            if conf.mod_pilot <= 2:
-                idx = [user_i for user_i in range(n_users) if user_i != k]
-            else:
-                max_value = probs_vec.shape[1]
-                all_values = list(range(max_value))
-
-                # Compute the excluded range for the current `i`
-                exclude_start = k*num_bits
-                exclude_end = (k+1)*num_bits
-                # oryeger
-                # idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
-                idx = all_values
-
             kernel_size = conf.kernel_size
             half_kernel = int((conf.kernel_size-1)/2)
             n_probs_per_re = probs_vec.shape[1]
@@ -200,7 +187,6 @@ class DeepSICMBTrainer(Trainer):
         for re in range(conf.num_res):
             for user in range(n_users):
                 if conf.mod_pilot <= 2:
-                    idx = [user_i for user_i in range(n_users) if user_i != user]
                     user_indexes = user
                     local_user_indexes = 0
                 else:
@@ -210,11 +196,8 @@ class DeepSICMBTrainer(Trainer):
                     # Compute the excluded range for the current `i`
                     exclude_start = user*num_bits
                     exclude_end = (user+1)*num_bits
-                    # oryeger
                     idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
                     user_indexes = np.setdiff1d(all_values, idx)
-                    # oryeger
-                    idx = all_values
                     local_user_indexes = range(0, num_bits)
 
                 n_probs_per_re = probs_vec.shape[1]

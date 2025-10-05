@@ -289,11 +289,8 @@ class DeepSTAGTrainer(Trainer):
                     # Compute the excluded range for the current `i`
                     exclude_start = user*num_bits
                     exclude_end = (user+1)*num_bits
-                    # oryeger
                     idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
                     user_indexes = np.setdiff1d(all_values, idx)
-                    # oryeger
-                    idx = all_values
                     local_user_indexes = range(0, num_bits)
 
 

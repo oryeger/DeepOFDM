@@ -27,9 +27,9 @@ class DeepSICe2eTrainer(Trainer):
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
         if conf.full_e2e:
-            self.detector = [DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(1)]   # 2D list for Storing the DeepSICSB Networks
+            self.detector = [DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(1)]   # 2D list for Storing the DeepSICe2e Networks
         else:
-            self.detector = [DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(conf.iters_e2e)]  # 2D list for Storing the DeepSICSB Networks
+            self.detector = [DeepSICe2eDetector(num_bits, n_users).to(DEVICE)  for _ in  range(conf.iters_e2e)]  # 2D list for Storing the DeepSICe2e Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits: int, epochs: int, iters_vec: torch.Tensor) -> Tuple[List[float], List[float]]:
         """

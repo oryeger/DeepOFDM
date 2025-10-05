@@ -275,9 +275,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                               blocks_num=conf.blocks_num,
                                               num_res=conf.num_res,
                                               clip_percentage_in_tx=conf.clip_percentage_in_tx,
-                                              cfo=conf.cfo,
-                                              go_to_td=conf.go_to_td,
-                                              cfo_and_clip_in_rx=conf.cfo_and_clip_in_rx,
+                                              cfo_and_iqmm_in_rx=conf.cfo_and_iqmm_in_rx,
                                               kernel_size=conf.kernel_size,
                                               n_users=n_users)
 

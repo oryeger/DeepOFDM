@@ -17,7 +17,7 @@ class ChannelModelDataset(Dataset):
     """
 
     def __init__(self, block_length: int, pilots_length: int, blocks_num: int, num_res: int,
-                 clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, kernel_size: int, n_users: int):
+                 clip_percentage_in_tx: int, cfo_and_iqmm_in_rx: bool, kernel_size: int, n_users: int):
         """
         Initialzes the relevant hyperparameters
         :param block_length: number of pilots + data bits
@@ -30,7 +30,7 @@ class ChannelModelDataset(Dataset):
             self.block_length = block_length
         else:
             self.block_length = pilots_length*conf.block_length_factor
-        self.channel_type = MIMOChannel(self.block_length, pilots_length, clip_percentage_in_tx, cfo, go_to_td, cfo_and_clip_in_rx, n_users)
+        self.channel_type = MIMOChannel(self.block_length, pilots_length, clip_percentage_in_tx, cfo_and_iqmm_in_rx, n_users)
         self.num_res = num_res
         self.kernel_size = kernel_size
 
@@ -54,7 +54,7 @@ class ChannelModelDataset(Dataset):
 
         database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full))
 
-    def __getitem__(self, noise_var_list: List[float], num_bits: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.complex, torch.complex]:
+    def __getitem__(self, noise_var_list: List[float], num_bits: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         database = []
         # do not change max_workers
         with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:

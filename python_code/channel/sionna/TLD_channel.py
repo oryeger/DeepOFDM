@@ -53,7 +53,7 @@ from typing import Tuple
 
 class TDLChannel:
     @staticmethod
-    def conv_and_noise(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
+    def conv_cir(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
         sionna.config.seed = seed
 
@@ -101,10 +101,6 @@ class TDLChannel:
             y_out_cur_slot = y_out_cur_slot[:,:,:,TA:-l_tot+1+TA]
             y_out[:,:,:,slot*num_time_samples:(slot+1)*num_time_samples] = y_out_cur_slot.numpy()
         y_out = np.reshape(y_out, (1, conf.n_ants, int(NUM_SAMPLES_PER_SLOT*num_slots)))
-        # y_out = y_out.numpy()
-        # np.save('C:\\Projects\\Scratchpad\\output.npy', y_out)
-        # y_out_2 = np.load('C:\\Projects\\Scratchpad\\output.npy')
-
         return y_out, h_time
 
 

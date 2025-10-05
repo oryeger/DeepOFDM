@@ -276,7 +276,7 @@ for BER in [1, 0]:
     plt.show()
 
 
-relevant = 'deeprx'
+relevant = 'deepsic'
 snr_target_no_aug = globals()['snr_target_' + relevant]
 ber_no_aug =  globals()['ber_' + relevant]
 

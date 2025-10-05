@@ -47,10 +47,7 @@ no_probs: False
 seed: 0 # run seed
 
 # channel
-cfo_and_clip_in_rx: True
-
-
-go_to_td: True
+cfo_and_iqmm_in_rx: True
 
 
 # validation phase protocol

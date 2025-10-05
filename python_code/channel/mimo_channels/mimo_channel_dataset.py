@@ -17,7 +17,7 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, clip_percentage_in_tx: int, cfo: int, go_to_td: bool, cfo_and_clip_in_rx: bool, n_users: int):
+    def __init__(self, block_length: int, pilots_length: int, clip_percentage_in_tx: int, cfo_and_iqmm_in_rx: bool, n_users: int):
         self._block_length = block_length
         self._pilots_length = pilots_length
         self._bits_generator = default_rng(seed=conf.seed)
@@ -25,9 +25,7 @@ class MIMOChannel:
         self._h_shape = [conf.n_ants, n_users]
         self.rx_length = conf.n_ants
         self.clip_percentage_in_tx = clip_percentage_in_tx
-        self.cfo = cfo
-        self.cfo_and_clip_in_rx = cfo_and_clip_in_rx
-        self.go_to_td = go_to_td
+        self.cfo_and_iqmm_in_rx = cfo_and_iqmm_in_rx
 
 
     def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
@@ -84,13 +82,18 @@ class MIMOChannel:
 
         s_orig = np.copy(s)
 
-        cfo_tx = self.cfo
-        if self.cfo_and_clip_in_rx:
+        if not self.cfo_and_iqmm_in_rx:
+            cfo_tx = conf.cfo
+            iqmm_gain = conf.iqmm_gain
+            iqmm_phase = conf.iqmm_phase
+        else:
             cfo_tx = 0
+            iqmm_gain = 0
+            iqmm_phase = 0
 
         if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
+            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed)
 
         # if show_impair:
         #     plt.subplot(2,1,1)
@@ -148,7 +151,7 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,go_to_td=self.go_to_td,cfo=self.cfo,cfo_and_clip_in_rx=self.cfo_and_clip_in_rx, n_users=n_users, pilots_length=self._pilots_length)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res, cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users, pilots_length=self._pilots_length)
 
         rx = np.transpose(rx, (1, 0, 2))
         if not(conf.separate_pilots):

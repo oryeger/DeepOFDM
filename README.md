@@ -1,12 +1,10 @@
+# DeepOFDM
+
 This repository contains the code for the ESCNN (Element wise scaled CNN) system, published in:
 
 Ory Eger and Nir Shlezinger: "Learning to Refine LLRs: Modular Neural Augmentation for MIMO-OFDM Receivers"
 
-The ESCNN augments some model based or data driven  detectors. Among the detectors that have been used are DeepSIC and DeepRx.  
-
-DeepSIC implementation is based on: https://github.com/ShlezingerLab/deepsic-official
-
-DeepRx implementation is based on: https://github.com/j991222/MIMO_JCESD
+The ESCNN is a DNN which can either run standalone, or run as an augmentation to a model based or a data driven detector. 
 
 # Table of Contents
 
@@ -15,53 +13,89 @@ DeepRx implementation is based on: https://github.com/j991222/MIMO_JCESD
   * [python_code](#python_code)
     + [channel](#channel)
     + [detectors](#detectors)
-    + [utils](#utils)
-  * [dir_definitions](#dir_definitions)
+   + [utils](#utils)  
 - [Execution](#execution)
-  * [Environment Installation](#environment-installation)
+- [Environment Installation](#environment-installation)
   
-  # Introduction
+# Introduction
 
-Note that this python implementation deviates from the [basic one](https://arxiv.org/pdf/2002.03214.pdf) in the basic DNN implementaion: Here it is only (1) Linear 1X64, (2) ReLU, (3) Linear 64X64, as  opposed to the three layers in the paper for the sequential version. Also, the learning rate is 5e-3 instead of 1e-2. Note that these changes obtain even better results on this setup, than the ones reported in the paper. These hyperparameters should be chosen to fit the complexity of the simulated channel. 
+We can augment four different detectors with the ESCNN:
+1. LMMSE
+2. Sphere Decoder (SD)
+3. DeepSIC - based on: https://github.com/ShlezingerLab/deepsic-official  
+4. DeepRx - based on: https://github.com/j991222/MIMO_JCESD  
 
-Also, note that the simulated setup here is a sequential transmission of pilots + info in each block coherence, which is different than the one in the original paper (that has only unlabeled info bits and uses error correction codes to correct errors and train on the decoded packet). It is more convenient in our opinion for learning purposes. 
+We can test the ESCNN with different types of impairments. Three typical scenarios that we checked:
+1. cfo = 0,    iqmm_gain = 0, iqmm_phase = 0 - All detectors perform well, ESCNN does not help much.
+2. cfo = 0.15, iqmm_gain = 0, iqmm_phase = 0 - Un-augmented LMMSE, SD and DeepSIC don't work well, ESCNN helps.
+3. cfo = 0,    iqmm_gain = 1, iqmm_phase = 5 - Un-augmented LMMSE and SD don't work well, ESCNN helps.
+
+
+Note: The basis for this code was also the DeepSIC repository 
+
 
 # Folders Structure
 
 ## python_code 
 
-The python simulations of the simplified communication chain: symbols generation, channel transmission and detection.
+The python simulations: symbols generation, channel transmission and detection.
 
 ### channel 
 
-Includes the symbols generation and transmission part, up to the creation of the dataset composed of (transmitted, received) tuples in the channel_dataset wrapper class. The modulation is done in the modulator file.
+
+Two types of MIMO channel models:
+
+<u>TDL_model = True:</u>  
+- Channel model based on 3GPP 38.901 TDL channel implemented using the  Nvidia Sionna simulation 
+- Impairments (CFO, IQMM and clliping)
+- AWGN
+  
+<u>TDL_model = False:</u>  
+Just AWGN and impairments
+
+The folder also includes OFDM modulation and demodulation.
 
 ### detectors 
 
-Includes the next files:
+Includes the following trainers and detectors:
 
-(1) The backbone trainer.py which holds the most basic functions, including the network initialization and the sequential transmission in the channel and BER calculation. The trainer is a wrapper for the training and evaluation of the detector. Trainer holds the training, sequential evaluation of pilot + info blocks. It also holds the main function 'eval' that trains the detector and evaluates it, returning a list of coded ber/ser per block.
+1. **escnn** - the element wise scaled CNN data driven detector. The CNN kernel is defined by conf.kernel_size.  
+   \* Has an option to use several iterations defined in conf.iterations, uses sequential training  
+   \* Can run either in standalone mode or as augmentation to other detectors
+2. **lmmse** - model based Linear Minimum Square Error detector
+3. **sphere** - model based Sphere decoder
+4. **deepsic** - the DeepSIC data driven detector with sequential training, uses a separate instance for each subcarrier, where each instance only looks at the signal of the corresponding subcarrier
+5. **deeprx** - data driven detectors based on DeepRx
+6. **deepsice2e** - *not commonly used* - like escnn, but the training is done jointly all users and all iterations (conf.full_e2e = True) or jointly just for all users but separately for each iteration (conf.full_e2e = False) 
+7. **deepsicmb** - *not commonly used* - data driven detector like deepsic, where each instance looks at the signal of conf.kernel_size subcarriers
+8. **deepstag** - *not commonly used* - data driven detector which has staggered iterations: ESCNN1 / DeepSICMB1 / ESCNN2 / DeepSICMB2 ... number of subcarriers used is defined by conf.stag_re_kernel_size
 
-(2) The DeepSIC trainer, which focuses on the online sequential training part (layer-by-layer). Refer to Algorithm 3 in the paper for more details.
+**trainer.py** - Is the backbone trainer which holds the most basic functions for the data driven detectors
 
-(3) The DeepSIC detector, which is the basic cell that runs the priors through the deep neural network, and later propagates these values through the iterations.
+conf.which_augment select which primary detectors the escnn augments:  
+'AUGMENT_LMMSE' -   Probabilities at the escnn input are the output of lmmse  
+'AUGMENT_SPHERE' -  Probabilities at the escnn input are the output of sphere  
+'AUGMENT_DEEPSIC' - Probabilities at the escnn input are the output of deepsic  
+'AUGMENT_DEEPRX' -  Probabilities at the escnn input are the output of deeprx  
+'NO_AUGMENT' -      Probabilities at the escnn input are initialized to a constant (half) and the escnn runs in standalone mode
+
+For checking transferability between primary detectors conf.override_augment_with_lmmse can be used.
+When it is set to True, in inference the escnn gets the lmmse probabilities regardless of which primary dector the escnn was trained for.  
 
 ### utils
 
-Extra utils for calculating the accuracy over the BER metric; several constants; and the config singleton class.
-The config works by the [singleton design pattern](https://en.wikipedia.org/wiki/Singleton_pattern). Check the link if unfamiliar.
+General utils, some examples: 
+- plot_multiple_csvs.py - Can aggregate multiple csv results for different SNR values into one plot and also save the results to a mat file. 
+- constants.py - Defines the OFDM Numeroligy (sampling rate, etc.) and some other constants
 
-The config is accessible from every module in the package, featuring the next parameters:
-1. seed - random number generator seed. Integer.
-2. fading_in_channel - whether to use fading. Relevant only to the synthetic channel. Boolean flag.
-3. snr - signal-to-noise ratio, determines the variance properties of the noise, in dB. Float.
-4. block_length - number of coherence block bits, total size of pilot + data. Integer.
-5. pilot_size - number of pilot bits. Integer.
-6. blocks_num - number of blocks in the tranmission. Integer.
 
-## dir_definitions 
+## analog
+Contains the analog front end modeling: IQMM impairments and PA
 
-Definitions of relative directories.
+## coding
+Includes LDPC channel coding and crc  
+Table 5.1.3.1-2 i from 3GPP 38.214 is used to defined the MCSs, with addition of custom MCSs 28-30 which are 16QAM with high code-rate 
+
 
 # Execution
 
@@ -70,9 +104,9 @@ then the following command can be used to run the training or evaluation
 
 python -m python_code.evaluate --config python_code/my_config.yaml
 
-Default configuration file is config.yaml
+Default configuration file is python_code/config.yaml
 
-The results in the form of csv files and jpeg plot will be saved is the Scratchpad sibling directory. If the Scratchpad directory does not exist it will be created.
+The results in the form of csv files and jpeg plots will be saved is the Scratchpad sibling directory. If the Scratchpad directory does not exist it will be created.
 
 ## Environment Installation
 

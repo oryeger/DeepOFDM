@@ -6,9 +6,9 @@ from python_code import conf
 
 HIDDEN_BASE_SIZE = 16
 
-class VSDNNDetector(nn.Module):
+class ESCNNDetector(nn.Module):
     def __init__(self, num_bits, n_users):
-        super(VSDNNDetector, self).__init__()
+        super(ESCNNDetector, self).__init__()
         torch.manual_seed(42)
         if conf.no_probs:
             conv_num_channels = int(conf.n_ants * 2)

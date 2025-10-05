@@ -5,7 +5,7 @@ from torch import nn
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
-from python_code.detectors.vsdnn.vsdnn_detector import VSDNNDetector
+from python_code.detectors.escnn.escnn_detector import ESCNNDetector
 from python_code.detectors.trainer import Trainer
 from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
@@ -14,23 +14,23 @@ from python_code.utils.probs_utils import ensure_tensor_iterable
 
 Softmax = torch.nn.Softmax(dim=1)
 
-class VSDNNTrainer(Trainer):
+class ESCNNTrainer(Trainer):
 
     def __init__(self, num_bits: int, n_users: int, n_ants: int):
         self.lr = 5e-3
         super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
-        return 'VSDNN'
+        return 'ESCNN'
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
-        self.detector = [[VSDNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
-                         range(n_users)]  # 2D list for Storing the VSDNN Networks
+        self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
+                         range(n_users)]  # 2D list for Storing the ESCNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool) -> list[float]:
         """
-        Trains a VSDNN Network and returns the total training loss.
+        Trains a ESCNN Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
         self._deep_learning_setup(single_model)
@@ -58,7 +58,7 @@ class VSDNNTrainer(Trainer):
             val_loss_vect.append(val_loss)
         return train_loss_vect , val_loss_vect
 
-    def _train_models(self, model: List[List[VSDNNDetector]], i: int, tx_all: List[torch.Tensor],
+    def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):
         train_loss_vect_user = []
         val_loss_vect_user = []
@@ -74,7 +74,7 @@ class VSDNNTrainer(Trainer):
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
         """
-        Main training function for VSDNN trainer. Initializes the probabilities, then propagates them through the
+        Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
@@ -83,7 +83,7 @@ class VSDNNTrainer(Trainer):
         else:
             initial_probs = probs_in
 
-        # Training the VSDNN network for each user for iteration=1
+        # Training the ESCNN network for each user for iteration=1
         tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag)
         # Initializing the probabilities
@@ -91,9 +91,9 @@ class VSDNNTrainer(Trainer):
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         else:
             probs_vec = probs_in.to(DEVICE)
-        # Training the VSDNN for each user-symbol/iteration
+        # Training the ESCNN for each user-symbol/iteration
         for i in range(1, iterations):
-            # Training the VSDNN networks for the iteration>1
+            # Training the ESCNN networks for the iteration>1
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, 0)
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)

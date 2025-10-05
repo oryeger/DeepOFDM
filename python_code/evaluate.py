@@ -3,7 +3,7 @@
 import os
 from pathlib import Path
 import time
-from python_code.detectors.vsdnn.vsdnn_trainer import VSDNNTrainer
+from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.deepsice2e.deepsice2e_trainer import DeepSICe2eTrainer
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
@@ -46,8 +46,11 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
-base_dir = Path.home() / "Projects" / "Scratchpad"
-
+path = Path(__file__).resolve()
+projects_root = path.parents[2]
+base_dir = projects_root / "Scratchpad"
+base_dir.mkdir(parents=True, exist_ok=True)
+pass
 
 
 def entropy_with_bin_width(data, bin_width):
@@ -96,7 +99,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
                        val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
-    if detector == 'VSDNN':
+    if detector == 'ESCNN':
         iters_txt = ', #iterations=' + str(conf.iterations)
     elif detector == 'DeepSICe2e':
         iters_txt = ', #iters_e2e=' + str(conf.iters_e2e)
@@ -122,7 +125,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     axes[0].grid()
 
     axes[1].hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
-    if (detector == 'VSDNN') or (detector == 'DeepSICe2e'):
+    if (detector == 'ESCNN') or (detector == 'DeepSICe2e'):
         axes[1].set_xlabel('LLRs iteration ' + str(iteration + 1))
     else:
         axes[1].set_xlabel('LLRs')
@@ -136,7 +139,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     return fig
 
 
-def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer) -> List[float]:
+def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -253,7 +256,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_sum_deepsic = np.zeros(iterations)
         ber_sum_deepsicmb = np.zeros(iterations)
         ber_sum_deepstag = np.zeros(iterations*2)
-        vsdnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
+        escnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
         if run_deepsic:
@@ -410,13 +413,13 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
 
             # online training main function
-            if vsdnn_trainer.is_online_training:
-                train_loss_vect, val_loss_vect = vsdnn_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+            if escnn_trainer.is_online_training:
+                train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                           n_users, iterations, epochs, False, probs_for_aug[:pilot_chunk])
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
-                detected_word_list, llrs_mat_list = vsdnn_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
+                detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits, n_users, iterations, probs_for_aug[pilot_chunk:])
 
 
             if conf.run_e2e:
@@ -591,7 +594,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     llr_all_res_deeprx = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     llr_all_res_deepsic = np.zeros((n_users,int(tx_data.shape[0]*conf.num_res)))
                     for re in range(conf.num_res):
-                        # VSDNN
+                        # ESCNN
                         llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits), n_users,
@@ -752,9 +755,9 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             total_ber_lmmse.append(ber_lmmse)
             total_ber_sphere.append(ber_sphere)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            print(f'current VSDNN: {block_ind, float(ber_list[iterations - 1]), mi}')
+            print(f'current ESCNN: {block_ind, float(ber_list[iterations - 1]), mi}')
             if conf.mcs>-1:
-                print(f'current VSDNN BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
+                print(f'current ESCNN BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if run_deeprx:
@@ -816,7 +819,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                    "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                    ber_e2e_list[iteration], ber_lmmse, iteration)
         for iteration in range(iterations):
-            fig_deepsic = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "VSDNN",
+            fig_deepsic = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str, ber_list[iteration],
                                ber_lmmse, iteration)
 
@@ -885,7 +888,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         for iter in range(iterations):
             plt.plot(np.arange(conf.num_res), ber_per_re[iter, :], linestyle='-', color=colors[iter], label='BER ' + add_text+ ', iter'+str(iter))
         ax.legend()
-        ax.set_title('VSDNN, ' + title_string)
+        ax.set_title('ESCNN, ' + title_string)
         ax.grid(True)
         fig.tight_layout()
         plt.show()
@@ -1001,7 +1004,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     if PLOT_MI:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_mi_list[iteration], linestyle=dashes[iteration], marker=markers[iteration],
-                         color='g', label='VSDNN' + str(iteration))
+                         color='g', label='ESCNN' + str(iteration))
         if run_deeprx:
             plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
         if mod_pilot == 4:
@@ -1084,7 +1087,7 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     for iteration in iterations_for_plot:
         plt.semilogy(SNR_range, total_ber_list[iteration], linestyle=dashes[iteration], marker=markers[iteration],
                      color='g',
-                     label='VSDNN' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_list[iteration]))
+                     label='ESCNN' + str(iteration + 1) + ', SNR @1%=' + str(snr_at_target_list[iteration]))
     if conf.run_e2e:
         if conf.no_probs:
             e2e_text = 'NoProbs'
@@ -1132,8 +1135,8 @@ def run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     plt.show()
 
     # Look at the weights:
-    # print(vsdnn_trainer.detector[0][0].shared_backbone.fc.weight)
-    # print(vsdnn_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
+    # print(escnn_trainer.detector[0][0].shared_backbone.fc.weight)
+    # print(escnn_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
 
     return total_ber_list
 
@@ -1155,7 +1158,7 @@ if __name__ == '__main__':
 
     start_time = time.time()
     num_bits = int(np.log2(conf.mod_pilot))
-    vsdnn_trainer = VSDNNTrainer(num_bits, conf.n_users, conf.n_ants)
+    escnn_trainer = ESCNNTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
     deepsic_trainer = DeepSICTrainer(num_bits, conf.n_users, conf.n_ants)
@@ -1173,14 +1176,14 @@ if __name__ == '__main__':
     #             yield from iter_modules(item)
     #
     #
-    # detectors = vsdnn_trainer.detector
+    # detectors = escnn_trainer.detector
     # total_params = sum(
     #     p.numel()
     #     for module in iter_modules(detectors)  # your nested structure
     #     for p in module.parameters()
     #     if p.requires_grad
     # )
-    # print(f"Parameters VSDNN: {total_params}")
+    # print(f"Parameters ESCNN: {total_params}")
     #
     # detectors = deeprx_trainer.detector
     # total_params = sum(
@@ -1227,7 +1230,7 @@ if __name__ == '__main__':
     # print(f"Parameters DeepSTAG: {total_params_conv+total_params_re}")
 
 
-    run_evaluate(vsdnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer)
+    run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

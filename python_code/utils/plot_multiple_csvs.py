@@ -164,15 +164,15 @@ for BER in [1, 0]:
     interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
     snr_target = np.round(interp_func(ber_target), 1)
     plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
-                 label='VSDNN1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target))
+                 label='ESCNN1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target))
 
     interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
-                 label='VSDNN2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='ESCNN2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
     plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
-                 label='VSDNN3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
+                 label='ESCNN3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
 
     if np.unique(ber_deeprx).shape[0] != 1:
         interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")

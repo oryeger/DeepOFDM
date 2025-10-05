@@ -25,7 +25,7 @@ scale_input: True
 plot_only_last_iteration: False
 plot_channel: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s

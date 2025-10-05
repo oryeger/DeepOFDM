@@ -94,7 +94,7 @@ Contains the analog front end modeling: IQMM impairments and PA
 
 ## coding
 Includes LDPC channel coding and crc  
-Table 5.1.3.1-2 i from 3GPP 38.214 is used to defined the MCSs, with addition of custom MCSs 28-30 which are 16QAM with high code-rate 
+Table 5.1.3.1-2 from 3GPP 38.214 is used to defined the MCSs, with addition of custom MCSs 28-30 which are 16QAM with high code-rate 
 
 
 # Execution

@@ -332,6 +332,80 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     rx[i, :, :] = rx[i, :, :] * cfo_comp_vect[i]
                     rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
+            if conf.plot_channel:
+                symbols_to_plot = [0, 4, 8, 12]
+                fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
+                rx_np = rx.detach().cpu().numpy()
+                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[0],0, :])), '-o', color='g',
+                             label='Symbol ' + str(symbols_to_plot[0]))
+                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[1],0, :])), '-o', color='r',
+                             label='Symbol ' + str(symbols_to_plot[1]))
+                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[2],0, :])), '-o', color='k',
+                             label='Symbol ' + str(symbols_to_plot[2]))
+                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[3],0, :])), '-o', color='b',
+                             label='Symbol ' + str(symbols_to_plot[3]))
+                axes[0].set_xlabel('Subcarrier')
+                axes[0].set_ylabel('Amp (dB)')
+                axes[0].set_title('TDL-' + conf.TDL_model + ', delay spread=' + str(
+                    int(round(float(conf.delay_spread) * 1e9))) + ' nsec', fontsize=10)
+                axes[0].legend()
+                axes[0].grid()
+
+                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[0],0, :])), '-', color='g',
+                             label='Symbol ' + str(symbols_to_plot[0]))
+                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[1],0, :])), '-', color='r',
+                             label='Symbol ' + str(symbols_to_plot[1]))
+                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[2],0, :])), '-', color='k',
+                             label='Symbol ' + str(symbols_to_plot[2]))
+                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[3],0, :])), '-', color='b',
+                             label='Symbol ' + str(symbols_to_plot[3]))
+                axes[1].set_xlabel('Subcarrier')
+                axes[1].set_ylabel('Phase (Rad)')
+                axes[1].set_title('TDL-' + conf.TDL_model + ', delay spread=' + str(
+                    int(round(float(conf.delay_spread) * 1e9))) + ' nsec', fontsize=10)
+                axes[1].legend()
+                axes[1].grid()
+                fig.tight_layout()
+                plt.show()
+
+                # === Real part ===
+                fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
+                axes[0].plot(np.real(rx_np[symbols_to_plot[0],0, :]), '-o', color='g',
+                             label=f'Symbol {symbols_to_plot[0]}')
+                axes[0].plot(np.real(rx_np[symbols_to_plot[1],0, :]), '-o', color='r',
+                             label=f'Symbol {symbols_to_plot[1]}')
+                axes[0].plot(np.real(rx_np[symbols_to_plot[2],0, :]), '-o', color='k',
+                             label=f'Symbol {symbols_to_plot[2]}')
+                axes[0].plot(np.real(rx_np[symbols_to_plot[3],0, :]), '-o', color='b',
+                             label=f'Symbol {symbols_to_plot[3]}')
+                axes[0].set_xlabel('Subcarrier')
+                axes[0].set_ylabel('Real Part')
+                axes[0].set_title(
+                    f'TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
+                    fontsize=10)
+                axes[0].legend()
+                axes[0].grid()
+
+                # === Imaginary part ===
+                axes[1].plot(np.imag(rx_np[symbols_to_plot[0],0, :]), '-o', color='g',
+                             label=f'Symbol {symbols_to_plot[0]}')
+                axes[1].plot(np.imag(rx_np[symbols_to_plot[1],0, :]), '-o', color='r',
+                             label=f'Symbol {symbols_to_plot[1]}')
+                axes[1].plot(np.imag(rx_np[symbols_to_plot[2],0, :]), '-o', color='k',
+                             label=f'Symbol {symbols_to_plot[2]}')
+                axes[1].plot(np.imag(rx_np[symbols_to_plot[3],0, :]), '-o', color='b',
+                             label=f'Symbol {symbols_to_plot[3]}')
+                axes[1].set_xlabel('Subcarrier')
+                axes[1].set_ylabel('Imaginary Part')
+                axes[1].set_title(
+                    f'TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
+                    fontsize=10)
+                axes[1].legend()
+                axes[1].grid()
+
+                fig.tight_layout()
+                plt.show()
+
             # Interleave real and imaginary parts of Rx into a real tensor
             real_part = rx.real
             imag_part = rx.imag

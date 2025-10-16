@@ -1,17 +1,17 @@
-snr: 10
+snr: 50
 cur_str: mcs28noaug
 num_snrs: 1
-n_ants: 8
+n_ants: 4
 snr_step: 1
-n_users: 2
+n_users: 1
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: -1 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 3
 num_res: 24
 cfo:  0.15
-clip_percentage_in_tx: 100
-iqmm_gain: 1 # in dB
-iqmm_phase: 5 # in degrees
+clip_percentage_in_tx: 100 # 0, 10, 20, 30, 40
+iqmm_gain: 0 # in dB
+iqmm_phase: 0 # in degrees
 epochs: 2
 iterations: 2
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
@@ -35,9 +35,9 @@ channel_seed: 58
 run_deeprx: False
 run_deepsic: False
 run_deepsicmb: False
-run_deepstag: True
+run_deepstag: False
 run_sphere: False
-which_augment: 'AUGMENT_DEEPSIC' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'NO_AUGMENT' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 run_e2e: False

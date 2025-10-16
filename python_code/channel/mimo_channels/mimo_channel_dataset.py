@@ -74,10 +74,10 @@ class MIMOChannel:
         s = np.concatenate([s_pilots, s_data], axis=1)
 
         # OryEger - constant tx symbol
-        if conf.plot_channel:
-            s = np.abs(s.real)
-        # s = np.abs(s.real) + 1j * np.abs(s.imag)
-        # assert not (True), "constant tx symbol"
+        # if conf.plot_channel:
+            # s = np.abs(s.real)
+            # s = np.abs(s.real) + 1j * np.abs(s.imag)
+            # assert not (True), "constant tx symbol"
 
 
         s_orig = np.copy(s)
@@ -90,6 +90,17 @@ class MIMOChannel:
             cfo_tx = 0
             iqmm_gain = 0
             iqmm_phase = 0
+
+        # OryEger - one tone
+        if conf.plot_channel:
+            s_temp = s.copy()
+            s = np.zeros_like(s_temp)
+            index = 4
+            s[0, :, index] = s_temp[0, :, index]
+            index = 12
+            s[0, :, index] = s_temp[0, :, index]
+            index = 20
+            s[0, :, index] = s_temp[0, :, index]
 
         if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)

@@ -60,12 +60,6 @@ class SEDChannel:
 
     @staticmethod
     def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor, iqmm_gain, iqmm_phase, seed) -> Tuple[np.ndarray, tf.Tensor]:
-        # # OryEger - one tone
-        # if iqmm_gain != 0:
-        #     y_in_temp = y_in.copy()
-        #     y_in = np.zeros_like(y_in_temp)
-        #     index = 3
-        #     y_in[0,0,index] = y_in_temp[0,0,index]
 
         if td_in_rx:
             if not(tdl_channel):
@@ -250,7 +244,6 @@ class SEDChannel:
                         conv_ce = SEDChannel._compute_channel_signal_convolution(h[:, :, re_index], s_separate_pilots)
                         y_ce[:, :, re_index] = conv_ce
 
-
             if cfo_and_iqmm_in_rx and ((conf.cfo!=0) or (conf.iqmm_gain!=0) or (conf.iqmm_phase!=0)):
                 y , _ = SEDChannel.apply_td_and_impairments(y, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
                 y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
@@ -300,72 +293,6 @@ class SEDChannel:
                     y_ce[user,:, :, re_index] = y_ce[user,:, :, re_index] + w
             else:
                 y_ce[:, :, re_index] = y_ce[:, :, re_index] + w
-
-        if conf.plot_channel:
-            symbol_to_plot = 0
-            fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
-            axes[0].plot(20 * np.log10(np.abs(y[0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            axes[0].plot(20 * np.log10(np.abs(y[1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            axes[0].plot(20 * np.log10(np.abs(y[2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            axes[0].plot(20 * np.log10(np.abs(y[3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            axes[0].set_xlabel('Subcarrier')
-            axes[0].set_ylabel('Amp (dB)')
-            axes[0].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            axes[0].legend()
-            axes[0].grid()
-
-            axes[1].plot(20 * np.unwrap(np.angle(y[0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            axes[1].plot(20 * np.unwrap(np.angle(y[1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            axes[1].plot(20 * np.unwrap(np.angle(y[2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            axes[1].plot(20 * np.unwrap(np.angle(y[3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            axes[1].set_xlabel('Subcarrier')
-            axes[1].set_ylabel('Phase (Rad)')
-            axes[1].set_title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            axes[1].legend()
-            axes[1].grid()
-            fig.tight_layout()
-            plt.show()
-
-            colors = ['g', 'r', 'k', 'b']
-            user = max(conf.ber_on_one_user,0)
-            for ant in range(conf.n_ants):
-                plt.plot(
-                    20 * np.log10(np.abs(y_ce[user, ant, symbol_to_plot, :])),
-                    '-', color=colors[ant], label=f'Ant {ant}'
-                )
-
-            plt.xlabel('Subcarrier')
-            plt.ylabel('Amp (dB)')
-            plt.title(
-                f'User {user}, TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
-                fontsize=10)
-            plt.legend()
-            plt.grid()
-            plt.tight_layout()
-            plt.show()
-            pass
-
-            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            # axes[0].plot(20 * np.log10(np.abs(y_ce[conf.ber_on_one_user,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            # axes[0].set_xlabel('Subcarrier')
-            # axes[0].set_ylabel('Amp (dB)')
-            # axes[0].set_title('User '+ str(np.max(conf.ber_on_one_user,0)) + ', TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            # axes[0].legend()
-            # axes[0].grid()
-            #
-            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,0, symbol_to_plot, :])), '-', color='g', label='Ant 0')
-            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,1, symbol_to_plot, :])), '-', color='r', label='Ant 1')
-            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,2, symbol_to_plot, :])), '-', color='k', label='Ant 2')
-            # axes[1].plot(20 * np.unwrap(np.angle(y_ce[conf.ber_on_one_user,3, symbol_to_plot, :])), '-', color='b', label='Ant 3')
-            # axes[1].set_xlabel('Subcarrier')
-            # axes[1].set_ylabel('Phase (Rad)')
-            # axes[1].set_title('User '+ str(np.max(conf.ber_on_one_user,0)) + ', TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            # axes[1].legend()
-            # axes[1].grid()
-            # fig.tight_layout()
-            # plt.show()
 
         return y,y_ce
 

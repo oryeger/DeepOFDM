@@ -1,40 +1,36 @@
-snr: 40
-cur_str: mhsa244
+snr: 50
+cur_str: mcs28noaug
 num_snrs: 1
-n_ants: 8
+n_ants: 4
 snr_step: 1
 n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: 28 # [0..4] - QPSK, [5..10] - 16QAM
-block_length_factor: 5
+block_length_factor: 3
 num_res: 24
-cfo:  0
-clip_percentage_in_tx: 20
+cfo:  0.15
+clip_percentage_in_tx: 100 # 0, 10, 20, 30, 40
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 100
+epochs: 2
 iterations: 1
-pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
 stag_re_kernel_size: 3
-full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
 save_loss_plot_snr: [10]
 
 scale_input: True
-
-use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False
-plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-pilot_channel_seed: -1
-channel_seed: 21
+pilot_channel_seed: -1  # If >0, pilot channel will have a different seed than data channel for tranferability testing
+channel_seed: 58
 
 run_deeprx: False
 run_deepsic: False
@@ -48,10 +44,10 @@ override_augment_with_lmmse: False
 mhsa_no_probs: True
 
 run_e2e: False
+full_e2e: True
 iters_e2e: 1
-no_probs: False
+no_probs: True
 separate_pilots: True
-
 
 
 # general
@@ -59,8 +55,6 @@ seed: 0 # run seed
 
 # channel
 cfo_and_iqmm_in_rx: True
-
-
 
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)

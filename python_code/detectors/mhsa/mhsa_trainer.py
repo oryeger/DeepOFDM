@@ -146,7 +146,10 @@ class MHSATrainer(Trainer):
         tx_all = []
         rx_prob_all = []
         for user in range(n_users):
-            rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
+            if conf.no_probs:
+                rx_prob_all.append(rx.unsqueeze(-1))
+            else:
+                rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
             tx_all.append(tx[:, user, :])
         return tx_all, rx_prob_all
 

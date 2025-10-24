@@ -41,12 +41,12 @@ run_sphere: False
 which_augment: 'NO_AUGMENT' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
-mhsa_no_probs: False
+mhsa_no_probs: True
 
 run_e2e: False
 full_e2e: True
-iters_e2e: 2
-no_probs: False
+iters_e2e: 1
+no_probs: True
 separate_pilots: True
 
 

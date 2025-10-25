@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -11,13 +12,17 @@ class MHSADetector(nn.Module):
     """
     OFDM / MIMO Detector using Multi-Head Self-Attention (MHSA).
     API-compatible with ESCNNDetector (same constructor and forward signature).
+
+    Changes vs. your original:
+      - Removed optional input scaling (conf.scale_input / self.scale).
+      - Replaced learnable absolute pos_emb with fixed sinusoidal positional encoding.
     """
 
     def __init__(self, num_bits, n_users):
         super(MHSADetector, self).__init__()
         torch.manual_seed(42)
 
-        if conf.mhsa_no_probs:
+        if getattr(conf, "mhsa_no_probs", False):
             input_channels = int(conf.n_ants * 2)
         else:
             input_channels = int(num_bits * n_users + conf.n_ants * 2)
@@ -27,11 +32,13 @@ class MHSADetector(nn.Module):
         self.num_heads = 4  # can be tuned
         self.seq_len = conf.num_res  # number of REs / subcarriers
 
-        # Input projection (2D -> D)
+        # Input projection (C -> D)
         self.input_proj = nn.Linear(input_channels, self.embed_dim)
 
-        # Learnable absolute positional embeddings
-        self.pos_emb = nn.Parameter(torch.randn(self.seq_len, self.embed_dim) * 0.02)
+        # ---- Sinusoidal (fixed) positional encoding ----
+        pe = self._build_sinusoidal_pos_emb(self.seq_len, self.embed_dim, base=10000.0)
+        # Not a parameter; moves with .to(device) / .cuda() automatically
+        self.register_buffer("pos_emb", pe, persistent=False)  # [N, D]
 
         # Multi-Head Self-Attention (batch_first)
         self.mhsa = nn.MultiheadAttention(self.embed_dim, self.num_heads, batch_first=True)
@@ -53,6 +60,20 @@ class MHSADetector(nn.Module):
         # Activation to produce [0,1] probabilities (for compatibility)
         self.activation_final = nn.Sigmoid()
 
+    @staticmethod
+    def _build_sinusoidal_pos_emb(seq_len: int, dim: int, base: float = 10000.0) -> torch.Tensor:
+        """
+        Classic Transformer sinusoidal positional encoding (fixed, not learnable).
+        Returns tensor of shape [seq_len, dim].
+        """
+        position = torch.arange(seq_len, dtype=torch.float32).unsqueeze(1)  # [N, 1]
+        div_term = torch.exp(torch.arange(0, dim, 2, dtype=torch.float32) * (-math.log(base) / dim))  # [dim/2]
+
+        pe = torch.zeros(seq_len, dim, dtype=torch.float32)  # [N, D]
+        pe[:, 0::2] = torch.sin(position * div_term)  # even indices
+        pe[:, 1::2] = torch.cos(position * div_term)  # odd indices
+        return pe  # [N, D]
+
     def forward(self, rx_prob):
         """
         rx_prob: [B, C, N, 1]
@@ -67,27 +88,28 @@ class MHSADetector(nn.Module):
         assert N == self.seq_len, f"Expected N={self.seq_len}, got {N}"
 
         # ---- No input scaling ----
-        x = rx_prob
+        x = rx_prob  # [B, C, N, 1]
+        x = (x - x.mean(dim=(1, 2, 3), keepdim=True)) / (x.std(dim=(1, 2, 3), keepdim=True) + 1e-6)
 
         # reshape to [B, N, C]
-        x = x.squeeze(-1).permute(0, 2, 1)
+        x = x.squeeze(-1).permute(0, 2, 1)  # [B, N, C]
 
         # ---- Input projection + positional embedding ----
-        z = self.input_proj(x)  # [B, N, D]
-        z = z + self.pos_emb.unsqueeze(0)
+        z = self.input_proj(x)                  # [B, N, D]
+        z = z + self.pos_emb.unsqueeze(0)       # [B, N, D] + [1, N, D]
 
         # ---- MHSA block ----
-        attn_out, _ = self.mhsa(z, z, z)
+        attn_out, _ = self.mhsa(z, z, z)        # [B, N, D]
         z = self.ln1(z + attn_out)
         ffn_out = self.ffn(z)
         z = self.ln2(z + ffn_out)
 
         # ---- Output head ----
-        llrs = self.fc_out(z)          # [B, N, num_bits]
+        llrs = self.fc_out(z)                   # [B, N, num_bits]
         out3 = self.activation_final(llrs)
 
         # reshape to [B, num_bits, N, 1] for compatibility
-        llrs = llrs.permute(0, 2, 1).unsqueeze(-1)
-        out3 = out3.permute(0, 2, 1).unsqueeze(-1)
+        llrs = llrs.permute(0, 2, 1).unsqueeze(-1)  # [B, num_bits, N, 1]
+        out3 = out3.permute(0, 2, 1).unsqueeze(-1)  # [B, num_bits, N, 1]
 
         return out3, llrs

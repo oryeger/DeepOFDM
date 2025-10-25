@@ -26,10 +26,13 @@ for BER in [1, 0]:
         ber_target = 0.1
         ylabel_cur = 'BLER'
 
+    # Added ber_mhsa_* keys here (all other keys preserved)
     snr_ber_dict = defaultdict(lambda: {
         'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsic_1': [], 'ber_deepsic_2': [], 'ber_deepsic_3': [],
         'ber_e2e_1': [], 'ber_e2e_2': [], 'ber_e2e_3': [], 'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
-        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_lmmse': [], 'ber_sphere': []
+        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_lmmse': [], 'ber_sphere': [],
+        # MHSA detector lists
+        'ber_mhsa_1': [], 'ber_mhsa_2': [], 'ber_mhsa_3': []
     })
 
 
@@ -63,6 +66,30 @@ for BER in [1, 0]:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
             else:
                 snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
+
+            # ---- MHSA parsing (added) ----
+            if any(col.startswith("total_ber_mhsa") for col in df.columns):
+                # If a single total_ber_mhsa exists, copy into all three slots
+                if "total_ber_mhsa" in df.columns and not any(col.startswith("total_ber_mhsa_") for col in df.columns):
+                    val = float(df["total_ber_mhsa"])
+                    snr_ber_dict[snr]['ber_mhsa_1'].append(val)
+                    snr_ber_dict[snr]['ber_mhsa_2'].append(val)
+                    snr_ber_dict[snr]['ber_mhsa_3'].append(val)
+                else:
+                    # Prefer explicit numbered columns if present
+                    if "total_ber_mhsa_1" in df.columns:
+                        snr_ber_dict[snr]['ber_mhsa_1'].append(float(df["total_ber_mhsa_1"]))
+                    elif "total_ber_mhsa" in df.columns:
+                        snr_ber_dict[snr]['ber_mhsa_1'].append(float(df["total_ber_mhsa"]))
+                    if "total_ber_mhsa_2" in df.columns:
+                        snr_ber_dict[snr]['ber_mhsa_2'].append(float(df["total_ber_mhsa_2"]))
+                    elif "total_ber_mhsa" in df.columns:
+                        # fallback to single column
+                        snr_ber_dict[snr]['ber_mhsa_2'].append(float(df["total_ber_mhsa"]))
+                    if "total_ber_mhsa_3" in df.columns:
+                        snr_ber_dict[snr]['ber_mhsa_3'].append(float(df["total_ber_mhsa_3"]))
+                    elif "total_ber_mhsa" in df.columns:
+                        snr_ber_dict[snr]['ber_mhsa_3'].append(float(df["total_ber_mhsa"]))
 
             if any(col.startswith("total_ber_deepsic") for col in df.columns):
                 if "total_ber_deepsic" in df.columns:
@@ -155,6 +182,10 @@ for BER in [1, 0]:
     ber_lmmse = [np.mean(snr_ber_dict[snr]['ber_lmmse']) for snr in snrs]
     ber_sphere = [np.mean(snr_ber_dict[snr]['ber_sphere']) for snr in snrs]
 
+    # ---- MHSA averages (added) ----
+    ber_mhsa_1 = [np.mean(snr_ber_dict[snr]['ber_mhsa_1']) for snr in snrs]
+    ber_mhsa_2 = [np.mean(snr_ber_dict[snr]['ber_mhsa_2']) for snr in snrs]
+    ber_mhsa_3 = [np.mean(snr_ber_dict[snr]['ber_mhsa_3']) for snr in snrs]
 
     # Step 3: Plotting
     plt.figure(figsize=(10, 6))
@@ -175,6 +206,30 @@ for BER in [1, 0]:
     snr_target_3 = np.round(interp_func(ber_target), 1)
     plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
                  label='ESCNN3, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_3))
+
+    # ---- MHSA plotting (added) ----
+    # initialize as NaN so later code that references them won't break if MHSA missing
+    snr_target_mhsa_1 = np.nan
+    snr_target_mhsa_2 = np.nan
+    snr_target_mhsa_3 = np.nan
+
+    if np.unique(ber_mhsa_1).shape[0] != 1 and not np.isnan(ber_mhsa_1).all():
+        interp_func = interp1d(ber_mhsa_1, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_mhsa_1 = np.round(interp_func(ber_target), 1)
+        plt.semilogy(snrs, ber_mhsa_1, linestyle=dashes[0], marker=markers[0], color='b',
+                     label='MHSA1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_1))
+
+    if np.unique(ber_mhsa_2).shape[0] != 1 and not np.isnan(ber_mhsa_2).all():
+        interp_func = interp1d(ber_mhsa_2, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_mhsa_2 = np.round(interp_func(ber_target), 1)
+        plt.semilogy(snrs, ber_mhsa_2, linestyle=dashes[1], marker=markers[1], color='b',
+                     label='MHSA2, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_2))
+
+    if np.unique(ber_mhsa_3).shape[0] != 1 and not np.isnan(ber_mhsa_3).all():
+        interp_func = interp1d(ber_mhsa_3, snrs, kind='linear', fill_value="extrapolate")
+        snr_target_mhsa_3 = np.round(interp_func(ber_target), 1)
+        plt.semilogy(snrs, ber_mhsa_3, linestyle=dashes[2], marker=markers[2], color='b',
+                     label='MHSA3, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_3))
 
     if np.unique(ber_deeprx).shape[0] != 1:
         interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
@@ -278,22 +333,30 @@ for BER in [1, 0]:
     plt.show()
 
 
-relevant = 'lmmse'
-snr_target_no_aug = globals()['snr_target_' + relevant]
-ber_no_aug =  globals()['ber_' + relevant]
+    relevant = 'lmmse'
+    snr_target_no_aug = globals()['snr_target_' + relevant]
+    ber_no_aug =  globals()['ber_' + relevant]
 
-data = {
-    'snrs': snrs,
-    'snr_target_no_aug': snr_target_no_aug,
-    'snr_target_aug_1': snr_target_1,
-    'snr_target_aug_2': snr_target_2,
-    'snr_target_aug_3': snr_target_3,
-    'bler_no_aug': ber_no_aug,
-    'bler_aug_1': ber_1,
-    'bler_aug_2': ber_2,
-    'bler_aug_3': ber_3
-}
-project_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..'))  # Goes from utils -> python_code -> DeepOFDM
-output_dir = os.path.join(project_dir, 'Scratchpad', 'mat_files')
-file_path = os.path.abspath(os.path.join(output_dir, relevant) + ".mat")
-savemat(file_path,data)
+    # Add MHSA values to exported data (if present)
+    data = {
+        'snrs': snrs,
+        'snr_target_no_aug': snr_target_no_aug,
+        'snr_target_aug_1': snr_target_1,
+        'snr_target_aug_2': snr_target_2,
+        'snr_target_aug_3': snr_target_3,
+        'snr_target_mhsa_1': snr_target_mhsa_1 if 'snr_target_mhsa_1' in locals() else np.nan,
+        'snr_target_mhsa_2': snr_target_mhsa_2 if 'snr_target_mhsa_2' in locals() else np.nan,
+        'snr_target_mhsa_3': snr_target_mhsa_3 if 'snr_target_mhsa_3' in locals() else np.nan,
+        'bler_no_aug': ber_no_aug,
+        'bler_aug_1': ber_1,
+        'bler_aug_2': ber_2,
+        'bler_aug_3': ber_3,
+        # include MHSA BER arrays as well (may contain NaNs if missing)
+        'bler_mhsa_1': ber_mhsa_1,
+        'bler_mhsa_2': ber_mhsa_2,
+        'bler_mhsa_3': ber_mhsa_3
+    }
+    project_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..'))  # Goes from utils -> python_code -> DeepOFDM
+    output_dir = os.path.join(project_dir, 'Scratchpad', 'mat_files')
+    file_path = os.path.abspath(os.path.join(output_dir, relevant) + ".mat")
+    savemat(file_path,data)

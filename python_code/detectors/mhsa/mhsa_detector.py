@@ -27,10 +27,6 @@ class MHSADetector(nn.Module):
         self.num_heads = 4  # can be tuned
         self.seq_len = conf.num_res  # number of REs / subcarriers
 
-        # Optional input scaling
-        if conf.scale_input:
-            self.scale = nn.Parameter(torch.ones(input_channels * conf.num_res))
-
         # Input projection (2D -> D)
         self.input_proj = nn.Linear(input_channels, self.embed_dim)
 
@@ -57,7 +53,6 @@ class MHSADetector(nn.Module):
         # Activation to produce [0,1] probabilities (for compatibility)
         self.activation_final = nn.Sigmoid()
 
-
     def forward(self, rx_prob):
         """
         rx_prob: [B, C, N, 1]
@@ -71,14 +66,8 @@ class MHSADetector(nn.Module):
         B, C, N, _ = rx_prob.shape
         assert N == self.seq_len, f"Expected N={self.seq_len}, got {N}"
 
-        # ---- Optional input scaling ----
-        if conf.scale_input:
-            rx_flat = rx_prob.reshape(B, C * N)
-            rx_scaled = rx_flat * self.scale
-            rx_scaled = rx_scaled.reshape(B, C, N, 1)
-            x = rx_scaled
-        else:
-            x = rx_prob
+        # ---- No input scaling ----
+        x = rx_prob
 
         # reshape to [B, N, C]
         x = x.squeeze(-1).permute(0, 2, 1)

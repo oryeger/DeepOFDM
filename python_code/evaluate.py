@@ -1418,6 +1418,35 @@ if __name__ == '__main__':
     # print(f"Parameters DeepSTAG: {total_params_conv+total_params_re}")
 
 
+    # def iter_modules(obj):
+    #     """Recursively yield nn.Modules from nested lists/tuples."""
+    #     import torch.nn as nn
+    #     if isinstance(obj, nn.Module):
+    #         yield obj
+    #     elif isinstance(obj, (list, tuple)):
+    #         for item in obj:
+    #             yield from iter_modules(item)
+    #
+    #
+    # detectors = escnn_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters ESCNN: {total_params}")
+    #
+    # detectors = mhsa_trainer.detector
+    # total_params = sum(
+    #     p.numel()
+    #     for module in iter_modules(detectors)  # your nested structure
+    #     for p in module.parameters()
+    #     if p.requires_grad
+    # )
+    # print(f"Parameters MHSA: {total_params}")
+
+
     run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer, deepstag_trainer, mhsa_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time

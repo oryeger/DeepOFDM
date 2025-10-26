@@ -3,13 +3,13 @@ cur_str: mhsa244
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 1
+n_users: 4
 mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
 mcs: 28 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 5
-num_res: 24
+num_res: 6
 cfo:  0
-clip_percentage_in_tx: 20
+clip_percentage_in_tx: 25
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2

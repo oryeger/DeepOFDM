@@ -112,6 +112,7 @@ class SEDChannel:
             cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
             st_full = st_full * np.exp(1j * cfo_phase)
 
+        # st_full_before = st_full
         if clip_percentage_in_tx<100:
             rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
             clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
@@ -125,8 +126,13 @@ class SEDChannel:
 
             # Reconstruct clipped signal with original phase
             st_full = magnitude_clipped * np.exp(1j * phase)
-            new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
-            st_full = st_full*rms_value/new_rms_value
+            # new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+            # st_full = st_full*rms_value/new_rms_value
+
+
+        # from scipy.io import savemat
+        # savemat('C:\\Projects\\Scratchpad\\temp_mat_files\\clip_debug.mat', {'st_full_before': st_full_before, 'st_full_after': st_full})
+
 
         if iqmm_gain!=0 or iqmm_phase!=0:
             st_full = apply_iq_mismatch(st_full, iqmm_gain, iqmm_phase)

@@ -126,8 +126,8 @@ class SEDChannel:
 
             # Reconstruct clipped signal with original phase
             st_full = magnitude_clipped * np.exp(1j * phase)
-            # new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
-            # st_full = st_full*rms_value/new_rms_value
+            new_rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
+            st_full = st_full*rms_value/new_rms_value
 
 
         # from scipy.io import savemat

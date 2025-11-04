@@ -123,3 +123,91 @@ class QAM16Modulator:
 
         return x,LLRs
 
+
+class QAM64Modulator:
+    @staticmethod
+    def _D1_64qam(y: np.ndarray) -> np.ndarray:
+        """First (MSB) soft metric per component (I or Q)."""
+        D = np.empty_like(y, dtype=float)
+
+        m = (np.abs(y) <= 2)
+        D[m] = y[m]
+
+        m = (y > 2) & (y <= 4)
+        D[m] = 2.0 * (y[m] - 1.0)
+        m = (y > 4) & (y <= 6)
+        D[m] = 3.0 * (y[m] - 2.0)
+        m = (y > 6)
+        D[m] = 4.0 * (y[m] - 3.0)
+
+        m = (y >= -4) & (y < -2)
+        D[m] = 2.0 * (y[m] + 1.0)
+        m = (y >= -6) & (y < -4)
+        D[m] = 3.0 * (y[m] + 2.0)
+        m = (y < -6)
+        D[m] = 4.0 * (y[m] + 3.0)
+
+        return D
+
+    @staticmethod
+    def _D2_64qam(y: np.ndarray) -> np.ndarray:
+        """Second soft metric per component (I or Q)."""
+        a = np.abs(y)
+        D = np.empty_like(y, dtype=float)
+
+        m = (a <= 2)
+        D[m] = 2.0 * (-a[m] + 3.0)
+        m = (a > 2) & (a <= 6)
+        D[m] = 4.0 - a[m]
+        m = (a > 6)
+        D[m] = 2.0 * (-a[m] + 5.0)
+
+        return D
+
+    @staticmethod
+    def _D3_64qam(y: np.ndarray) -> np.ndarray:
+        """Third (LSB) soft metric per component (I or Q)."""
+        a = np.abs(y)
+        D = np.empty_like(y, dtype=float)
+
+        m = (a <= 4)
+        D[m] = a[m] - 2.0
+        m = (a > 4)
+        D[m] = -a[m] + 6.0
+
+        return D
+
+    @staticmethod
+    def demodulate(s: np.ndarray, denorm: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        64-QAM soft demodulation.
+        :param s: complex symbol vector
+        :param denorm: scaling factor (e.g., sqrt(42) for normalized constellation)
+        :return: (hard bits, LLRs)
+        """
+        yI = np.real(s) * denorm
+        yQ = np.imag(s) * denorm
+
+        DI1, DI2, DI3 = (
+            QAM64Modulator._D1_64qam(yI),
+            QAM64Modulator._D2_64qam(yI),
+            QAM64Modulator._D3_64qam(yI),
+        )
+        DQ1, DQ2, DQ3 = (
+            QAM64Modulator._D1_64qam(yQ),
+            QAM64Modulator._D2_64qam(yQ),
+            QAM64Modulator._D3_64qam(yQ),
+        )
+
+        # Hard decisions
+        xI1 = HALF * (np.sign(DI1) + 1)
+        xI2 = HALF * (np.sign(DI2) + 1)
+        xI3 = HALF * (np.sign(DI3) + 1)
+        xQ1 = HALF * (np.sign(DQ1) + 1)
+        xQ2 = HALF * (np.sign(DQ2) + 1)
+        xQ3 = HALF * (np.sign(DQ3) + 1)
+
+        x = np.ravel(np.column_stack((xI1, xI2, xI3, xQ1, xQ2, xQ3)))
+        LLRs = np.ravel(np.column_stack((DI1, DI2, DI3, DQ1, DQ2, DQ3)))
+
+        return x, LLRs

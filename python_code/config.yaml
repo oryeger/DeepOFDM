@@ -9,7 +9,7 @@ mcs: 31 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 5
 num_res: 24
 cfo:  0
-clip_percentage_in_tx: 25
+clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
@@ -29,7 +29,7 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s

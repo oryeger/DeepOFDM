@@ -1,6 +1,6 @@
 from python_code import conf
 import torch
-from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator
+from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator, QAM64Modulator
 
 def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, H):
     for user in range(conf.n_users):
@@ -41,6 +41,13 @@ def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_m
             detected_word_lmmse_for_aug[:, user, re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
+
+    elif conf.mod_pilot == 64:
+        for user in range(conf.n_users):
+            detected_word_lmmse_for_aug[:, user, re], llr_out = QAM64Modulator.demodulate(equalized[:, user].numpy())
+            llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
+
     else:
         print('Unknown modulator')
 

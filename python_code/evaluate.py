@@ -1107,7 +1107,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)
         title_string = title_string + '_' + conf.which_augment
         if conf.mcs > -1:
-            title_string = title_string + '_Rc=' + str(code_rate)
+            title_string = title_string + f'_Rc={code_rate:.2f}'
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

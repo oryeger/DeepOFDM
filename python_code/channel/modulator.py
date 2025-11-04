@@ -95,3 +95,31 @@ class QAM16Modulator:
         LLRs = np.ravel(np.column_stack((real_part_0, real_part_1,imag_part_0, imag_part_1)))
 
         return x,LLRs
+
+
+class QAM16Modulator:
+    @staticmethod
+    def demodulate(s: torch.Tensor) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        symbol_to_prob(x:PyTorch/Numpy Tensor/Array)
+        Converts BPSK Symbols to Probabilities: '-1' -> 0, '+1' -> '1.'
+        :param s: symbols vector
+        :return: probabilities vector
+        """
+
+        real_part_0 = np.real(s)
+        real_part_1 = 2-np.abs(np.real(s))
+        imag_part_0 = np.imag(s)
+        imag_part_1 = 2-np.abs(np.imag(s))
+
+        # Decision rule for In-phase (c1) and Quadrature-phase (c2)
+        x_real_0 = HALF * (np.sign(real_part_0) + 1)
+        x_real_1 = HALF * (np.sign(real_part_1) + 1)
+        x_imag_0 = HALF * (np.sign(imag_part_0) + 1)
+        x_imag_1 = HALF * (np.sign(imag_part_1) + 1)
+
+        x = np.ravel(np.column_stack((x_real_0, x_real_1,x_imag_0, x_imag_1)))
+        LLRs = np.ravel(np.column_stack((real_part_0, real_part_1,imag_part_0, imag_part_1)))
+
+        return x,LLRs
+

@@ -78,19 +78,13 @@ class MHSATrainer(Trainer):
         network, training sequentially each network and not by end-to-end manner (each one individually).
         """
 
-        if conf.which_augment == 'NO_AUGMENT':
-            initial_probs = self._initialize_probs(tx, num_bits, n_users)
-        else:
-            initial_probs = probs_in
+        initial_probs = self._initialize_probs(tx, num_bits, n_users)
 
         # Training the MHSA network for each user for iteration=1
         tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag)
         # Initializing the probabilities
-        if conf.which_augment == 'NO_AUGMENT':
-            probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
-        else:
-            probs_vec = probs_in.to(DEVICE)
+        probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
         # Training the MHSA for each user-symbol/iteration
         for i in range(1, iterations):
             # Training the MHSA networks for the iteration>1
@@ -118,10 +112,7 @@ class MHSATrainer(Trainer):
         # detect and decode
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations
-        if conf.which_augment == 'NO_AUGMENT':
-            probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
-        else:
-            probs_vec = probs_in.to(DEVICE)
+        probs_vec = self._initialize_probs_for_infer(rx, num_bits, n_users)
 
         nns = 0
         for i in range(iterations):

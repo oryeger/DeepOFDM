@@ -8,15 +8,43 @@ import numpy as np
 from collections import defaultdict
 from scipy.io import savemat
 
-# 🔧 Adjust path as needed
+# 🔧 Adjust path
 CSV_DIR = r"C:\Projects\Scratchpad"
 seeds = [123, 17, 41, 58]
-# seeds = [41, 58]
 
-# BER = 0 # Set to False if you want to plot SNR instead of BER
-plot_sphere = False
+# ---- Prepare a single combined figure with two subplots ----
+fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+subplot_index = {1: 1, 0: 0}  # BER=1 → right, BER=0 → left
 
+# ---- We will compute the meaningful title once (after collecting a file) ----
+# Get an example filename to reconstruct the title
+example_file = sorted(glob.glob(os.path.join(CSV_DIR, "*seed="+str(seeds[0])+"*_SNR=*")))[0]
+original_name = os.path.basename(example_file)
+
+# Clean formatting exactly like your original code
+cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
+cleaned_name = re.sub(".csv", "", cleaned_name)
+cleaned_name = re.sub("Clip=100%", "", cleaned_name)
+cleaned_name = re.sub(r"_SNR=\d+$", "", cleaned_name)
+cleaned_name = re.sub("_scs", "scs", cleaned_name)
+cleaned_name = re.sub("cfo_in_Rx", "cfo", cleaned_name)
+cleaned_name = re.sub(r"seed=\d+", "", cleaned_name)
+cleaned_name = re.sub("_", ", ", cleaned_name)
+cleaned_name = re.sub("twostage, ","", cleaned_name)
+cleaned_name = re.sub(", , , three, layers=123",", three layes", cleaned_name)
+cleaned_name = cleaned_name.rstrip(", ")
+
+# Wrap long title text into multiple lines every 80 characters
+cleaned_name = "\n".join([cleaned_name[i:i+80] for i in range(0, len(cleaned_name), 80)])
+
+global_title_text = "Averaged across seeds: " + ", ".join(map(str, seeds)) + "\n" + cleaned_name
+
+
+# ---- MAIN LOOP: plot BER=1 (right) and BER=0 (left) ----
 for BER in [1, 0]:
+
+    ax = axes[subplot_index[BER]]
+
     if BER:
         search_pattern = r"SNR=(-?\d+)"
         ber_target = 0.01
@@ -26,21 +54,24 @@ for BER in [1, 0]:
         ber_target = 0.1
         ylabel_cur = 'BLER'
 
-    # Added ber_mhsa_* keys here (all other keys preserved)
     snr_ber_dict = defaultdict(lambda: {
-        'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [], 'ber_deepsic_1': [], 'ber_deepsic_2': [], 'ber_deepsic_3': [],
-        'ber_e2e_1': [], 'ber_e2e_2': [], 'ber_e2e_3': [], 'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
-        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [], 'ber_lmmse': [], 'ber_sphere': [],
-        # MHSA detector lists
+        'ber_1': [], 'ber_2': [], 'ber_3': [], 'ber_deeprx': [],
+        'ber_deepsic_1': [], 'ber_deepsic_2': [], 'ber_deepsic_3': [],
+        'ber_e2e_1': [], 'ber_e2e_2': [], 'ber_e2e_3': [],
+        'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
+        'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [],
+        'ber_lmmse': [], 'ber_sphere': [],
         'ber_mhsa_1': [], 'ber_mhsa_2': [], 'ber_mhsa_3': []
     })
 
+    plot_sphere = False
 
+    # ---- Load CSVs for each seed ----
     for seed in seeds:
         seed_files = sorted(glob.glob(os.path.join(CSV_DIR, f"*seed={seed}*_SNR=*")))
-
         seen_snr = set()
         unique_files = []
+
         for file in seed_files:
             match = re.search(search_pattern, file)
             if match:
@@ -50,313 +81,140 @@ for BER in [1, 0]:
                     unique_files.append(file)
 
         for file in unique_files:
-
             match = re.search(search_pattern, file)
             if not match:
                 continue
             snr = int(match.group(1))
 
             df = pd.read_csv(file)
-            snr_ber_dict[snr]['ber_1'].append(float(df["total_ber_1"]))
-            if "total_ber_2" in df.columns:
-                snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]))
-            else:
-                snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_1"]))
-            if "total_ber_3" in df.columns:
-                snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]))
-            else:
-                snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_1"]))
 
-            # ---- MHSA parsing (added) ----
+            # ------------ BER parsing (same as your script) ------------
+            snr_ber_dict[snr]['ber_1'].append(float(df["total_ber_1"]))
+            snr_ber_dict[snr]['ber_2'].append(float(df["total_ber_2"]) if "total_ber_2" in df.columns else float(df["total_ber_1"]))
+            snr_ber_dict[snr]['ber_3'].append(float(df["total_ber_3"]) if "total_ber_3" in df.columns else float(df["total_ber_1"]))
+
+            # MHSA parsing
             if any(col.startswith("total_ber_mhsa") for col in df.columns):
-                # If a single total_ber_mhsa exists, copy into all three slots
                 if "total_ber_mhsa" in df.columns and not any(col.startswith("total_ber_mhsa_") for col in df.columns):
                     val = float(df["total_ber_mhsa"])
-                    snr_ber_dict[snr]['ber_mhsa_1'].append(val)
-                    snr_ber_dict[snr]['ber_mhsa_2'].append(val)
-                    snr_ber_dict[snr]['ber_mhsa_3'].append(val)
+                    for key in ["ber_mhsa_1","ber_mhsa_2","ber_mhsa_3"]:
+                        snr_ber_dict[snr][key].append(val)
                 else:
-                    # Prefer explicit numbered columns if present
-                    if "total_ber_mhsa_1" in df.columns:
-                        snr_ber_dict[snr]['ber_mhsa_1'].append(float(df["total_ber_mhsa_1"]))
-                    elif "total_ber_mhsa" in df.columns:
-                        snr_ber_dict[snr]['ber_mhsa_1'].append(float(df["total_ber_mhsa"]))
-                    if "total_ber_mhsa_2" in df.columns:
-                        snr_ber_dict[snr]['ber_mhsa_2'].append(float(df["total_ber_mhsa_2"]))
-                    elif "total_ber_mhsa" in df.columns:
-                        # fallback to single column
-                        snr_ber_dict[snr]['ber_mhsa_2'].append(float(df["total_ber_mhsa"]))
-                    if "total_ber_mhsa_3" in df.columns:
-                        snr_ber_dict[snr]['ber_mhsa_3'].append(float(df["total_ber_mhsa_3"]))
-                    elif "total_ber_mhsa" in df.columns:
-                        snr_ber_dict[snr]['ber_mhsa_3'].append(float(df["total_ber_mhsa"]))
+                    for k in [1,2,3]:
+                        colname = f"total_ber_mhsa_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df[colname]))
+                        elif "total_ber_mhsa" in df.columns:
+                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df["total_ber_mhsa"]))
 
+            # DeepSIC
             if any(col.startswith("total_ber_deepsic") for col in df.columns):
                 if "total_ber_deepsic" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsic_1'].append(float(df["total_ber_deepsic"]))
-                    snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic"]))
-                    snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic"]))
+                    for k in [1, 2, 3]:
+                        snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df["total_ber_deepsic"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsic_1'].append(float(df["total_ber_deepsic_1"]))
-                    if "total_ber_deepsic_2" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic_2"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepsic_2'].append(float(df["total_ber_deepsic_1"]))
-                    if "total_ber_deepsic_3" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic_3"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepsic_3'].append(float(df["total_ber_deepsic_1"]))
+                    for k in [1,2,3]:
+                        colname = f"total_ber_deepsic_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df[colname]))
+                        else:
+                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df["total_ber_deepsic_1"]))
 
+            # DeepSIC-MB
             if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
                 if "total_ber_deepsicmb" in df.columns:
-                    snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb"]))
-                    snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb"]))
-                    snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb"]))
+                    for k in [1,2,3]:
+                        snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df["total_ber_deepsicmb"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepsicmb_1'].append(float(df["total_ber_deepsicmb_1"]))
-                    if "total_ber_deepsicmb_2" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_2"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepsicmb_2'].append(float(df["total_ber_deepsicmb_1"]))
-                    if "total_ber_deepsicmb_3" in df.columns:
-                        snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_3"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepsicmb_3'].append(float(df["total_ber_deepsicmb_1"]))
+                    for k in [1,2,3]:
+                        colname = f"total_ber_deepsicmb_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df[colname]))
+                        else:
+                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df["total_ber_deepsicmb_1"]))
 
+            # DeepSTAG
             if any(col.startswith("total_ber_deepstag") for col in df.columns):
                 if "total_ber_deepstag" in df.columns:
-                    snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag"]))
-                    snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag"]))
-                    snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag"]))
+                    for k in [1,2,3]:
+                        snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df["total_ber_deepstag"]))
                 else:
-                    snr_ber_dict[snr]['ber_deepstag_1'].append(float(df["total_ber_deepstag_1"]))
-                    if "total_ber_deepstag_2" in df.columns:
-                        snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_2"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepstag_2'].append(float(df["total_ber_deepstag_1"]))
-                    if "total_ber_deepstag_3" in df.columns:
-                        snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_3"]))
-                    else:
-                        snr_ber_dict[snr]['ber_deepstag_3'].append(float(df["total_ber_deepstag_1"]))
+                    for k in [1,2,3]:
+                        colname = f"total_ber_deepstag_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df[colname]))
+                        else:
+                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df["total_ber_deepstag_1"]))
 
-            if any(col.startswith("total_ber_e2e") for col in df.columns):
-                snr_ber_dict[snr]['ber_e2e_1'].append(float(df["total_ber_e2e_1"]))
-                if "total_ber_e2e_2" in df.columns:
-                    snr_ber_dict[snr]['ber_e2e_2'].append(float(df["total_ber_e2e_2"]))
-                else:
-                    snr_ber_dict[snr]['ber_e2e_2'].append(float(df["total_ber_e2e_1"]))
-                if "total_ber_e2e_3" in df.columns:
-                    snr_ber_dict[snr]['ber_e2e_3'].append(float(df["total_ber_e2e_3"]))
-                else:
-                    snr_ber_dict[snr]['ber_e2e_3'].append(float(df["total_ber_e2e_1"]))
+            # DeepRx
+            if "total_ber_deeprx" in df.columns:
+                val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(","").replace(")","")
+                snr_ber_dict[snr]['ber_deeprx'].append(float(val))
 
-            if any(col.startswith("total_ber_deeprx") for col in df.columns):
-                ber_deeprx_val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
-                snr_ber_dict[snr]['ber_deeprx'].append(float(ber_deeprx_val))
-            ber_lmmse_val = str(df["total_ber_lmmse"].iloc[0]).replace("tensor(", "").replace(")", "")
-            snr_ber_dict[snr]['ber_lmmse'].append(float(ber_lmmse_val))
-            if any(col.startswith("total_ber_sphere") for col in df.columns):
-                ber_sphere_val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
-                snr_ber_dict[snr]['ber_sphere'].append(float(ber_sphere_val))
+            # LMMSE
+            val = str(df["total_ber_lmmse"].iloc[0]).replace("tensor(","").replace(")","")
+            snr_ber_dict[snr]['ber_lmmse'].append(float(val))
 
-    # Step 2: Sort SNRs and compute averages
+            # Sphere
+            if "total_ber_sphere" in df.columns:
+                val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(","").replace(")","")
+                snr_ber_dict[snr]['ber_sphere'].append(float(val))
+
+    # ---- Averages ----
     snrs = sorted(snr_ber_dict.keys())
-    ber_1 = [np.mean(snr_ber_dict[snr]['ber_1']) for snr in snrs]
-    ber_2 = [np.mean(snr_ber_dict[snr]['ber_2']) for snr in snrs]
-    ber_3 = [np.mean(snr_ber_dict[snr]['ber_3']) for snr in snrs]
-    ber_deepsic_1 = [np.mean(snr_ber_dict[snr]['ber_deepsic_1']) for snr in snrs]
-    ber_deepsic_2 = [np.mean(snr_ber_dict[snr]['ber_deepsic_2']) for snr in snrs]
-    ber_deepsic_3 = [np.mean(snr_ber_dict[snr]['ber_deepsic_3']) for snr in snrs]
-    ber_deepsicmb_1 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_1']) for snr in snrs]
-    ber_deepsicmb_2 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_2']) for snr in snrs]
-    ber_deepsicmb_3 = [np.mean(snr_ber_dict[snr]['ber_deepsicmb_3']) for snr in snrs]
-    ber_deepstag_1 = [np.mean(snr_ber_dict[snr]['ber_deepstag_1']) for snr in snrs]
-    ber_deepstag_2 = [np.mean(snr_ber_dict[snr]['ber_deepstag_2']) for snr in snrs]
-    ber_deepstag_3 = [np.mean(snr_ber_dict[snr]['ber_deepstag_3']) for snr in snrs]
-    ber_deeprx = [np.mean(snr_ber_dict[snr]['ber_deeprx']) for snr in snrs]
-    ber_e2e_1 = [np.mean(snr_ber_dict[snr]['ber_e2e_1']) for snr in snrs]
-    ber_e2e_2 = [np.mean(snr_ber_dict[snr]['ber_e2e_2']) for snr in snrs]
-    ber_e2e_3 = [np.mean(snr_ber_dict[snr]['ber_e2e_3']) for snr in snrs]
+    def avg(key): return [np.mean(snr_ber_dict[s][key]) for s in snrs]
 
+    ber_1 = avg('ber_1')
+    ber_2 = avg('ber_2')
+    ber_3 = avg('ber_3')
+    ber_mhsa_1 = avg('ber_mhsa_1')
+    ber_mhsa_2 = avg('ber_mhsa_2')
+    ber_mhsa_3 = avg('ber_mhsa_3')
+    ber_lmmse = avg('ber_lmmse')
+    ber_sphere = avg('ber_sphere')
+    ber_deeprx = avg('ber_deeprx')
 
-    ber_lmmse = [np.mean(snr_ber_dict[snr]['ber_lmmse']) for snr in snrs]
-    ber_sphere = [np.mean(snr_ber_dict[snr]['ber_sphere']) for snr in snrs]
-
-    # ---- MHSA averages (added) ----
-    ber_mhsa_1 = [np.mean(snr_ber_dict[snr]['ber_mhsa_1']) for snr in snrs]
-    ber_mhsa_2 = [np.mean(snr_ber_dict[snr]['ber_mhsa_2']) for snr in snrs]
-    ber_mhsa_3 = [np.mean(snr_ber_dict[snr]['ber_mhsa_3']) for snr in snrs]
-
-    # Step 3: Plotting
-    plt.figure(figsize=(10, 6))
     markers = ['o', '*', 'x', 'D', '+']
-    dashes = [':', '-.', '--', '-', '-']
+    dashes  = [':', '-.', '--', '-', '-']
 
-    interp_func = interp1d(ber_1, snrs, kind='linear', fill_value="extrapolate")
+    # ---- Plot ESCNN1/2/3 ----
+    interp_func = interp1d(ber_1, snrs, fill_value="extrapolate")
     snr_target_1 = np.round(interp_func(ber_target), 1)
-    plt.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
-                 label='ESCNN1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_1))
+    ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color='g',
+                label=f'ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}')
 
-    interp_func = interp1d(ber_2, snrs, kind='linear', fill_value="extrapolate")
+    interp_func = interp1d(ber_2, snrs, fill_value="extrapolate")
     snr_target_2 = np.round(interp_func(ber_target), 1)
-    plt.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
-                 label='ESCNN2, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_2))
+    ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color='g',
+                label=f'ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}')
 
-    interp_func = interp1d(ber_3, snrs, kind='linear', fill_value="extrapolate")
+    interp_func = interp1d(ber_3, snrs, fill_value="extrapolate")
     snr_target_3 = np.round(interp_func(ber_target), 1)
-    plt.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
-                 label='ESCNN3, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_3))
+    ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color='g',
+                label=f'ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}')
 
-    # ---- MHSA plotting (added) ----
-    # initialize as NaN so later code that references them won't break if MHSA missing
-    snr_target_mhsa_1 = np.nan
-    snr_target_mhsa_2 = np.nan
-    snr_target_mhsa_3 = np.nan
-
-    if np.unique(ber_mhsa_1).shape[0] != 1 and not np.isnan(ber_mhsa_1).all():
-        interp_func = interp1d(ber_mhsa_1, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_mhsa_1 = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_mhsa_1, linestyle=dashes[0], marker=markers[0], color='b',
-                     label='MHSA1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_1))
-
-    if np.unique(ber_mhsa_2).shape[0] != 1 and not np.isnan(ber_mhsa_2).all():
-        interp_func = interp1d(ber_mhsa_2, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_mhsa_2 = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_mhsa_2, linestyle=dashes[1], marker=markers[1], color='b',
-                     label='MHSA2, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_2))
-
-    if np.unique(ber_mhsa_3).shape[0] != 1 and not np.isnan(ber_mhsa_3).all():
-        interp_func = interp1d(ber_mhsa_3, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_mhsa_3 = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_mhsa_3, linestyle=dashes[2], marker=markers[2], color='b',
-                     label='MHSA3, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_mhsa_3))
-
-    if np.unique(ber_deeprx).shape[0] != 1:
-        interp_func = interp1d(ber_deeprx, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_deeprx = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color='c',
-                     label='DeepRx, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deeprx))
-
-    if any(col.startswith("total_ber_deepsic") for col in df.columns):
-        interp_func = interp1d(ber_deepsic_1, snrs, kind='linear', fill_value="extrapolate")
-        snr_target_deepsic = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_deepsic_1, linestyle=dashes[0], marker=markers[0], color='orange',
-                     label='DeepSIC1, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_deepsic))
-        ber_deepsic = ber_deepsic_1
-
-        interp_func = interp1d(ber_deepsic_2, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color='orange',
-                     label='DeepSIC2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_deepsic_3, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color='orange',
-                     label='DeepSIC3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-    if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
-        interp_func = interp1d(ber_deepsicmb_1, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[0], marker=markers[0], color='black',
-                     label='DeepSICMB1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_deepsicmb_2, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsicmb_2, linestyle=dashes[1], marker=markers[1], color='black',
-                     label='DeepSICMB2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_deepsicmb_3, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepsicmb_3, linestyle=dashes[2], marker=markers[2], color='black',
-                     label='DeepSICMB3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-    if any(col.startswith("total_ber_deepstag") for col in df.columns):
-        interp_func = interp1d(ber_deepstag_1, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepstag_1, linestyle=dashes[0], marker=markers[0], color='pink',
-                     label='DeepSTAG1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_deepstag_2, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepstag_2, linestyle=dashes[1], marker=markers[1], color='pink',
-                     label='DeepSTAG2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_deepstag_3, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_deepstag_3, linestyle=dashes[2], marker=markers[2], color='pink',
-                     label='DeepSTAG3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-
-    if any(col.startswith("total_ber_e2e") for col in df.columns) and np.unique(ber_deeprx).shape[0] != 1:
-        interp_func = interp1d(ber_e2e_1, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_e2e_1, linestyle=dashes[0], marker=markers[0], color='magenta',
-                     label='DeepSICe2e1, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_e2e_2, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_e2e_2, linestyle=dashes[1], marker=markers[1], color='magenta',
-                     label='DeepSICe2e2, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-        interp_func = interp1d(ber_e2e_3, snrs, kind='linear', fill_value="extrapolate")
-        plt.semilogy(snrs, ber_e2e_3, linestyle=dashes[2], marker=markers[2], color='magenta',
-                     label='DeepSICe2e3, SNR @'+str(round(100*ber_target))+'%=' + str(np.round(interp_func(ber_target), 1)))
-
-
-    interp_func = interp1d(ber_lmmse, snrs, kind='linear', fill_value="extrapolate")
+    # ---- LMMSE ----
+    interp_func = interp1d(ber_lmmse, snrs, fill_value="extrapolate")
     snr_target_lmmse = np.round(interp_func(ber_target), 1)
-    plt.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color='r',
-                 label='lmmse, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_lmmse))
+    ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color='r',
+                label=f'LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}')
 
-    if not (np.unique(ber_sphere).shape[0] == 1) and (BER == 1):
-        plot_sphere = True
-
-    if plot_sphere:
-        interp_func = interp1d(ber_sphere, snrs, kind='linear', fill_value="extrapolate")
+    # ---- Sphere only for BER (right panel) ----
+    if BER == 1 and not (np.unique(ber_sphere).shape[0] == 1):
+        interp_func = interp1d(ber_sphere, snrs, fill_value="extrapolate")
         snr_target_sphere = np.round(interp_func(ber_target), 1)
-        plt.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
-                     label='Sphere, SNR @'+str(round(100*ber_target))+'%=' + str(snr_target_sphere))
+        ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
+                    label=f'Sphere @ {round(100*ber_target)}% = {snr_target_sphere}')
 
-    plt.xlabel("SNR (dB)")
-    plt.ylabel(ylabel_cur)
-    plt.yscale("log")
-    plt.grid(True)
-    plt.legend()
+    # ---- Formatting ----
+    ax.set_xlabel("SNR (dB)")
+    ax.set_ylabel(ylabel_cur)
+    ax.set_yscale("log")
+    ax.grid(True)
+    ax.legend()
 
-    # Optional: Create a title from one of the filenames
-    example_file = sorted(glob.glob(os.path.join(CSV_DIR, "*seed="+str(seeds[0])+"*_SNR=*")))[0]
-    original_name = os.path.basename(example_file)
-    cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
-    cleaned_name = re.sub(".csv", "", cleaned_name)
-    cleaned_name = re.sub("Clip=100%", "", cleaned_name)
-    cleaned_name = re.sub(r"_SNR=\d+$", "", cleaned_name)
-    cleaned_name = re.sub("_scs", "scs", cleaned_name)
-    cleaned_name = re.sub("cfo_in_Rx", "cfo", cleaned_name)
-    cleaned_name = re.sub(r"seed=\d+", "", cleaned_name)
-    cleaned_name = re.sub("_", ", ", cleaned_name)
-    cleaned_name = re.sub("twostage, ","", cleaned_name)
-    cleaned_name = re.sub(", , , three, layers=123",", three layes", cleaned_name)
-    cleaned_name = "\n".join([cleaned_name[i:i+80] for i in range(0, len(cleaned_name), 80)])
-    cleaned_name = cleaned_name.rstrip(", ")
-    plt.title("Averaged across seeds: " + ", ".join(map(str, seeds)) + "\n" + cleaned_name)
-    plt.tight_layout()
-    plt.show()
+# ---- Add global title centered above BOTH plots ----
+fig.suptitle(global_title_text, fontsize=12, y=1.03)
 
-
-    relevant = 'lmmse'
-    snr_target_no_aug = globals()['snr_target_' + relevant]
-    ber_no_aug =  globals()['ber_' + relevant]
-
-    # Add MHSA values to exported data (if present)
-    data = {
-        'snrs': snrs,
-        'snr_target_no_aug': snr_target_no_aug,
-        'snr_target_aug_1': snr_target_1,
-        'snr_target_aug_2': snr_target_2,
-        'snr_target_aug_3': snr_target_3,
-        'snr_target_mhsa_1': snr_target_mhsa_1 if 'snr_target_mhsa_1' in locals() else np.nan,
-        'snr_target_mhsa_2': snr_target_mhsa_2 if 'snr_target_mhsa_2' in locals() else np.nan,
-        'snr_target_mhsa_3': snr_target_mhsa_3 if 'snr_target_mhsa_3' in locals() else np.nan,
-        'bler_no_aug': ber_no_aug,
-        'bler_aug_1': ber_1,
-        'bler_aug_2': ber_2,
-        'bler_aug_3': ber_3,
-        # include MHSA BER arrays as well (may contain NaNs if missing)
-        'bler_mhsa_1': ber_mhsa_1,
-        'bler_mhsa_2': ber_mhsa_2,
-        'bler_mhsa_3': ber_mhsa_3
-    }
-    project_dir = os.path.abspath(os.path.join(os.getcwd(), '..', '..', '..'))  # Goes from utils -> python_code -> DeepOFDM
-    output_dir = os.path.join(project_dir, 'Scratchpad', 'mat_files')
-    file_path = os.path.abspath(os.path.join(output_dir, relevant) + ".mat")
-    savemat(file_path,data)
+plt.tight_layout()
+plt.show()

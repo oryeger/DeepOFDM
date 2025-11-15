@@ -1,3 +1,4 @@
+import math
 import torch
 from torch import nn
 import torch.nn.functional as F
@@ -8,37 +9,54 @@ HIDDEN_BASE_SIZE = 16
 
 class ESCNNDetector(nn.Module):
     def __init__(self, num_bits, n_users):
-        super(ESCNNDetector, self).__init__()
+        super().__init__()
         torch.manual_seed(42)
+
         if conf.no_probs:
             conv_num_channels = int(conf.n_ants * 2)
         else:
             conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
 
         hidden_size = HIDDEN_BASE_SIZE * num_bits
+
         if conf.scale_input:
-            self.scale = nn.Parameter(torch.ones(conv_num_channels*conf.num_res))
+            self.scale = nn.Parameter(torch.ones(conv_num_channels * conf.num_res))
 
-        self.fc1 = nn.Conv2d(in_channels=conv_num_channels, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1),padding='same')
-        self.fc2 = nn.Conv2d(in_channels=hidden_size, out_channels=hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
-        self.fc3 = nn.Conv2d(in_channels=hidden_size, out_channels=num_bits, kernel_size=(conf.kernel_size, 1), padding='same')
+        # ----- main path -----
+        self.fc1 = nn.Conv2d(conv_num_channels, hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
+        self.fc2 = nn.Conv2d(hidden_size, hidden_size, kernel_size=(conf.kernel_size, 1), padding='same')
+        self.fc3 = nn.Conv2d(hidden_size, num_bits,     kernel_size=(conf.kernel_size, 1), padding='same')
+        self.act1 = nn.ReLU()
+        self.act2 = nn.ReLU()
+        self.sigmoid = nn.Sigmoid()
 
-        self.activation1 = nn.ReLU()
-        self.activation2 = nn.ReLU()
-        self.activation3 = nn.Sigmoid()
+        # ----- single mixing coefficient λ in (0,1) -----
+        # λ = sigmoid(mix_raw); initialize λ=0.75 -> mix_raw=logit(0.75)=log(3)
+        self.mix_raw = nn.Parameter(torch.tensor(math.log(3.0)))  # scalar
 
-
-    def forward(self, rx_prob):
+    def forward(self, rx_prob, num_bits, user):
+        # optional input scaling (your original)
         if conf.scale_input:
             rx = rx_prob
-            rx_flattened = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
-            rx_out_flattened = rx_flattened*self.scale
-            rx_out = rx_out_flattened.unsqueeze(-1).reshape_as(rx)
-            out1 = self.activation1(self.fc1(rx_out))
+            rx_flat = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
+            rx_out_flat = rx_flat * self.scale
+            x = rx_out_flat.unsqueeze(-1).reshape_as(rx)
         else:
-            out1 = self.activation1(self.fc1(rx_prob))
+            x = rx_prob
 
-        out2 = self.activation2(self.fc2(out1))
-        llrs = self.fc3(out2)
-        out3 = self.activation3(llrs)
-        return out3, llrs
+        # main path -> LLRs
+        h1 = self.act1(self.fc1(x))
+        h2 = self.act2(self.fc2(h1))
+        llrs_main = self.fc3(h2)  # [B, num_bits, H, W]
+
+        # skip path -> LLRs directly from input
+        start = conf.n_ants*2 + user * num_bits
+        end = conf.n_ants*2 + (user + 1) * num_bits
+        llrs_skip = rx_prob[:,start:end,:,:]  # [B, num_bits, H, W]
+
+        # single scalar mix λ in (0,1)
+        lam = torch.sigmoid(self.mix_raw)  # scalar
+        llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
+
+        probs = self.sigmoid(llrs_total)
+        return probs, llrs_total

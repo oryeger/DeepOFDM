@@ -1,11 +1,11 @@
 import math
 import torch
 from torch import nn
-import torch.nn.functional as F
-
 from python_code import conf
 
 HIDDEN_BASE_SIZE = 16
+def inverse_sigmoid(p):
+    return torch.log(p / (1 - p))
 
 class ESCNNDetector(nn.Module):
     def __init__(self, num_bits, n_users):
@@ -52,11 +52,14 @@ class ESCNNDetector(nn.Module):
         # skip path -> LLRs directly from input
         start = conf.n_ants*2 + user * num_bits
         end = conf.n_ants*2 + (user + 1) * num_bits
-        llrs_skip = rx_prob[:,start:end,:,:]  # [B, num_bits, H, W]
+        llrs_skip = inverse_sigmoid(rx_prob[:,start:end,:,:])  # [B, num_bits, H, W]
 
         # single scalar mix λ in (0,1)
         lam = torch.sigmoid(self.mix_raw)  # scalar
-        llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
+
+        # llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
+        # llrs_total = 0.75 * llrs_skip + (1.0 - 0.75) * llrs_main
+        llrs_total = 1 * llrs_skip + 0 * llrs_main
 
         probs = self.sigmoid(llrs_total)
         return probs, llrs_total

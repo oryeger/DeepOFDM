@@ -468,7 +468,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if conf.which_augment == 'AUGMENT_SPHERE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
             elif conf.which_augment == 'AUGMENT_LMMSE':
-                probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
+                probs_for_aug = torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32)
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 

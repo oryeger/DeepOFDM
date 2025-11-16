@@ -37,7 +37,9 @@ class ESCNNDetector(nn.Module):
     def forward(self, rx_prob, num_bits, user):
         # optional input scaling (your original)
         if conf.scale_input:
-            rx = rx_prob
+            rx = rx_prob.clone()
+            if conf.which_augment == 'AUGMENT_LMMSE':
+                rx[:,conf.n_ants*2:,:,:] = torch.sigmoid(rx_prob[:,conf.n_ants*2:,:,:])
             rx_flat = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
             rx_out_flat = rx_flat * self.scale
             x = rx_out_flat.unsqueeze(-1).reshape_as(rx)
@@ -52,14 +54,14 @@ class ESCNNDetector(nn.Module):
         # skip path -> LLRs directly from input
         start = conf.n_ants*2 + user * num_bits
         end = conf.n_ants*2 + (user + 1) * num_bits
-        llrs_skip = inverse_sigmoid(rx_prob[:,start:end,:,:])  # [B, num_bits, H, W]
+        llrs_skip = rx_prob[:,start:end,:,:]  # [B, num_bits, H, W]
 
         # single scalar mix λ in (0,1)
         lam = torch.sigmoid(self.mix_raw)  # scalar
 
-        # llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
+        llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
         # llrs_total = 0.75 * llrs_skip + (1.0 - 0.75) * llrs_main
-        llrs_total = 1 * llrs_skip + 0 * llrs_main
+        # llrs_total = 1 * llrs_skip + 0 * llrs_main
 
         probs = self.sigmoid(llrs_total)
         return probs, llrs_total

@@ -1,3 +1,4 @@
+
 from typing import List
 
 import torch
@@ -28,7 +29,7 @@ class ESCNNTrainer(Trainer):
         self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, user: int) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool) -> list[float]:
         """
         Trains a ESCNN Network and returns the total training loss.
         """
@@ -39,12 +40,12 @@ class ESCNNTrainer(Trainer):
         val_loss_vect = []
         # for _ in range(epochs):
         for epoch in range(epochs):
-            soft_estimation, llrs = single_model(rx_prob,num_bits,user)
+            soft_estimation, llrs = single_model(rx_prob)
             tx_cur = tx
             tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
 
             train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples],first_half_flag, user)
+            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples],first_half_flag)
             if first_half_flag:
                 soft_estimation_cur = soft_estimation[train_samples:]
                 tx_reshaped_cur = tx_reshaped[train_samples:]
@@ -63,7 +64,7 @@ class ESCNNTrainer(Trainer):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(n_users):
-            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, user)
+            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag)
             if user == 3:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
@@ -183,7 +184,7 @@ class ESCNNTrainer(Trainer):
                 rx_prob = torch.cat((rx_real, prob), dim=1)
 
             with torch.no_grad():
-                output, llrs = model[user][i - 1](rx_prob, num_bits, user)
+                output, llrs = model[user][i - 1](rx_prob)
             index_start = user * num_bits
             index_end = (user + 1) * num_bits
             next_probs_vec[:, index_start:index_end, :, :] = output

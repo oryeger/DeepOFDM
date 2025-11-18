@@ -32,7 +32,8 @@ class ESCNNDetector(nn.Module):
 
         # ----- single mixing coefficient λ in (0,1) -----
         # λ = sigmoid(mix_raw); initialize λ=0.75 -> mix_raw=logit(0.75)=log(3)
-        self.mix_raw = nn.Parameter(torch.tensor(math.log(3.0)))  # scalar
+        p = torch.tensor(conf.init_skip_weight)
+        self.mix_raw = nn.Parameter(torch.log(p / (1 - p)))  # scalar
 
     def forward(self, rx_prob, num_bits, user):
         # optional input scaling (your original)
@@ -59,9 +60,11 @@ class ESCNNDetector(nn.Module):
         # single scalar mix λ in (0,1)
         lam = torch.sigmoid(self.mix_raw)  # scalar
 
-        llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
         # llrs_total = 0.75 * llrs_skip + (1.0 - 0.75) * llrs_main
-        # llrs_total = 1 * llrs_skip + 0 * llrs_main
+        if conf.init_skip_weight != 0:
+            llrs_total = lam * llrs_skip + (1.0 - lam) * llrs_main
+        else:
+            llrs_total = llrs_main
 
         probs = self.sigmoid(llrs_total)
         return probs, llrs_total

@@ -21,6 +21,7 @@ full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
 save_loss_plot_snr: [10]
+init_skip_weight: 0
 
 scale_input: True
 

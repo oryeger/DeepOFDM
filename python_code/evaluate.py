@@ -93,7 +93,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
                        val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
-    if detector == 'ESCNN' or detector == 'MHSA':
+    if detector == 'ESCNN' or detector == 'MHSA' or detector == 'FILM':
         iters_txt = ', #iterations=' + str(conf.iterations)
     elif detector == 'DeepSICe2e':
         iters_txt = ', #iters_e2e=' + str(conf.iters_e2e)
@@ -509,9 +509,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
             # online training main function
             if escnn_trainer.is_online_training:
+
                 train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits,
                                                                                 n_users, iterations, epochs, False,
-                                                                                probs_for_aug[:pilot_chunk])
+                                                                                probs_for_aug[:pilot_chunk], stage="base" )
+
+                if conf.use_film:
+                    train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                                                                                    n_users, iterations, epochs, False,
+                                                                                    probs_for_aug[:pilot_chunk], stage="film")
+
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
@@ -953,8 +960,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                        snr_cur, "lmmse", 0, train_samples, val_samples, mod_text, cfo_str, ber_lmmse,
                                        ber_lmmse, 0)
 
+
         if run_sphere:
-            fig_lmmse = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
+            fig_sphere = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                            torch.from_numpy(llrs_mat_sphere),
                                            snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str,
                                            ber_sphere, ber_lmmse, 0)
@@ -996,10 +1004,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                              cfo_str,
                                              ber_e2e_list[iteration], ber_lmmse, iteration)
         for iteration in range(iterations):
-            fig_deepsic = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
+            fig_escnn = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
                                              conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                              ber_list[iteration],
                                              ber_lmmse, iteration)
+            if conf.use_film:
+                fig_film = plot_loss_and_LLRs(train_loss_vect_film, val_loss_vect_film, llrs_mat_list[iteration], snr_cur,
+                                               "FILM",
+                                               conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
+                                               ber_list[iteration],
+                                               ber_lmmse, iteration)
 
         data = {
             "SNR_range": SNR_range[:len(total_ber_lmmse)],
@@ -1055,11 +1069,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         df_bler = pd.DataFrame(data_bler)
 
         # print('\n'+title_string)
-        title_string = (chan_text + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(
-            val_samples) + ", #REs=" + str(
+        title_string = (chan_text + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ", #REs=" + str(
             conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                         cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
-                    iterations) + ', CNN kernel size=' + str(conf.kernel_size) + ', Clip=' + str(
+                    iterations) + ', kernel=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx) + '%')
 
         # plot BER per RE for first iteration:
@@ -1078,7 +1091,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ax.grid(True)
         fig.tight_layout()
         plt.show()
-        fig_deepsic_per_re = fig
+        fig_escnn_per_re = fig
 
         fig, ax = plt.subplots()
         for iter in range(iterations):
@@ -1142,6 +1155,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_' + conf.which_augment
         if conf.mcs > -1:
             title_string = title_string + f'_Rc={code_rate:.2f}'
+        title_string = title_string + '_scale_' + str(conf.scale_input)
+        title_string = title_string + '_FILM_' + str(conf.use_film)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
@@ -1154,12 +1169,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             df_bler.to_csv(file_path_bler, index=False)
 
         if snr_cur in conf.save_loss_plot_snr:
-            title_string_cur = "deepsic_" + title_string
+            title_string_cur = "escnn_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_deepsic.savefig(file_path)
-            title_string_cur = "deepsic_per_re_" + title_string
+            fig_escnn.savefig(file_path)
+            if conf.use_film:
+                title_string_cur = "film_" + title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_film.savefig(file_path)
+
+            title_string_cur = "escnn_per_re_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_deepsic_per_re.savefig(file_path)
+            fig_escnn_per_re.savefig(file_path)
 
             title_string_cur = "lmmse_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")

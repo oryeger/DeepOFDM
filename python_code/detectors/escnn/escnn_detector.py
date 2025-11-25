@@ -86,6 +86,40 @@ class ESCNNDetector(nn.Module):
             self.film1 = None
             self.film2 = None
 
+        self.stage = "base"  # default
+
+    def set_stage(self, stage: str):
+        assert stage in ["base", "film"]
+        self.stage = stage
+
+        # backbone params: convs + scale
+        backbone_params = []
+        for m in [self.fc1, self.fc2, self.fc3]:
+            backbone_params += list(m.parameters())
+        if self.scale is not None:
+            backbone_params.append(self.scale)
+
+        # FiLM params
+        film_params = []
+        if self.film1 is not None:
+            film_params += list(self.film1.parameters())
+        if self.film2 is not None:
+            film_params += list(self.film2.parameters())
+
+        if stage == "base":
+            # train backbone, freeze FiLM
+            for p in backbone_params:
+                p.requires_grad = True
+            for p in film_params:
+                p.requires_grad = False
+
+        elif stage == "film":
+            # freeze backbone, train FiLM
+            for p in backbone_params:
+                p.requires_grad = False
+            for p in film_params:
+                p.requires_grad = True
+
     def forward(self, rx_prob):
         """
         rx_prob: (B, C_in, H, W)
@@ -117,14 +151,14 @@ class ESCNNDetector(nn.Module):
         out1 = self.activation1(out1)
 
         # FiLM after first conv
-        if conf.use_film:
+        if conf.use_film and self.stage == "film":
             out1 = self.film1(out1, cond_vec)
 
         # Second conv + activation
         out2 = self.activation2(self.fc2(out1))
 
         # FiLM after second conv
-        if conf.use_film:
+        if conf.use_film and self.stage == "film":
             out2 = self.film2(out2, cond_vec)
 
         # Final conv head (LLRs) + sigmoid

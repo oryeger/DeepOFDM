@@ -29,11 +29,15 @@ class ESCNNTrainer(Trainer):
         self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str) -> list[float]:
         """
         Trains a ESCNN Network and returns the total training loss.
         """
         single_model = single_model.to(DEVICE)
+
+        if isinstance(single_model, ESCNNDetector):
+            single_model.set_stage(stage)
+
         self._deep_learning_setup(single_model)
         loss = 0
         train_loss_vect = []
@@ -60,11 +64,11 @@ class ESCNNTrainer(Trainer):
         return train_loss_vect , val_loss_vect
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
-                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):
+                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str):
         train_loss_vect_user = []
         val_loss_vect_user = []
         for user in range(n_users):
-            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag)
+            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage)
             if user == 3:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
@@ -73,7 +77,7 @@ class ESCNNTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base"):
         """
         Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
@@ -86,7 +90,7 @@ class ESCNNTrainer(Trainer):
 
         # Training the ESCNN network for each user for iteration=1
         tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
-        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag)
+        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
         # Initializing the probabilities
         if conf.which_augment == 'NO_AUGMENT':
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
@@ -98,7 +102,7 @@ class ESCNNTrainer(Trainer):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, 0)
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
-            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag)
+            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
             if SHOW_ALL_ITERATIONS:
                 train_loss_vect = train_loss_vect + train_loss_cur
                 val_loss_vect = val_loss_vect + val_loss_cur

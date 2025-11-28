@@ -22,7 +22,6 @@ ber_on_one_user: -1
 sphere_radius: 200
 save_loss_plot_snr: [10]
 use_film: True
-
 scale_input: True
 
 use_data_as_pilots: False

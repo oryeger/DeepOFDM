@@ -132,7 +132,7 @@ class ESCNNDetector(nn.Module):
             # B = cond_slice.shape[0]
             # cond_vec = cond_slice.view(B, -1)  # Shape: (B, 384)
 
-            cond_slice = rx_prob[:, 0:16, :, :]
+            cond_slice = rx_prob[:, 0:2*conf.n_ants, :, :]
             cond_pooled = F.adaptive_avg_pool2d(cond_slice, 1)
             cond_vec = cond_pooled.squeeze(-1).squeeze(-1)  # Shape: (B, 16)
         else:
@@ -148,18 +148,20 @@ class ESCNNDetector(nn.Module):
         else:
             out1 = self.fc1(rx_prob)
 
-        out1 = self.activation1(out1)
-
         # FiLM after first conv
         if conf.use_film and self.stage == "film":
             out1 = self.film1(out1, cond_vec)
 
+        out1 = self.activation1(out1)
+
         # Second conv + activation
-        out2 = self.activation2(self.fc2(out1))
+        out2 = self.fc2(out1)
 
         # FiLM after second conv
         if conf.use_film and self.stage == "film":
             out2 = self.film2(out2, cond_vec)
+
+        out2 = self.activation2(out2)
 
         # Final conv head (LLRs) + sigmoid
         llrs = self.fc3(out2)

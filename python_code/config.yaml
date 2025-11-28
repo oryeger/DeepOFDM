@@ -4,8 +4,8 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mod_pilot: 16          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-mcs: 28 # [0..4] - QPSK, [5..10] - 16QAM
+mod_pilot: 64          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mcs: 11 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 5
 num_res: 24
 cfo:  0

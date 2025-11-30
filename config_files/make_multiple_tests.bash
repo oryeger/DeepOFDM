@@ -11,9 +11,9 @@ base_name=$(basename "$input_file" .yaml)
 
 # Define parameters
 seeds=(123 17 41 58)
-snrs=($(seq 5 30))  # You can replace this with a custom list, e.g., snrs=(0 5 10 15)
+snrs=($(seq 10 35))  # You can replace this with a custom list, e.g., snrs=(0 5 10 15)
 cfos=(0)
-clip_percentage_in_tx_vals=(100)
+clip_percentage_in_tx_vals=(100 37 34)
 
 total_count=0
 all_config_files=()

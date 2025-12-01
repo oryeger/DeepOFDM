@@ -18,6 +18,14 @@ class FiLMLayer(nn.Module):
         self.gamma = nn.Linear(cond_dim, in_channels)
         self.beta = nn.Linear(cond_dim, in_channels)
 
+        # Gamma → start at 1  (identity scaling)
+        nn.init.constant_(self.gamma.weight, 0.0)
+        nn.init.constant_(self.gamma.bias, 1.0)
+
+        # Beta → start at ε = 1e-4  (small offset)
+        nn.init.constant_(self.beta.weight, 0.0)
+        nn.init.constant_(self.beta.bias, 1e-4)
+
     def forward(self, x, cond_vec):
         # x: (B, C, H, W), cond_vec: (B, cond_dim)
         gamma = self.gamma(cond_vec).unsqueeze(-1).unsqueeze(-1)  # (B, C, 1, 1)

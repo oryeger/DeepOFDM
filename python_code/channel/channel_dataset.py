@@ -42,6 +42,7 @@ class ChannelModelDataset(Dataset):
         rx_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         rx_ce_full = np.empty((self.blocks_num, n_users, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         s_orig_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.tx_length, self.num_res), dtype=np.complex128)
+        rx_clean_full = np.empty((self.blocks_num, int(self.block_length / num_bits), self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         # accumulate words until reaches desired number
         for index in range(self.blocks_num):
             tx, h, rx, rx_ce, s_orig, rx_clean = self.channel_type._transmit_and_detect(noise_var, self.num_res, index, n_users, mod_pilot, ldpc_k, ldpc_n)
@@ -51,8 +52,9 @@ class ChannelModelDataset(Dataset):
             rx_ce_full[index] = rx_ce
             h_full[index] = h
             s_orig_full[index] = s_orig
+            rx_clean_full[index] = rx_clean
 
-        database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full, rx_clean))
+        database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full, rx_clean_full))
 
     def __getitem__(self, noise_var_list: List[float], num_bits: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         database = []

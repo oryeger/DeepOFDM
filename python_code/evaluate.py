@@ -305,10 +305,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             tx, h, rx, rx_ce, s_orig, rx_clean = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
                 received_words_ce[block_ind], s_orig_words[block_ind], received_words_clean[block_ind]
 
+            NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
             if conf.cfo != 0:
                 # Compensate for CFO linear phase
                 pointer = 0
-                NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
                 if GENIE_CFO:
                     cfo_est = conf.cfo
@@ -414,6 +414,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                 fig.tight_layout()
                 plt.show()
+
+            # Time domain processing:
+            if conf.run_tdcnn:
+                s_t_matrix = torch.zeros((NUM_SLOTS, 2 * conf.n_ants, FFT_size, NUM_SYMB_PER_SLOT), dtype=torch.float32)
+                s_t_matrix_clean = torch.zeros_like(s_t_matrix)
+                for ant in range(conf.n_ants):
+                    for slot_num in range(NUM_SLOTS):
+                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                            cur_index = slot_num * NUM_SYMB_PER_SLOT + ofdm_symbol
+                            s_t = torch.fft.ifft(rx[cur_index, ant, :], n=FFT_size)
+                            s_t_matrix[slot_num, 2*ant, :, ofdm_symbol] = torch.real(s_t)
+                            s_t_matrix[slot_num, 2*ant+1, :, ofdm_symbol] = torch.imag(s_t)
+                            s_t_clean = torch.fft.ifft(rx_clean[cur_index, ant, :], n=FFT_size)
+                            s_t_matrix_clean[slot_num, 2*ant, :, ofdm_symbol] = torch.real(s_t_clean)
+                            s_t_matrix_clean[slot_num, 2*ant+1, :, ofdm_symbol] = torch.imag(s_t_clean)
 
             # Interleave real and imaginary parts of Rx into a real tensor
             real_part = rx.real

@@ -9,8 +9,8 @@ mcs: 11 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 5
 num_res: 24
 cfo:  0
-clip_percentage_in_tx: 30
-iqmm_gain: 0 # in dB
+clip_percentage_in_tx: 100
+iqmm_gain: 1 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
 iterations: 1

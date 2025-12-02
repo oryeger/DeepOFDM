@@ -102,13 +102,13 @@ class MIMOChannel:
             index = 20
             s[0, :, index] = s_temp[0, :, index]
 
-        if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
+        if (cfo_tx!=0) or (iqmm_gain!=0) or (iqmm_phase!=0) or (self.clip_percentage_in_tx<100) or conf.run_tdcnn:
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
+            s_o = s.copy()
             s, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
-            if conf.run_tdcnn:
-                s_clean, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, 0, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
-            else:
-                s_clean = None
+            s_clean, _,  = SEDChannel.apply_td_and_impairments(s_o, False, cfo_tx, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed, conf.run_tdcnn)
+        else:
+            s_clean = None
 
 
         # if show_impair:
@@ -168,7 +168,7 @@ class MIMOChannel:
 
         # pass through channel
         rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res, cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users, pilots_length=self._pilots_length)
-        if conf.tdcnn:
+        if conf.run_tdcnn:
             rx_clean, _ = SEDChannel.transmit(s=s_clean, h=h, noise_var=0, num_res=num_res,
                                             cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users,
                                             pilots_length=self._pilots_length)

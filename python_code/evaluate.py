@@ -8,6 +8,7 @@ from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.deepsicmb.deepsicmb_trainer import DeepSICMBTrainer
 from python_code.detectors.deepstag.deepstag_trainer import DeepSTAGTrainer
 from python_code.detectors.mhsa.mhsa_trainer import MHSATrainer
+from python_code.detectors.tdcnn.tdcnn_trainer import TDCNNTrainer
 
 from typing import List
 
@@ -134,7 +135,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
 
 
 def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer) -> List[float]:
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -1411,6 +1412,7 @@ if __name__ == '__main__':
     deepsicmb_trainer = DeepSICMBTrainer(num_bits, conf.n_users, conf.n_ants)
     deepstag_trainer = DeepSTAGTrainer(num_bits, conf.n_users, conf.n_ants)
     mhsa_trainer = MHSATrainer(num_bits, conf.n_users, conf.n_ants)
+    tdcnn_trainer = TDCNNTrainer()
 
     # For measuring number of parameters
     # def iter_modules(obj):
@@ -1505,7 +1507,7 @@ if __name__ == '__main__':
     # print(f"Parameters MHSA: {total_params}")
 
     run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer)
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))
@@ -1515,3 +1517,4 @@ if __name__ == '__main__':
     minutes = int(elapsed_time // 60)
     seconds = int(elapsed_time % 60)
     print(f"Elapsed time: {days} days, {hours} hours, {minutes} minutes, {seconds} seconds")
+

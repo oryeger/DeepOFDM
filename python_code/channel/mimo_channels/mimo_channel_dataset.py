@@ -104,7 +104,7 @@ class MIMOChannel:
 
         if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed)
+            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
 
         # if show_impair:
         #     plt.subplot(2,1,1)

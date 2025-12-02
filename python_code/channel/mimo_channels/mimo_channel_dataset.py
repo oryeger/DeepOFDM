@@ -105,8 +105,8 @@ class MIMOChannel:
         if (cfo_tx!=0) or (iqmm_gain!=0) or (iqmm_phase!=0) or (self.clip_percentage_in_tx<100) or conf.run_tdcnn:
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
             s_o = s.copy()
-            s, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
-            s_clean, _,  = SEDChannel.apply_td_and_impairments(s_o, False, cfo_tx, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed, conf.run_tdcnn)
+            s, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed)
+            s_clean, _,  = SEDChannel.apply_td_and_impairments(s_o, False, cfo_tx, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
         else:
             s_clean = None
 

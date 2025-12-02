@@ -59,7 +59,7 @@ class SEDChannel:
         return H * fade_mat
 
     @staticmethod
-    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor, iqmm_gain, iqmm_phase, seed, run_tdcnn) -> Tuple[np.ndarray, tf.Tensor]:
+    def apply_td_and_impairments(y_in, td_in_rx, cfo, clip_percentage_in_tx, num_res, n_users, tdl_channel: bool, external_chan: tf.Tensor, iqmm_gain, iqmm_phase, seed) -> Tuple[np.ndarray, tf.Tensor]:
 
         if td_in_rx:
             if not(tdl_channel):
@@ -112,12 +112,6 @@ class SEDChannel:
             cfo_phase = np.tile(cfo_phase,NUM_SLOTS)
             st_full = st_full * np.exp(1j * cfo_phase)
 
-        # Save a copy of the time-domain signal before clipping when TD-CNN input is requested
-        if run_tdcnn:
-            st_full_before = st_full.copy()
-        else:
-            st_full_before = None
-
         if clip_percentage_in_tx<100:
             rms_value = np.mean(np.sqrt(np.mean(np.abs(st_full) ** 2, axis=2)))  # Compute RMS of the signal
             clip_level_12dB = rms_value * (10 ** (12 / 20))  # 12 dB above RMS
@@ -152,13 +146,6 @@ class SEDChannel:
         # --- Added for s_t_no_cp collection ---
         # --- Allocate s_t_no_cp_matrix and s_t_no_cp_matrix_before with an explicit user dimension
         # so the shape becomes (n_users_out_int, NUM_SLOTS, 2*n_rx, FFT_size, NUM_SYMB_PER_SLOT).
-        if run_tdcnn:
-            s_t_no_cp_matrix = np.zeros((n_users_out_int, NUM_SLOTS, 2 * st_full.shape[1], FFT_size, NUM_SYMB_PER_SLOT), dtype=np.float32)
-            # Keep a copy of the same structure for the pre-clipping samples
-            s_t_no_cp_matrix_before = np.zeros_like(s_t_no_cp_matrix)
-        else:
-            s_t_no_cp_matrix = None
-            s_t_no_cp_matrix_before = None
         # --------------------------------------------------------------------------------------
         for user in range(n_users_out_int):
             for rx in range(st_full.shape[1]):
@@ -171,17 +158,6 @@ class SEDChannel:
                         S_no_cp = np.fft.fft(s_t_no_cp, n=FFT_size)
                         y_out_pre[user, rx, index, :] = S_no_cp[:num_res]
                         # --- Store real and imag in the matrix ---
-                        if run_tdcnn:
-                            # post-clipping samples: store under the [user, slot_num, ...] index
-                            s_t_no_cp_matrix[user, slot_num, 2*rx, :, ofdm_symbol] = np.real(s_t_no_cp)
-                            s_t_no_cp_matrix[user, slot_num, 2*rx+1, :, ofdm_symbol] = np.imag(s_t_no_cp)
-
-                            # pre-clipping samples (if available)
-                            if st_full_before is not None:
-                                s_t_no_cp_before = st_full_before[user, rx, pointer + cp_length:pointer + cp_length + FFT_size]
-                                s_t_no_cp_matrix_before[user, slot_num, 2*rx, :, ofdm_symbol] = np.real(s_t_no_cp_before)
-                                s_t_no_cp_matrix_before[user, slot_num, 2*rx+1, :, ofdm_symbol] = np.imag(s_t_no_cp_before)
-                        # ----------------------------------------
                         pointer += (cp_length + FFT_size)
                         cp_length = CP
                         index += 1
@@ -283,17 +259,17 @@ class SEDChannel:
                         y_ce[:, :, re_index] = conv_ce
 
             if cfo_and_iqmm_in_rx and ((conf.cfo!=0) or (conf.iqmm_gain!=0) or (conf.iqmm_phase!=0)):
-                y , _ = SEDChannel.apply_td_and_impairments(y, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed, False)
-                y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed, False)
+                y , _ = SEDChannel.apply_td_and_impairments(y, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
+                y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
 
         else:
 
             pilot_chunk = int(pilots_length / np.log2(conf.mod_pilot))
             if conf.pilot_channel_seed < 0:
-                y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed, False)
+                y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
             else:
-                y_pilot, channel_used_pilot = SEDChannel.apply_td_and_impairments(s[:,:pilot_chunk,:], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.pilot_channel_seed, False)
-                y_data, channel_used_data = SEDChannel.apply_td_and_impairments(s[:,pilot_chunk:,], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed, False)
+                y_pilot, channel_used_pilot = SEDChannel.apply_td_and_impairments(s[:,:pilot_chunk,:], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.pilot_channel_seed)
+                y_data, channel_used_data = SEDChannel.apply_td_and_impairments(s[:,pilot_chunk:,], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
                 y = np.concatenate((y_pilot, y_data), axis=1)
 
             all_values = list(range(n_users))
@@ -302,7 +278,7 @@ class SEDChannel:
                     idx = np.setdiff1d(all_values, user)
                     s_cur_user = s.copy()
                     s_cur_user[idx, :, :] = 0
-                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed, False)
+                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_cur_user, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed)
                     y_ce[user, :, :, :] = conv_ce
             else:
                 s_separate_pilots = np.zeros_like(s, dtype=complex)
@@ -310,18 +286,18 @@ class SEDChannel:
                     s_separate_pilots[user, user::n_users,:] = s[user, user::n_users, :]
 
                 if conf.pilot_channel_seed < 0:
-                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed, False)
+                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed)
                 else:
-                    conv_ce_pilot, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,:pilot_chunk,:], True, 0, 100, num_res, 1, True, channel_used_pilot, 0, 0, conf.pilot_channel_seed, False)
-                    conv_ce_data, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,pilot_chunk:,:], True, 0, 100, num_res, 1, True, channel_used_data, 0, 0, conf.channel_seed, False)
+                    conv_ce_pilot, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,:pilot_chunk,:], True, 0, 100, num_res, 1, True, channel_used_pilot, 0, 0, conf.pilot_channel_seed)
+                    conv_ce_data, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,pilot_chunk:,:], True, 0, 100, num_res, 1, True, channel_used_data, 0, 0, conf.channel_seed)
                     conv_ce = np.concatenate((conv_ce_pilot, conv_ce_data), axis=1)
 
                 y_ce[:, :, :] = conv_ce
 
 
         if conf.iqmm_gain != 0 or conf.iqmm_phase != 0 or conf.cfo != 0:
-            y , _ = SEDChannel.apply_td_and_impairments(y, True, conf.cfo, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed, False)
-            y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, conf.cfo, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed, False)
+            y , _ = SEDChannel.apply_td_and_impairments(y, True, conf.cfo, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed)
+            y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, conf.cfo, 100, num_res, n_users, False, empty_tf_tensor, conf.iqmm_gain, conf.iqmm_phase, conf.channel_seed)
 
         for re_index in range(num_res):
             w = np.sqrt(noise_var) * (np.random.randn(conf.n_ants, s.shape[1]) + 1j * np.random.randn(conf.n_ants, s.shape[1]))

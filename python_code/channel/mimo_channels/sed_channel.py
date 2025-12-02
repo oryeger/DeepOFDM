@@ -185,68 +185,6 @@ class SEDChannel:
                         pointer += (cp_length + FFT_size)
                         cp_length = CP
                         index += 1
-        # s_t_no_cp_matrix is now organized as (n_users_out_int, NUM_SLOTS, 2*n_rx, FFT_size, NUM_SYMB_PER_SLOT)
-        # where the first axis indexes the user and the second axis indexes the slot.
-
-        # --- TD-CNN training & inference (per-user instances) ---
-        if run_tdcnn and (s_t_no_cp_matrix is not None) and (s_t_no_cp_matrix_before is not None):
-            try:
-                # Output container: same shape as s_t_no_cp_matrix
-                s_t_no_cp_matrix_tdcnn_out = np.zeros_like(s_t_no_cp_matrix)
-                # Store models and outputs on the class for later inspection/calling
-                SEDChannel.last_tdcnn_models = []
-                SEDChannel.last_s_t_no_cp_matrix_tdcnn_output = None
-
-                # Train on 1/5 of the slots (at least 1)
-                train_count = max(1, int(NUM_SLOTS // 5))
-                epochs = 5
-
-                for user_idx in range(n_users_out_int):
-                    # Per-user data: shape (NUM_SLOTS, channels, FFT_size, NUM_SYMB_PER_SLOT)
-                    X = s_t_no_cp_matrix[user_idx]
-                    Y = s_t_no_cp_matrix_before[user_idx]
-                    # Move channel axis to last for TF: (NUM_SLOTS, FFT_size, NUM_SYMB_PER_SLOT, channels)
-                    X_t = np.transpose(X, (0, 2, 3, 1))
-                    Y_t = np.transpose(Y, (0, 2, 3, 1))
-
-                    if X_t.shape[0] < 1:
-                        # nothing to train/infer
-                        SEDChannel.last_tdcnn_models.append(None)
-                        continue
-
-                    input_shape = X_t.shape[1:]
-
-                    # Build a small encoder-decoder-like CNN that maps corrupted->clean per-slot
-                    tf.keras.backend.clear_session()
-                    model = tf.keras.Sequential([
-                        tf.keras.layers.Input(shape=input_shape),
-                        tf.keras.layers.Conv2D(32, (3, 3), padding='same', activation='relu'),
-                        tf.keras.layers.Conv2D(32, (3, 3), padding='same', activation='relu'),
-                        tf.keras.layers.Conv2D(input_shape[2], (3, 3), padding='same', activation=None)
-                    ])
-                    model.compile(optimizer='adam', loss='mse')
-
-                    # Prepare small training subset
-                    X_train = X_t[:train_count]
-                    Y_train = Y_t[:train_count]
-
-                    if X_train.shape[0] > 0:
-                        model.fit(X_train, Y_train, epochs=epochs, batch_size=max(1, min(8, X_train.shape[0])), verbose=0)
-
-                    # Inference on all slots (including training samples)
-                    Y_pred = model.predict(X_t, verbose=0)
-                    # transpose back to original internal layout (NUM_SLOTS, channels, FFT_size, NUM_SYMB_PER_SLOT)
-                    Y_pred_t = np.transpose(Y_pred, (0, 3, 1, 2)).astype(np.float32)
-                    s_t_no_cp_matrix_tdcnn_out[user_idx] = Y_pred_t
-
-                    SEDChannel.last_tdcnn_models.append(model)
-
-                # Save final outputs for later use
-                SEDChannel.last_s_t_no_cp_matrix_tdcnn_output = s_t_no_cp_matrix_tdcnn_out
-            except Exception as e:
-                # On any failure keep attributes for debugging
-                SEDChannel.last_tdcnn_models = getattr(SEDChannel, 'last_tdcnn_models', [])
-                SEDChannel.last_s_t_no_cp_matrix_tdcnn_output = None
 
         if td_in_rx:
             if y_in.ndim == 4: # Multiple users

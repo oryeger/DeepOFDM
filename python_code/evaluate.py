@@ -274,6 +274,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if run_mhsa:
             mhsa_trainer._initialize_detector(num_bits, n_users, n_ants)
 
+        if conf.run_tdcnn:
+            tdcnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
+
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))
 
@@ -288,7 +291,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                               kernel_size=conf.kernel_size,
                                               n_users=n_users)
 
-        transmitted_words, received_words, received_words_ce, hs, s_orig_words = channel_dataset.__getitem__(
+        transmitted_words, received_words, received_words_ce, hs, s_orig_words, received_words_clean = channel_dataset.__getitem__(
             noise_var_list=[noise_var], num_bits=num_bits, n_users
             =n_users, mod_pilot=mod_pilot, ldpc_k=ldpc_k, ldpc_n=ldpc_n)
 
@@ -299,8 +302,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         for block_ind in range(conf.blocks_num):
             print('*' * 20)
             # get current word and channel
-            tx, h, rx, rx_ce, s_orig = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
-                received_words_ce[block_ind], s_orig_words[block_ind]
+            tx, h, rx, rx_ce, s_orig, rx_clean = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
+                received_words_ce[block_ind], s_orig_words[block_ind], received_words_clean[block_ind]
 
             if conf.cfo != 0:
                 # Compensate for CFO linear phase
@@ -473,6 +476,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
+
 
             if run_deepsic:
                 if deepsic_trainer.is_online_training:
@@ -1412,7 +1416,7 @@ if __name__ == '__main__':
     deepsicmb_trainer = DeepSICMBTrainer(num_bits, conf.n_users, conf.n_ants)
     deepstag_trainer = DeepSTAGTrainer(num_bits, conf.n_users, conf.n_ants)
     mhsa_trainer = MHSATrainer(num_bits, conf.n_users, conf.n_ants)
-    tdcnn_trainer = TDCNNTrainer()
+    tdcnn_trainer = TDCNNTrainer(num_bits, conf.n_users, conf.n_ants)
 
     # For measuring number of parameters
     # def iter_modules(obj):

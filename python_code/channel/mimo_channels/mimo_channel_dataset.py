@@ -104,7 +104,12 @@ class MIMOChannel:
 
         if (cfo_tx!=0) or (self.clip_percentage_in_tx<100):
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)
-            s, _ = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
+            s, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, self.clip_percentage_in_tx, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
+            if conf.run_tdcnn:
+                s_clean, _,  = SEDChannel.apply_td_and_impairments(s, False, cfo_tx, 0, num_res, n_users, False, empty_tf_tensor, iqmm_gain, iqmm_phase, conf.channel_seed, conf.run_tdcnn)
+            else:
+                s_clean = None
+
 
         # if show_impair:
         #     plt.subplot(2,1,1)
@@ -163,6 +168,13 @@ class MIMOChannel:
 
         # pass through channel
         rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res, cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users, pilots_length=self._pilots_length)
+        if conf.tdcnn:
+            rx_clean, _ = SEDChannel.transmit(s=s_clean, h=h, noise_var=0, num_res=num_res,
+                                            cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users,
+                                            pilots_length=self._pilots_length)
+            rx_clean = np.transpose(rx_clean, (1, 0, 2))
+        else:
+            rx_clean = None
 
         rx = np.transpose(rx, (1, 0, 2))
         if not(conf.separate_pilots):
@@ -175,10 +187,10 @@ class MIMOChannel:
 
         s_orig = np.transpose(s_orig, (1, 0, 2))
 
-        return tx, rx, rx_ce, s_orig
+        return tx, rx, rx_ce, s_orig, rx_clean
 
     def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res)
-        tx, rx, rx_ce, s_orig = self._transmit(h, noise_var,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
-        return tx, h, rx, rx_ce, s_orig
+        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
+        return tx, h, rx, rx_ce, s_orig, rx_clean

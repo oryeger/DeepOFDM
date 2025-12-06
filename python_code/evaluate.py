@@ -9,6 +9,8 @@ from python_code.detectors.deepsicmb.deepsicmb_trainer import DeepSICMBTrainer
 from python_code.detectors.deepstag.deepstag_trainer import DeepSTAGTrainer
 from python_code.detectors.mhsa.mhsa_trainer import MHSATrainer
 from python_code.detectors.tdcnn.tdcnn_trainer import TDCNNTrainer
+from python_code import DEVICE
+
 
 from typing import List
 
@@ -429,6 +431,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             s_t_clean = torch.fft.ifft(rx_clean[cur_index, ant, :], n=FFT_size)
                             s_t_matrix_clean[slot_num, 2*ant, :, ofdm_symbol] = torch.real(s_t_clean)
                             s_t_matrix_clean[slot_num, 2*ant+1, :, ofdm_symbol] = torch.imag(s_t_clean)
+
+                if tdcnn_trainer.is_online_training:
+                    s_t_matrix = s_t_matrix.to(DEVICE)
+                    s_t_matrix_clean = s_t_matrix_clean.to(DEVICE)
+                    train_loss_vect_tdcnn, val_loss_vect_tdcnn = tdcnn_trainer._online_training(
+                        s_t_matrix_clean[:NUM_SLOTS//5], s_t_matrix[:NUM_SLOTS//5], num_bits, n_users, iterations, epochs, False, torch.empty(0))
+                    s_t_matrix, _ = tdcnn_trainer._forward(s_t_matrix, num_bits,
+                                                             n_users,
+                                                             iterations,
+                                                             torch.empty(0))
+
 
             # Interleave real and imaginary parts of Rx into a real tensor
             real_part = rx.real
@@ -991,6 +1004,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur,
                                             "DeepRx", 3,
                                             train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0)
+        if conf.run_tdcnn:
+            fig_tdcnn = plot_loss_and_LLRs(train_loss_vect_tdcnn, val_loss_vect_tdcnn, torch.zeros_like(llrs_mat_list[0]), snr_cur,
+                                            "TDCNN", 3,
+                                            train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0)
         if run_deepsic:
             for iteration in range(iterations):
                 fig_deepsic = plot_loss_and_LLRs(train_loss_vect_deepsic, val_loss_vect_deepsic,
@@ -1240,6 +1257,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 title_string_cur = "deeprx_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_deeprx.savefig(file_path)
+            if conf.run_tdcnn:
+                title_string_cur = "tdcnn_" + title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_tdcnn.savefig(file_path)
+
             if conf.run_e2e:
                 title_string_cur = "e2e" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")

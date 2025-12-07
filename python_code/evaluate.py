@@ -442,6 +442,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                              iterations,
                                                              torch.empty(0))
 
+                s_t_matrix = s_t_matrix.detach()
+
                 for ant in range(conf.n_ants):
                     index = 0
                     for slot_num in range(NUM_SLOTS):
@@ -1568,4 +1570,3 @@ if __name__ == '__main__':
     minutes = int(elapsed_time // 60)
     seconds = int(elapsed_time % 60)
     print(f"Elapsed time: {days} days, {hours} hours, {minutes} minutes, {seconds} seconds")
-

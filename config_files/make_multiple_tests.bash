@@ -11,14 +11,15 @@ base_name=$(basename "$input_file" .yaml)
 
 # Define parameters
 seeds=(123)
-snrs=($(seq 5 30))
+snrs=($(seq 10 35))
 cfos=(0)
-clip_percentage_in_tx_vals=(100 30)
+clip_percentage_in_tx_vals=(30)
 use_film_vals=(False)
-which_augment_vals=('NO_AUGMENT')
-TDL_model_vals=('C' 'N')     # NEW
+which_augment_vals=('NO_AUGMENT' 'AUGMENT_LMMSE')
+TDL_model_vals=('C')     # NEW
 kernel_size_vals=(3)     # NEW
-run_tdcnn_vals=(False True)  # NEW
+run_tdfdcnn_vals=(False)  # NEW
+pilot_size_vals=(1000 5000)  # NEW
 
 total_count=0
 all_config_files=()
@@ -30,10 +31,10 @@ for seed in "${seeds[@]}"; do
     for clip in "${clip_percentage_in_tx_vals[@]}"; do
       for use_film in "${use_film_vals[@]}"; do
         for which_aug in "${which_augment_vals[@]}"; do
-          for run_tdcnn in "${run_tdcnn_vals[@]}"; do
+          for run_tdfdcnn in "${run_tdfdcnn_vals[@]}"; do
 
             # TD tag for filename
-            [[ "$run_tdcnn" == True ]] && tdtag="td1" || tdtag="td0"
+            [[ "$run_tdfdcnn" == True ]] && tdtag="td1" || tdtag="td0"
 
             for tdl in "${TDL_model_vals[@]}"; do
 
@@ -44,24 +45,36 @@ for seed in "${seeds[@]}"; do
               for kernel_size in "${kernel_size_vals[@]}"; do
                 ktag="k${kernel_size}"
 
-                for snr in "${snrs[@]}"; do
+                for pilot_size in "${pilot_size_vals[@]}"; do
+                  # pilot tag for filename: 1000 -> p1k, 5000 -> p5k
+                  if [[ "$pilot_size" -eq 1000 ]]; then
+                    ptag="p1k"
+                  elif [[ "$pilot_size" -eq 5000 ]]; then
+                    ptag="p5k"
+                  else
+                    ptag="p${pilot_size}"
+                  fi
 
-                  # Filename including td tag
-                  out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                  for snr in "${snrs[@]}"; do
 
-                  sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                      -e "s/^snr:.*/snr: $snr/" \
-                      -e "s/^cfo:.*/cfo: $cfo/" \
-                      -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                      -e "s/^use_film:.*/use_film: $use_film/" \
-                      -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                      -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
-                      -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                      -e "s/^run_tdcnn:.*/run_tdcnn: $run_tdcnn/" \
-                      "$input_file" > "$out_file"
+                    # Filename including td tag and pilot tag
+                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${ptag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
-                  all_config_files+=("\"$out_file\"")
-                  ((total_count++))
+                    sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                        -e "s/^snr:.*/snr: $snr/" \
+                        -e "s/^cfo:.*/cfo: $cfo/" \
+                        -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                        -e "s/^use_film:.*/use_film: $use_film/" \
+                        -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                        -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
+                        -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                        -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                        -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                        "$input_file" > "$out_file"
+
+                    all_config_files+=("\"$out_file\"")
+                    ((total_count++))
+                  done
                 done
               done
             done

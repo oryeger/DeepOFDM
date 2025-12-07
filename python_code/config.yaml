@@ -1,7 +1,7 @@
 snr: 30
 cur_str: more
 num_snrs: 1
-n_ants: 1
+n_ants: 8
 snr_step: 1
 n_users: 1
 mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM

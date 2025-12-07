@@ -9,6 +9,7 @@ from python_code.detectors.deepsicmb.deepsicmb_trainer import DeepSICMBTrainer
 from python_code.detectors.deepstag.deepstag_trainer import DeepSTAGTrainer
 from python_code.detectors.mhsa.mhsa_trainer import MHSATrainer
 from python_code.detectors.tdcnn.tdcnn_trainer import TDCNNTrainer
+from python_code.detectors.tdfdcnn.tdfdcnn_trainer import TDFDCNNTrainer
 from python_code import DEVICE
 
 
@@ -96,7 +97,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
                        val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
-    if detector == 'ESCNN' or detector == 'MHSA' or detector == 'FILM':
+    if detector == 'ESCNN' or detector == 'MHSA' or detector == 'FILM' or detector == 'TDFDCNN':
         iters_txt = ', #iterations=' + str(conf.iterations)
     elif detector == 'DeepSICe2e':
         iters_txt = ', #iters_e2e=' + str(conf.iters_e2e)
@@ -122,7 +123,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     axes[0].grid()
 
     axes[1].hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
-    if (detector == 'ESCNN') or (detector == 'DeepSICe2e') or (detector == 'MHSA'):
+    if (detector == 'ESCNN') or (detector == 'DeepSICe2e') or (detector == 'MHSA') or (detector == 'TDFDCNN'):
         axes[1].set_xlabel('LLRs iteration ' + str(iteration + 1))
     else:
         axes[1].set_xlabel('LLRs')
@@ -137,7 +138,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
 
 
 def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer, tdcnn_trainer) -> List[float]:
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -185,6 +186,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_ber_deepsic_list = [[] for _ in range(iterations)]
     total_bler_deepsic_list = [[] for _ in range(iterations)]
+    total_ber_tdfdcnn_list = [[] for _ in range(iterations)]
+    total_bler_tdfdcnn_list = [[] for _ in range(iterations)]
     total_ber_deepsicmb_list = [[] for _ in range(iterations)]
     total_ber_deepstag_list = [[] for _ in range(iterations * 2)]
     total_ber_mhsa_list = [[] for _ in range(iterations)]
@@ -252,6 +255,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_per_re_deepstag = np.zeros((iterations * 2, conf.num_res))
         ber_per_re_mhsa = np.zeros((iterations, conf.num_res))
         ber_sum_e2e = np.zeros(iters_e2e_disp)
+        ber_sum_tdfdcnn = np.zeros(iterations)
         ber_sum_deeprx = 0
         ber_sum_lmmse = 0
         ber_per_re_lmmse = np.zeros(conf.num_res)
@@ -262,6 +266,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_sum_mhsa = np.zeros(iterations)
 
         escnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
+        if conf.run_tdfdcnn:
+            tdfdcnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits, n_users, n_ants)
         deeprx_trainer._initialize_detector(num_bits, n_users, n_ants)
         if run_deepsic:
@@ -278,6 +284,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         if conf.run_tdcnn:
             tdcnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
+
+        if conf.run_tdfdcnn:
+            tdfdcnn_trainer._initialize_detector(num_bits, n_users, n_ants)  # For reseting the weights
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits * NUM_SYMB_PER_SLOT)
         pilot_chunk = int(pilot_size / np.log2(mod_pilot))
@@ -568,6 +577,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits, n_users, iterations,
                                                                            probs_for_aug[pilot_chunk:])
 
+
+            if conf.run_tdfdcnn:
+                if tdfdcnn_trainer.is_online_training:
+
+                    train_loss_vect_tdfdcnn, val_loss_vect_tdfdcnn = tdfdcnn_trainer._online_training(tx_pilot, rx_pilot, num_bits,
+                                                                                    n_users, iterations, epochs, False,
+                                                                                    probs_for_aug[:pilot_chunk])
+
+                    detected_word_tdfdcnn_list, llrs_mat_tdfdcnn_list = tdfdcnn_trainer._forward(rx_data, num_bits, n_users, iterations,
+                                                                           probs_for_aug[pilot_chunk:])
+
+
             if conf.run_e2e:
                 if deepsice2e_trainer.is_online_training:
                     train_loss_vect_e2e, val_loss_vect_e2e = deepsice2e_trainer._online_training(tx_pilot, rx_pilot,
@@ -651,6 +672,25 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_e2e = calculate_ber(detected_word_cur_re_e2e.cpu(), target.cpu(), num_bits)
                         ber_sum_e2e[iteration] += ber_e2e
+
+                        if conf.run_tdfdcnn:
+                            for iteration in range(iterations):
+                                detected_word_cur_re_tdfdcnn = detected_word_tdfdcnn_list[iteration][:, :, re]
+                                detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.squeeze(-1)
+                                detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.reshape(
+                                    int(tx_data.shape[0] / num_bits),
+                                    n_users,
+                                    num_bits).swapaxes(1, 2).reshape(
+                                    tx_data.shape[0],
+                                    n_users)
+                                if conf.ber_on_one_user >= 0:
+                                    ber_tdfdcnn = calculate_ber(
+                                        detected_word_cur_re_tdfdcnn[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
+                                else:
+                                    ber_tdfdcnn = calculate_ber(detected_word_cur_re_tdfdcnn.cpu(), target.cpu(), num_bits)
+                                ber_sum_tdfdcnn[iteration] += ber_tdfdcnn
+
 
                 if run_deeprx:
                     detected_word_cur_re_deeprx = detected_word_deeprx[:, :, re, :]
@@ -757,6 +797,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # LDPC decoding
             bler_list = [None] * iterations
             bler_deepsic_list = [None] * iterations
+            bler_tdfdcnn_list = [None] * iterations
             bler_mhsa_list = [None] * iterations
             if conf.mcs > -1:
                 if ldpc_k > 3824:
@@ -767,6 +808,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 crc = CRC5GCodec(crc_length)
                 for iteration in range(iterations):
                     llr_all_res = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
+                    llr_all_res_tdfdcnn = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_lmmse = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_sphere = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_deeprx = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
@@ -780,6 +822,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                         num_bits).swapaxes(1, 2).reshape(
                             tx_data.shape[0], n_users)
                         llr_all_res[:, re::conf.num_res] = llr_cur_re.swapaxes(0, 1).cpu()
+
+                        # TDFDCNN
+                        if conf.run_tdfdcnn:
+                            llr_cur_re_tdfdcnn = llrs_mat_tdfdcnn_list[iteration][:, :, re, :]
+                            llr_cur_re_tdfdcnn = llr_cur_re_tdfdcnn.squeeze(-1)
+                            llr_cur_re_tdfdcnn = llr_cur_re_tdfdcnn.reshape(int(tx_data.shape[0] / num_bits), n_users,
+                                                            num_bits).swapaxes(1, 2).reshape(
+                                tx_data.shape[0], n_users)
+                            llr_all_res_tdfdcnn[:, re::conf.num_res] = llr_cur_re_tdfdcnn.swapaxes(0, 1).cpu()
 
                         # lmmse
                         llr_cur_re_lmmse = llrs_mat_lmmse[:, :, re, :]
@@ -825,6 +876,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
                     crc_count = 0
+                    crc_count_tdfdcnn = 0
                     crc_count_lmmse = 0
                     crc_count_sphere = 0
                     crc_count_deeprx = 0
@@ -834,6 +886,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
                         crc_count += (~crc_out).numpy().astype(int).sum()
+                        if conf.run_tdfdcnn:
+                            decodedwords_tdfdcnn = codec.decode(llr_all_res_tdfdcnn[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                            crc_out_tdfdcnn = crc.decode(decodedwords_tdfdcnn)
+                            crc_count_tdfdcnn += (~crc_out_tdfdcnn).numpy().astype(int).sum()
+
                         decodedwords_lmmse = codec.decode(llr_all_res_lmmse[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_lmmse = crc.decode(decodedwords_lmmse)
                         crc_count_lmmse += (~crc_out_lmmse).numpy().astype(int).sum()
@@ -856,6 +913,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             crc_count_mhsa += (~crc_out_mhsa).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
+
+                    if conf.run_tdfdcnn:
+                        bler_tdfdcnn_list[iteration] = crc_count_tdfdcnn / (num_slots * n_users)
+                        total_bler_tdfdcnn_list[iteration].append(bler_tdfdcnn_list[iteration])
+                    else:
+                        bler_tdfdcnn_list[iteration] = 0
+                        total_bler_tdfdcnn_list[iteration].append(bler_tdfdcnn_list[iteration])
 
                     if run_deepsic:
                         bler_deepsic_list[iteration] = crc_count_deepsic / (num_slots * n_users)
@@ -895,6 +959,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     total_bler_list[iteration].append(0)
                     bler_deepsic_list[iteration] = 0
                     total_bler_deepsic_list[iteration].append(0)
+                    total_bler_tdfdcnn_list[iteration].append(0)
                     total_bler_mhsa_list[iteration].append(0)
                 bler_lmmse = 0
                 total_bler_lmmse.append(0)
@@ -933,6 +998,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             ber_sphere = ber_sum_sphere / num_res
             ber_deeprx = ber_sum_deeprx / num_res
 
+            ber_tdfdcnn_list = [None] * iterations
+            for iteration in range(iterations):
+                ber_tdfdcnn_list[iteration] = ber_sum_tdfdcnn[iteration] / num_res
+                total_ber_tdfdcnn_list[iteration].append(ber_tdfdcnn_list[iteration])
+
             ber_deepsic_list = [None] * iterations
             for iteration in range(iterations):
                 # ber_deepsic_list[iteration] = ber_sum_deepsic[iteration]  / (num_res - 2*conf.kernel_size)
@@ -969,6 +1039,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
                 if conf.mcs > -1:
                     print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi}')
+
+            if conf.run_tdfdcnn:
+                print(f'current TDFDCNN: {block_ind, float(ber_tdfdcnn_list[iterations - 1])}')
+                if conf.mcs > -1:
+                    print(f'current DeepSIC BLER: {block_ind, float(bler_tdfdcnn_list[iterations - 1])}')
 
             if run_deepsic:
                 print(f'current DeepSIC: {block_ind, float(ber_deepsic_list[iterations - 1])}')
@@ -1018,6 +1093,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             fig_tdcnn = plot_loss_and_LLRs(train_loss_vect_tdcnn, val_loss_vect_tdcnn, torch.zeros_like(llrs_mat_list[0]), snr_cur,
                                             "TDCNN", 3,
                                             train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0)
+        if conf.run_tdfdcnn:
+            for iteration in range(iterations):
+                fig_tdfdcnn = plot_loss_and_LLRs(train_loss_vect_tdfdcnn, val_loss_vect_tdfdcnn, llrs_mat_list[iteration], snr_cur,
+                                               "ESCNN",
+                                               conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
+                                               ber_list[iteration],
+                                               ber_lmmse, iteration)
+
         if run_deepsic:
             for iteration in range(iterations):
                 fig_deepsic = plot_loss_and_LLRs(train_loss_vect_deepsic, val_loss_vect_deepsic,
@@ -1108,6 +1191,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if run_deepsic:
             for i in range(conf.iterations):
                 data_bler[f"total_ber_deepsic_{i + 1}"] = total_bler_deepsic_list[i]
+
+        if run_deepsic:
+            for i in range(conf.iterations):
+                data_bler[f"total_bler_tdfdcnn_{i + 1}"] = total_bler_tdfdcnn_list[i]
+
+        if run_deepsic:
+            for i in range(conf.iterations):
+                data_bler[f"total_ber_tdfdcnn_{i + 1}"] = total_bler_tdfdcnn_list[i]
 
         if run_mhsa:
             for i in range(conf.iterations):
@@ -1278,6 +1369,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_e2e.savefig(file_path)
 
+            if conf.run_tdfdcnn:
+                title_string_cur = "tdfdcnn" + title_string
+                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
+                fig_tdfdcnn.savefig(file_path)
+
     markers = ['o', '*', 'x', 'D', '+', 'o']
     dashes = [':', '-.', '--', '-', '-', '-']
     if PLOT_MI:
@@ -1304,6 +1400,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     snr_at_target_list = np.zeros(iterations)
     snr_at_target_e2e_list = np.zeros(iters_e2e)
     snr_at_target_deepsic_list = np.zeros(iterations)
+    snr_at_target_tdfdcnn_list = np.zeros(iterations)
     snr_at_target_deepsicmb_list = np.zeros(iterations)
     snr_at_target_deepstag_list = np.zeros(iterations)
     snr_at_target_mhsa_list = np.zeros(iterations)
@@ -1318,6 +1415,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 interp_func = interp1d(total_ber_e2e_list[iteration], SNR_range, kind='linear',
                                        fill_value="extrapolate")
                 snr_at_target_e2e_list[iteration] = np.round(interp_func(bler_target), 1)
+
+        if conf.run_tdfdcnn:
+            for iteration in range(iterations):
+                interp_func = interp1d(total_ber_tdfdcnn_list[iteration], SNR_range, kind='linear',
+                                       fill_value="extrapolate")
+                snr_at_target_tdfdcnn_list[iteration] = np.round(interp_func(bler_target), 1)
+
 
         if run_deepsic:
             for iteration in range(iterations):
@@ -1354,6 +1458,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 snr_at_target_e2e_list[iteration] = float('inf')
         if run_deeprx:
             snr_at_target_deeprx = float('inf')
+        if conf.run_tdfdcnn:
+            for iteration in range(iterations):
+                snr_at_target_tdfdcnn_list[iteration] = float('inf')
         if run_deepsic:
             for iteration in range(iterations):
                 snr_at_target_deepsic_list[iteration] = float('inf')
@@ -1393,6 +1500,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             plt.semilogy(SNR_range, total_ber_deepsic_list[iteration], linestyle=dashes[iteration],
                          marker=markers[iteration], color='orange',
                          label='DeepSIC' + str(iteration + 1) + ', SNR @1%=' + str(
+                             snr_at_target_deepsic_list[iteration]))
+    if conf.run_tdfdcnn:
+        for iteration in range(iterations):
+            plt.semilogy(SNR_range, total_ber_tdfdcnn_list[iteration], linestyle=dashes[iteration],
+                         marker=markers[iteration], color='orange',
+                         label='TDFDCNN' + str(iteration + 1) + ', SNR @1%=' + str(
                              snr_at_target_deepsic_list[iteration]))
     if conf.run_deepsicmb:
         for iteration in range(iterations):
@@ -1465,6 +1578,7 @@ if __name__ == '__main__':
     deepstag_trainer = DeepSTAGTrainer(num_bits, conf.n_users, conf.n_ants)
     mhsa_trainer = MHSATrainer(num_bits, conf.n_users, conf.n_ants)
     tdcnn_trainer = TDCNNTrainer(num_bits, conf.n_users, conf.n_ants)
+    tdfdcnn_trainer = TDFDCNNTrainer(num_bits, conf.n_users, conf.n_ants)
 
     # For measuring number of parameters
     # def iter_modules(obj):
@@ -1559,7 +1673,7 @@ if __name__ == '__main__':
     # print(f"Parameters MHSA: {total_params}")
 
     run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer, tdcnn_trainer)
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

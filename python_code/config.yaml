@@ -1,18 +1,18 @@
-snr: 100
+snr: 30
 cur_str: more
 num_snrs: 1
 n_ants: 1
 snr_step: 1
 n_users: 1
-mod_pilot: 64          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
-mcs: 11 # [0..4] - QPSK, [5..10] - 16QAM
+mod_pilot: 4          # 2: BPSK, 4: QPSK, 16: 16QAM, 64: 64QAM
+mcs: 4 # [0..4] - QPSK, [5..10] - 16QAM
 block_length_factor: 5
 num_res: 24
 cfo:  0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 50
+epochs: 100
 iterations: 1
 pilot_size: 1000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 kernel_size: 3
@@ -42,7 +42,8 @@ run_deepsicmb: False
 run_deepstag: False
 run_mhsa: False
 run_sphere: False
-run_tdcnn: True
+run_tdcnn: False
+run_tdfdcnn: True
 which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 

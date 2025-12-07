@@ -2,6 +2,8 @@ import numpy as np
 from itertools import product
 import commpy.modulation as mod
 from python_code import conf
+from python_code.coding.mcs_table import get_mcs
+
 # import time
 
 
@@ -79,8 +81,9 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
 
     n_symbols, n_rx = y.shape
     n_users = H.shape[1]
-    bits_per_symbol = int(np.log2(conf.mod_pilot))
-    qam = mod.QAMModem(conf.mod_pilot)
+    bits_per_symbol, _ = get_mcs(conf.mcs)
+    bits_per_symbol = int(bits_per_symbol)
+    qam = mod.QAMModem(int(2 ** bits_per_symbol))
 
     # Constellation and bit mapping
     constellation = qam.constellation

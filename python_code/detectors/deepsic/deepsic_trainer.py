@@ -40,7 +40,7 @@ class DeepSICTrainer(Trainer):
         val_loss_vect = []
         for _ in range(epochs):
             soft_estimation, llrs = single_model(y_total)
-            if conf.mod_pilot <= 2:
+            if num_bits <= 1:
                 tx_reshaped = tx
             else:
                 tx_reshaped = tx.reshape(int(tx.numel() // num_bits), num_bits)
@@ -133,7 +133,7 @@ class DeepSICTrainer(Trainer):
         tx_all = []
         rx_all = []
         for k in range(n_users):
-            if conf.mod_pilot <= 2:
+            if num_bits <= 1:
                 idx = [user_i for user_i in range(n_users) if user_i != k]
             else:
                 max_value = probs_vec.shape[1]
@@ -168,7 +168,7 @@ class DeepSICTrainer(Trainer):
         llrs_out = torch.zeros_like(next_probs_vec)
         for re in range(conf.num_res):
             for user in range(n_users):
-                if conf.mod_pilot <= 2:
+                if num_bits <= 1:
                     idx = [user_i for user_i in range(n_users) if user_i != user]
                     user_indexes = user
                     local_user_indexes = 0

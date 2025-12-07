@@ -56,7 +56,7 @@ class DeepSTAGTrainer(Trainer):
         val_loss_vect = []
         for _ in range(epochs):
             soft_estimation, llrs = single_model(y_total)
-            if conf.mod_pilot <= 2:
+            if num_bits <= 1:
                 tx_reshaped = tx
             else:
                 tx_reshaped = tx.reshape(int(tx.numel() // num_bits), num_bits)
@@ -190,12 +190,9 @@ class DeepSTAGTrainer(Trainer):
         tx_all = []
         rx_all = []
         for k in range(n_users):
-            if conf.mod_pilot <= 2:
-                idx = [user_i for user_i in range(n_users) if user_i != k]
-            else:
-                max_value = probs_vec.shape[1]
-                all_values = list(range(max_value))
-                idx = all_values
+            max_value = probs_vec.shape[1]
+            all_values = list(range(max_value))
+            idx = all_values
 
             kernel_size = conf.stag_re_kernel_size
             half_kernel = int((kernel_size-1)/2)
@@ -278,20 +275,15 @@ class DeepSTAGTrainer(Trainer):
         half_kernel = int((kernel_size - 1) / 2)
         for re in range(conf.num_res):
             for user in range(n_users):
-                if conf.mod_pilot <= 2:
-                    idx = [user_i for user_i in range(n_users) if user_i != user]
-                    user_indexes = user
-                    local_user_indexes = 0
-                else:
-                    max_value = probs_vec.shape[1]
-                    all_values = list(range(max_value))
+                max_value = probs_vec.shape[1]
+                all_values = list(range(max_value))
 
-                    # Compute the excluded range for the current `i`
-                    exclude_start = user*num_bits
-                    exclude_end = (user+1)*num_bits
-                    idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
-                    user_indexes = np.setdiff1d(all_values, idx)
-                    local_user_indexes = range(0, num_bits)
+                # Compute the excluded range for the current `i`
+                exclude_start = user*num_bits
+                exclude_end = (user+1)*num_bits
+                idx = np.setdiff1d(all_values, range(exclude_start,exclude_end))
+                user_indexes = np.setdiff1d(all_values, idx)
+                local_user_indexes = range(0, num_bits)
 
 
                 n_probs_per_re = probs_vec.shape[1]

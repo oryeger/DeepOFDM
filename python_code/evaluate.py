@@ -151,8 +151,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     plt.close('all')
 
     num_res = conf.num_res
-    mod_pilot = conf.mod_pilot
-    num_bits = int(np.log2(mod_pilot))
+
+
+    if conf.mcs > -1:
+        qm, code_rate = get_mcs(conf.mcs)
+        num_bits = int(qm)
+        mod_pilot = int(2 ** qm)
+        assert (np.log2(mod_pilot) == qm), "Assert: MCS and modulation don't fit"
+        ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * qm)
+        ldpc_k = int(ldpc_n * code_rate)
+    else:
+        mod_pilot = conf.mod_pilot
+        num_bits = int(np.log2(mod_pilot))
+        ldpc_n = 0
+        ldpc_k = 0
+
     n_users = conf.n_users
     n_ants = conf.n_ants
     iterations = conf.iterations
@@ -199,14 +212,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_bler_sphere = []
     total_bler_deeprx = []
 
-    if conf.mcs > -1:
-        qm, code_rate = get_mcs(conf.mcs)
-        assert (np.log2(mod_pilot) == qm), "Assert: MCS and modulation don't fit"
-        ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * qm)
-        ldpc_k = int(ldpc_n * code_rate)
-    else:
-        ldpc_n = 0
-        ldpc_k = 0
 
     SNR_range = list(range(conf.snr, conf.snr + conf.num_snrs, conf.snr_step))
     total_mi_list = [[] for _ in range(iterations)]
@@ -1295,7 +1300,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             title_string = title_string + f'_Rc={code_rate:.2f}'
         title_string = title_string + '_scale_' + str(conf.scale_input)
         title_string = title_string + '_FILM_' + str(conf.use_film)
-        title_string = title_string + '_TDCNN_' + str(conf.run_tdcnn)
+        title_string = title_string + '_TDFDCNN_' + str(conf.run_tdfdcnn)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
@@ -1568,8 +1573,10 @@ if __name__ == '__main__':
     assert not (
                 conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
 
+
     start_time = time.time()
-    num_bits = int(np.log2(conf.mod_pilot))
+    num_bits, _ = get_mcs(conf.mcs)
+    num_bits = int(num_bits)
     escnn_trainer = ESCNNTrainer(num_bits, conf.n_users, conf.n_ants)
     deepsice2e_trainer = DeepSICe2eTrainer(num_bits, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)

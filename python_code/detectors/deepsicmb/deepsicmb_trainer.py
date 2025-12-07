@@ -40,7 +40,7 @@ class DeepSICMBTrainer(Trainer):
         val_loss_vect = []
         for _ in range(epochs):
             soft_estimation, llrs = single_model(y_total)
-            if conf.mod_pilot <= 2:
+            if conf.num_bits <= 1:
                 tx_reshaped = tx
             else:
                 tx_reshaped = tx.reshape(int(tx.numel() // num_bits), num_bits)
@@ -186,7 +186,7 @@ class DeepSICMBTrainer(Trainer):
         half_kernel = int((conf.kernel_size - 1) / 2)
         for re in range(conf.num_res):
             for user in range(n_users):
-                if conf.mod_pilot <= 2:
+                if conf.num_bits <= 1:
                     user_indexes = user
                     local_user_indexes = 0
                 else:

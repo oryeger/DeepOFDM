@@ -9,6 +9,7 @@ import tensorflow as tf
 from typing import Tuple
 
 from python_code.analog.iqmm_model import apply_iq_mismatch
+from python_code.coding.mcs_table import get_mcs
 
 
 
@@ -260,8 +261,8 @@ class SEDChannel:
                 y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
 
         else:
-
-            pilot_chunk = int(pilots_length / np.log2(conf.mod_pilot))
+            qm, _ = get_mcs(conf.mcs)
+            pilot_chunk = int(pilots_length / np.log2(qm))
             if conf.pilot_channel_seed < 0:
                 y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
             else:

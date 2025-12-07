@@ -26,23 +26,23 @@ def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_m
 
     postEqSINR = bias / (1 - bias)
 
-    if conf.mod_pilot == 2:
+    if num_bits == 1:
         for i in range(equalized.shape[1]):
             detected_word_lmmse_for_aug[:, i, re] = torch.from_numpy(
                 BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
-    elif conf.mod_pilot == 4:
+    elif num_bits == 2:
         for user in range(conf.n_users):
             detected_word_lmmse_for_aug[:, user, re], llr_out = QPSKModulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
 
-    elif conf.mod_pilot == 16:
+    elif num_bits == 4:
         for user in range(conf.n_users):
             detected_word_lmmse_for_aug[:, user, re], llr_out = QAM16Modulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
 
-    elif conf.mod_pilot == 64:
+    elif num_bits == 6:
         for user in range(conf.n_users):
             detected_word_lmmse_for_aug[:, user, re], llr_out = QAM64Modulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(

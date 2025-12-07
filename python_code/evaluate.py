@@ -437,12 +437,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     s_t_matrix_clean = s_t_matrix_clean.to(DEVICE)
                     train_loss_vect_tdcnn, val_loss_vect_tdcnn = tdcnn_trainer._online_training(
                         s_t_matrix_clean[:NUM_SLOTS//5], s_t_matrix[:NUM_SLOTS//5], num_bits, n_users, iterations, epochs, False, torch.empty(0))
-                    s_t_matrix, _ = tdcnn_trainer._forward(s_t_matrix, num_bits,
+                    with torch.no_grad():
+                        s_t_matrix, _ = tdcnn_trainer._forward(s_t_matrix, num_bits,
                                                              n_users,
                                                              iterations,
                                                              torch.empty(0))
-
-                s_t_matrix = s_t_matrix.detach()
 
                 for ant in range(conf.n_ants):
                     index = 0

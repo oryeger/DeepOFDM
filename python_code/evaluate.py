@@ -417,6 +417,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 fig.tight_layout()
                 plt.show()
 
+            rx_before = rx.clone()
+
             # Time domain processing:
             if conf.run_tdcnn:
                 s_t_matrix = torch.zeros((NUM_SLOTS, 2 * conf.n_ants, FFT_size, NUM_SYMB_PER_SLOT), dtype=torch.float32)
@@ -441,6 +443,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                              n_users,
                                                              iterations,
                                                              torch.empty(0))
+
+                for ant in range(conf.n_ants):
+                    index = 0
+                    for slot_num in range(NUM_SLOTS):
+                        for ofdm_symbol in range(NUM_SYMB_PER_SLOT):
+                            rx_t = s_t_matrix[slot_num, 2*ant, :, ofdm_symbol] + 1j * s_t_matrix[slot_num, 2*ant+1, :, ofdm_symbol]
+                            rx_f = torch.fft.fft(rx_t, n=FFT_size)
+                            rx[index, ant, :] = rx_f[:num_res]
+                            index += 1
 
 
             # Interleave real and imaginary parts of Rx into a real tensor

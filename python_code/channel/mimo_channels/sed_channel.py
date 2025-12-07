@@ -44,9 +44,6 @@ class SEDChannel:
             N *= 2
         H = SEDChannel.hadamard_matrix(N)
 
-        # Normalize
-        H = H / np.sqrt(N)
-
         # Take first n_rx rows and first n_layers columns
         return H[:n_rx, :n_layers]
 

@@ -417,8 +417,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 fig.tight_layout()
                 plt.show()
 
-            rx_before = rx.clone()
-
             # Time domain processing:
             if conf.run_tdcnn:
                 s_t_matrix = torch.zeros((NUM_SLOTS, 2 * conf.n_ants, FFT_size, NUM_SYMB_PER_SLOT), dtype=torch.float32)

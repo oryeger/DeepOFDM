@@ -82,18 +82,19 @@ class TDFDCNNDetector(nn.Module):
         # 1st: input_channels  -> 64
         # 2nd: 64              -> 128
         # 3rd: 128             -> 256
-        self.tdblock1 = ResNetBlockTD(conv_num_channels, 64, kernel_size=(3, 3))
-        self.tdblock2 = ResNetBlockTD(64, 128, kernel_size=(3, 3))
-        self.tdblock3 = ResNetBlockTD(128, 256, kernel_size=(3, 3))
+        self.td_conv1 = nn.Conv2d(in_channels=conv_num_channels,
+                                  out_channels=32,
+                                  kernel_size=3, padding=1)
 
-        # Final projection back to input channel dimension
-        self.td_out_conv = nn.Conv2d(
-            in_channels=256,
-            out_channels=conv_num_channels,
-            kernel_size=1,
-            bias=True,
-        )
+        self.td_conv2 = nn.Conv2d(in_channels=32,
+                                  out_channels=32,
+                                  kernel_size=3, padding=1)
 
+        self.td_conv3 = nn.Conv2d(in_channels=32,
+                                  out_channels=conv_num_channels,
+                                  kernel_size=3, padding=1)
+
+        self.td_activation = nn.ReLU()
 
         # --------- original channel computation ----------
         if conf.no_probs:
@@ -160,10 +161,9 @@ class TDFDCNNDetector(nn.Module):
                     s_t_matrix[slot_num, 2 * ant + 1, :, ofdm_symbol] = torch.imag(s_t)
 
         # ResNet blocks
-        s_t_matrix = self.tdblock1(s_t_matrix)
-        s_t_matrix = self.tdblock2(s_t_matrix)
-        s_t_matrix = self.tdblock3(s_t_matrix)
-        s_t_matrix = self.td_out_conv(s_t_matrix)  # raw regression output, no sigmoid
+        s_t_matrix = self.td_activation(self.td_conv1(s_t_matrix))
+        s_t_matrix = self.td_activation(self.td_conv2(s_t_matrix))
+        s_t_matrix = self.td_conv3(s_t_matrix)
 
         for ant in range(conf.n_ants):
             index = 0

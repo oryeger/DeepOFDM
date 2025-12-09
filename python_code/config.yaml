@@ -1,5 +1,5 @@
 snr: 30
-cur_str: more
+cur_str: tdfdcnntake4
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -19,7 +19,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [10]
+save_loss_plot_snr: [30]
 use_film: True
 scale_input: True
 

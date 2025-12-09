@@ -76,7 +76,7 @@ class DeepSTAGTrainer(Trainer):
         val_loss_vect_user = []
         for user in range(n_users):
             train_loss_vect , val_loss_vect = self._train_model_conv(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs)
-            if user == 3:
+            if user == 1:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
         return train_loss_vect_user , val_loss_vect_user

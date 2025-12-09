@@ -1211,10 +1211,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         df_bler = pd.DataFrame(data_bler)
 
         # print('\n'+title_string)
-        title_string = (chan_text + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ", #REs=" + str(
+        title_string = (chan_text + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
             conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
-                        cfo_str + ', Epochs=' + str(epochs) + ', #iterations=' + str(
-                    iterations) + ', kernel=' + str(conf.kernel_size) + ', Clip=' + str(
+                        cfo_str + ', Epo=' + str(epochs) + ', #iter=' + str(
+                    iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx) + '%')
 
         # plot BER per RE for first iteration:

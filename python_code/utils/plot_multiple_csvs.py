@@ -61,7 +61,8 @@ for BER in [1, 0]:
         'ber_deepsicmb_1': [], 'ber_deepsicmb_2': [], 'ber_deepsicmb_3': [],
         'ber_deepstag_1': [], 'ber_deepstag_2': [], 'ber_deepstag_3': [],
         'ber_lmmse': [], 'ber_sphere': [],
-        'ber_mhsa_1': [], 'ber_mhsa_2': [], 'ber_mhsa_3': []
+        'ber_mhsa_1': [], 'ber_mhsa_2': [], 'ber_mhsa_3': [],
+        'ber_tdfdcnn_1': [], 'ber_tdfdcnn_2': [], 'ber_tdfdcnn_3': []
     })
 
     plot_sphere = False
@@ -106,6 +107,35 @@ for BER in [1, 0]:
                             snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df[colname]))
                         elif "total_ber_mhsa" in df.columns:
                             snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df["total_ber_mhsa"]))
+
+            # TDFDCNN parsing
+            if any(col.startswith("total_ber_tfdfcnn") for col in df.columns):
+                if "total_ber_tfdfcnn" in df.columns and not any(col.startswith("total_ber_tfdfcnn_") for col in df.columns):
+                    val = float(df["total_ber_tfdfcnn"])
+                    for key in ["ber_tdfdcnn_1","ber_tdfdcnn_2","ber_tdfdcnn_3"]:
+                        snr_ber_dict[snr][key].append(val)
+                else:
+                    for k in [1,2,3]:
+                        colname = f"total_ber_tfdfcnn_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df[colname]))
+                        elif "total_ber_tdfdcnn" in df.columns:
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df["total_ber_tfdfcnn"]))
+
+            if any(col.startswith("total_ber_tdfdcnn") for col in df.columns):
+                if "total_ber_tdfdcnn" in df.columns and not any(col.startswith("total_ber_tdfdcnn_") for col in df.columns):
+                    val = float(df["total_ber_tdfdcnn"])
+                    for key in ["ber_tdfdcnn_1","ber_tdfdcnn_2","ber_tdfdcnn_3"]:
+                        snr_ber_dict[snr][key].append(val)
+                else:
+                    for k in [1,2,3]:
+                        colname = f"total_ber_tdfdcnn_{k}"
+                        if colname in df.columns:
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df[colname]))
+                        elif "total_ber_tdfdcnn" in df.columns:
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df["total_ber_tdfdcnn"]))
+
+
 
             # DeepSIC
             if any(col.startswith("total_ber_deepsic") for col in df.columns):
@@ -173,6 +203,9 @@ for BER in [1, 0]:
     ber_lmmse = avg('ber_lmmse')
     ber_sphere = avg('ber_sphere')
     ber_deeprx = avg('ber_deeprx')
+    ber_tdfdcnn_1 = avg('ber_tdfdcnn_1')
+    ber_tdfdcnn_2 = avg('ber_tdfdcnn_2')
+    ber_tdfdcnn_3 = avg('ber_tdfdcnn_3')
 
     markers = ['o', '*', 'x', 'D', '+']
     dashes  = [':', '-.', '--', '-', '-']
@@ -205,6 +238,24 @@ for BER in [1, 0]:
         snr_target_sphere = np.round(interp_func(ber_target), 1)
         ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color='brown',
                     label=f'Sphere @ {round(100*ber_target)}% = {snr_target_sphere}')
+
+
+    interp_func = interp1d(ber_tdfdcnn_1, snrs, fill_value="extrapolate")
+    snr_target_1 = np.round(interp_func(ber_target), 1)
+    ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[0], marker=markers[0], color='cyan',
+                label=f'TDFDCNN1 @ {round(100*ber_target)}% = {snr_target_1}')
+
+    interp_func = interp1d(ber_tdfdcnn_2, snrs, fill_value="extrapolate")
+    snr_target_2 = np.round(interp_func(ber_target), 1)
+    ax.semilogy(snrs, ber_tdfdcnn_2, linestyle=dashes[1], marker=markers[1], color='cyan',
+                label=f'TDFDCNN2 @ {round(100*ber_target)}% = {snr_target_2}')
+
+    interp_func = interp1d(ber_tdfdcnn_3, snrs, fill_value="extrapolate")
+    snr_target_3 = np.round(interp_func(ber_target), 1)
+    ax.semilogy(snrs, ber_tdfdcnn_3, linestyle=dashes[2], marker=markers[2], color='cyan',
+                label=f'TDFDCNN3 @ {round(100*ber_target)}% = {snr_target_3}')
+
+
 
     # ---- Formatting ----
     ax.set_xlabel("SNR (dB)")

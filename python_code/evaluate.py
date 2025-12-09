@@ -157,7 +157,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         qm, code_rate = get_mcs(conf.mcs)
         num_bits = int(qm)
         mod_pilot = int(2 ** qm)
-        assert (np.log2(mod_pilot) == qm), "Assert: MCS and modulation don't fit"
         ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * qm)
         ldpc_k = int(ldpc_n * code_rate)
     else:
@@ -678,23 +677,23 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             ber_e2e = calculate_ber(detected_word_cur_re_e2e.cpu(), target.cpu(), num_bits)
                         ber_sum_e2e[iteration] += ber_e2e
 
-                        if conf.run_tdfdcnn:
-                            for iteration in range(iterations):
-                                detected_word_cur_re_tdfdcnn = detected_word_tdfdcnn_list[iteration][:, :, re]
-                                detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.squeeze(-1)
-                                detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.reshape(
-                                    int(tx_data.shape[0] / num_bits),
-                                    n_users,
-                                    num_bits).swapaxes(1, 2).reshape(
-                                    tx_data.shape[0],
-                                    n_users)
-                                if conf.ber_on_one_user >= 0:
-                                    ber_tdfdcnn = calculate_ber(
-                                        detected_word_cur_re_tdfdcnn[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
-                                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
-                                else:
-                                    ber_tdfdcnn = calculate_ber(detected_word_cur_re_tdfdcnn.cpu(), target.cpu(), num_bits)
-                                ber_sum_tdfdcnn[iteration] += ber_tdfdcnn
+                if conf.run_tdfdcnn:
+                    for iteration in range(iterations):
+                        detected_word_cur_re_tdfdcnn = detected_word_tdfdcnn_list[iteration][:, :, re]
+                        detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.squeeze(-1)
+                        detected_word_cur_re_tdfdcnn = detected_word_cur_re_tdfdcnn.reshape(
+                            int(tx_data.shape[0] / num_bits),
+                            n_users,
+                            num_bits).swapaxes(1, 2).reshape(
+                            tx_data.shape[0],
+                            n_users)
+                        if conf.ber_on_one_user >= 0:
+                            ber_tdfdcnn = calculate_ber(
+                                detected_word_cur_re_tdfdcnn[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                                target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits)
+                        else:
+                            ber_tdfdcnn = calculate_ber(detected_word_cur_re_tdfdcnn.cpu(), target.cpu(), num_bits)
+                        ber_sum_tdfdcnn[iteration] += ber_tdfdcnn
 
 
                 if run_deeprx:
@@ -1181,6 +1180,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             for i in range(conf.iterations):
                 data[f"total_ber_mhsa_{i + 1}"] = total_ber_mhsa_list[i]
 
+        if conf.run_tdfdcnn:
+            for i in range(conf.iterations):
+                data[f"total_ber_tdfdcnn_{i + 1}"] = total_ber_tdfdcnn_list[i]
+
         df = pd.DataFrame(data)
 
         data_bler = {
@@ -1197,11 +1200,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             for i in range(conf.iterations):
                 data_bler[f"total_ber_deepsic_{i + 1}"] = total_bler_deepsic_list[i]
 
-        if run_deepsic:
-            for i in range(conf.iterations):
-                data_bler[f"total_bler_tdfdcnn_{i + 1}"] = total_bler_tdfdcnn_list[i]
-
-        if run_deepsic:
+        if conf.run_tdfdcnn:
             for i in range(conf.iterations):
                 data_bler[f"total_ber_tdfdcnn_{i + 1}"] = total_bler_tdfdcnn_list[i]
 

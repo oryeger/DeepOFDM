@@ -2,18 +2,23 @@ from python_code import conf
 import torch
 from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator, QAM64Modulator
 
-def LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, H):
+def LmmseDemod(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, num_bits, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, H):
     for user in range(conf.n_users):
         if not conf.separate_pilots:
             rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
             s_orig_pilot = s_orig[:pilot_chunk, user, re]
-            H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                    torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+            LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
+            H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
+            noise_var = 2*torch.mean(torch.abs(LS_channel - H[:, user])**2)
         else:
             rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:conf.n_users, :, re]
             s_orig_pilot = s_orig[user:pilot_chunk:conf.n_users, user, re]
-            H[:, user] = 1 / s_orig_pilot.shape[0] * (s_orig_pilot[:, None].conj() / (
-                    torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur).sum(dim=0)
+            LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
+            H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
+            noise_var = 2*torch.mean(torch.abs(LS_channel - H[:, user])**2)
+
+    if conf.override_noise_var:
+        noise_var = ext_noise_var
 
     I_users = torch.eye(conf.n_users, dtype=H.dtype, device=H.device)
     W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()

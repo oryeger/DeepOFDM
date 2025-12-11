@@ -804,6 +804,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             bler_tdfdcnn_list = [None] * iterations
             bler_mhsa_list = [None] * iterations
             if conf.mcs > -1:
+                # llrs_mat_lmmse = llrs_mat_lmmse * 0.0092
                 if ldpc_k > 3824:
                     crc_length = 24
                 else:

@@ -1,4 +1,4 @@
-snr: 19
+snr: 35
 cur_str: check_clip
 num_snrs: 1
 n_ants: 8
@@ -8,7 +8,7 @@ mcs: 30 # [0..4] - QPSK, [5..10] - 16QAM, [4,QPSK], [30,16QAM], [17, 64QAM]
 block_length_factor: 5
 num_res: 24
 cfo:  0
-clip_percentage_in_tx: 100
+clip_percentage_in_tx: 30
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
@@ -22,7 +22,7 @@ sphere_radius: 200
 save_loss_plot_snr: [30]
 use_film: True
 scale_input: True
-override_noise_var: False
+override_noise_var: True
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

@@ -9,13 +9,13 @@ def LmmseDemod(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, num_bits, ll
             s_orig_pilot = s_orig[:pilot_chunk, user, re]
             LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
             H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
-            noise_var = 2*torch.mean(torch.abs(LS_channel - H[:, user])**2)
+            noise_var = torch.mean(torch.abs(LS_channel - H[:, user])**2)
         else:
             rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:conf.n_users, :, re]
             s_orig_pilot = s_orig[user:pilot_chunk:conf.n_users, user, re]
             LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
             H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
-            noise_var = 2*torch.mean(torch.abs(LS_channel - H[:, user])**2)
+            noise_var = torch.mean(torch.abs(LS_channel - H[:, user])**2)
 
     if conf.override_noise_var:
         noise_var = ext_noise_var

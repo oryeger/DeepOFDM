@@ -240,20 +240,20 @@ for BER in [1, 0]:
                     label=f'Sphere @ {round(100*ber_target)}% = {snr_target_sphere}')
 
 
-    interp_func = interp1d(ber_tdfdcnn_1, snrs, fill_value="extrapolate")
-    snr_target_1 = np.round(interp_func(ber_target), 1)
-    ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[0], marker=markers[0], color='cyan',
-                label=f'TDFDCNN1 @ {round(100*ber_target)}% = {snr_target_1}')
-
-    interp_func = interp1d(ber_tdfdcnn_2, snrs, fill_value="extrapolate")
-    snr_target_2 = np.round(interp_func(ber_target), 1)
-    ax.semilogy(snrs, ber_tdfdcnn_2, linestyle=dashes[1], marker=markers[1], color='cyan',
-                label=f'TDFDCNN2 @ {round(100*ber_target)}% = {snr_target_2}')
-
-    interp_func = interp1d(ber_tdfdcnn_3, snrs, fill_value="extrapolate")
-    snr_target_3 = np.round(interp_func(ber_target), 1)
-    ax.semilogy(snrs, ber_tdfdcnn_3, linestyle=dashes[2], marker=markers[2], color='cyan',
-                label=f'TDFDCNN3 @ {round(100*ber_target)}% = {snr_target_3}')
+    # interp_func = interp1d(ber_tdfdcnn_1, snrs, fill_value="extrapolate")
+    # snr_target_1 = np.round(interp_func(ber_target), 1)
+    # ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[0], marker=markers[0], color='cyan',
+    #             label=f'TDFDCNN1 @ {round(100*ber_target)}% = {snr_target_1}')
+    #
+    # interp_func = interp1d(ber_tdfdcnn_2, snrs, fill_value="extrapolate")
+    # snr_target_2 = np.round(interp_func(ber_target), 1)
+    # ax.semilogy(snrs, ber_tdfdcnn_2, linestyle=dashes[1], marker=markers[1], color='cyan',
+    #             label=f'TDFDCNN2 @ {round(100*ber_target)}% = {snr_target_2}')
+    #
+    # interp_func = interp1d(ber_tdfdcnn_3, snrs, fill_value="extrapolate")
+    # snr_target_3 = np.round(interp_func(ber_target), 1)
+    # ax.semilogy(snrs, ber_tdfdcnn_3, linestyle=dashes[2], marker=markers[2], color='cyan',
+    #             label=f'TDFDCNN3 @ {round(100*ber_target)}% = {snr_target_3}')
 
 
 

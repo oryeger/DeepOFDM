@@ -265,7 +265,7 @@ for BER in [1, 0]:
     ax.legend()
 
 # ---- Add global title centered above BOTH plots ----
-fig.suptitle(global_title_text, fontsize=12, y=1.03)
+fig.suptitle(global_title_text, fontsize=12)
 
-plt.tight_layout()
+fig.tight_layout(rect=[0, 0, 1, 0.92])
 plt.show()

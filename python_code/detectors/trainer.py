@@ -4,6 +4,8 @@ from typing import List, Tuple
 import numpy as np
 import torch
 from torch.nn import BCELoss
+from torch import nn
+from torch.nn import BCEWithLogitsLoss
 from torch.optim import Adam
 
 from python_code import DEVICE, conf
@@ -28,7 +30,7 @@ class Trainer(object):
 
     def __init__(self, num_bits, n_users, n_ants):
         # initialize matrices, dataset and detector
-        self.lr = 5e-3
+        self.lr = 5e-4
         self.is_online_training = True
         #  self._initialize_dataloader(num_res,self.pilot_size)
         self._initialize_detector(num_bits, n_users, n_ants)
@@ -55,7 +57,7 @@ class Trainer(object):
         Sets up the optimizer and loss criterion
         """
         self.optimizer = Adam(filter(lambda p: p.requires_grad, single_model.parameters()), lr=self.lr)
-        self.criterion = BCELoss().to(DEVICE)
+        self.criterion = BCEWithLogitsLoss().to(DEVICE)
 
 
     def _online_training(self, tx: torch.Tensor, rx: torch.Tensor, n_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor) -> Tuple[List[float], List[float]]:
@@ -70,20 +72,48 @@ class Trainer(object):
         """
         pass
 
+    def run_train_loop(
+            self,
+            model: nn.Module,
+            est: torch.Tensor,
+            tx: torch.Tensor,
+            first_half_flag: bool,
+            batch_size: int = 128,
+            max_norm: float = 1.0,
+            shuffle: bool = True,
+    ) -> float:
 
-    def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor, first_half_flag) -> float:
-        # calculate loss
         if first_half_flag:
-            est_cur = est[:,0::2,:,:]
-            tx_cur = tx[:,0::2,:]
-        else:
-            est_cur = est
-            tx_cur = tx
+            est = est[:, 0::2, :, :]
+            tx = tx[:, 0::2, :]
 
-        loss = self._calculate_loss(est=est_cur, tx=tx_cur)
-        current_loss = loss.item()
-        # back propagation
-        self.optimizer.zero_grad()
-        loss.backward()
-        self.optimizer.step()
-        return current_loss
+        B = est.shape[0]
+        if B == 0:
+            return 0.0
+
+        if shuffle:
+            perm = torch.randperm(B, device=est.device)
+        else:
+            perm = torch.arange(B, device=est.device)
+
+        total_loss = 0.0
+        n_batches = 0
+
+        for start in range(0, B, batch_size):
+            idx = perm[start:start + batch_size]
+            est_mb = est.index_select(0, idx)
+            tx_mb = tx.index_select(0, idx)
+
+            loss = self._calculate_loss(est=est_mb, tx=tx_mb)
+
+            self.optimizer.zero_grad(set_to_none=True)
+            loss.backward()
+
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+
+            self.optimizer.step()
+
+            total_loss += float(loss.detach().item())
+            n_batches += 1
+
+        return total_loss / max(n_batches, 1)

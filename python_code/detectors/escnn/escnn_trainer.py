@@ -48,15 +48,9 @@ class ESCNNTrainer(Trainer):
             tx_cur = tx
             tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
 
-            train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples],first_half_flag)
-            if first_half_flag:
-                soft_estimation_cur = soft_estimation[train_samples:]
-                tx_reshaped_cur = tx_reshaped[train_samples:]
-                val_loss = self._calculate_loss(soft_estimation_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
-                # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
-            else:
-                val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+            train_samples = int(llrs.shape[0]*TRAIN_PERCENTAGE/100)
+            current_loss = self.run_train_loop(single_model, llrs[:train_samples], tx_reshaped[:train_samples],first_half_flag)
+            val_loss = self._calculate_loss(llrs[train_samples:], tx_reshaped[train_samples:])
             val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)

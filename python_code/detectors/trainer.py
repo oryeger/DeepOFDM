@@ -75,45 +75,44 @@ class Trainer(object):
     def run_train_loop(
             self,
             model: nn.Module,
-            est: torch.Tensor,
+            rx_prob: torch.Tensor,
             tx: torch.Tensor,
             first_half_flag: bool,
             batch_size: int = 128,
             max_norm: float = 1.0,
-            shuffle: bool = True,
-    ) -> float:
+    ):
+        model.train()
 
         if first_half_flag:
-            est = est[:, 0::2, :, :]
             tx = tx[:, 0::2, :]
 
-        B = est.shape[0]
-        if B == 0:
-            return 0.0
-
-        if shuffle:
-            perm = torch.randperm(B, device=est.device)
-        else:
-            perm = torch.arange(B, device=est.device)
+        B = rx_prob.shape[0]
+        perm = torch.randperm(B, device=rx_prob.device)
 
         total_loss = 0.0
         n_batches = 0
 
         for start in range(0, B, batch_size):
             idx = perm[start:start + batch_size]
-            est_mb = est.index_select(0, idx)
+
+            rx_mb = rx_prob.index_select(0, idx)
             tx_mb = tx.index_select(0, idx)
 
-            loss = self._calculate_loss(est=est_mb, tx=tx_mb)
+            soft_est, _ = model(rx_mb)
+
+            if first_half_flag:
+                soft_est = soft_est[:, 0::2, :, :]
+
+            loss = self._calculate_loss(soft_est, tx_mb)
 
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
 
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=max_norm)
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
 
             self.optimizer.step()
 
-            total_loss += float(loss.detach().item())
+            total_loss += loss.item()
             n_batches += 1
 
-        return total_loss / max(n_batches, 1)
+        return total_loss / n_batches

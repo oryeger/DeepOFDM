@@ -4,8 +4,8 @@ from typing import List, Tuple
 import numpy as np
 import torch
 from torch.nn import BCELoss
-from torch import nn
 from torch.nn import BCEWithLogitsLoss
+
 from torch.optim import Adam
 
 from python_code import DEVICE, conf
@@ -72,47 +72,20 @@ class Trainer(object):
         """
         pass
 
-    def run_train_loop(
-            self,
-            model: nn.Module,
-            rx_prob: torch.Tensor,
-            tx: torch.Tensor,
-            first_half_flag: bool,
-            batch_size: int = 128,
-            max_norm: float = 1.0,
-    ):
-        model.train()
 
+    def run_train_loop(self, est: torch.Tensor, tx: torch.Tensor, first_half_flag) -> float:
+        # calculate loss
         if first_half_flag:
-            tx = tx[:, 0::2, :]
+            est_cur = est[:,0::2,:,:]
+            tx_cur = tx[:,0::2,:]
+        else:
+            est_cur = est
+            tx_cur = tx
 
-        B = rx_prob.shape[0]
-        perm = torch.randperm(B, device=rx_prob.device)
-
-        total_loss = 0.0
-        n_batches = 0
-
-        for start in range(0, B, batch_size):
-            idx = perm[start:start + batch_size]
-
-            rx_mb = rx_prob.index_select(0, idx)
-            tx_mb = tx.index_select(0, idx)
-
-            soft_est, _ = model(rx_mb)
-
-            if first_half_flag:
-                soft_est = soft_est[:, 0::2, :, :]
-
-            loss = self._calculate_loss(soft_est, tx_mb)
-
-            self.optimizer.zero_grad(set_to_none=True)
-            loss.backward()
-
-            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm)
-
-            self.optimizer.step()
-
-            total_loss += loss.item()
-            n_batches += 1
-
-        return total_loss / n_batches
+        loss = self._calculate_loss(est=est_cur, tx=tx_cur)
+        current_loss = loss.item()
+        # back propagation
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        return current_loss

@@ -49,27 +49,15 @@ class ESCNNTrainer(Trainer):
             tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
 
             train_samples = int(llrs.shape[0]*TRAIN_PERCENTAGE/100)
-
-            current_loss = self.run_train_loop(
-                single_model,
-                rx_prob[:train_samples],
-                tx_reshaped[:train_samples],
-                first_half_flag
-            )
-
-            single_model.eval()
-            with torch.no_grad():
-                _, llrs_val = single_model(rx_prob[train_samples:])
-
-                if first_half_flag:
-                    llrs_val = llrs_val[:, 0::2, :, :]
-                    tx_val = tx_reshaped[train_samples:, 0::2, :]
-                else:
-                    tx_val = tx_reshaped[train_samples:]
-
-                val_loss = self._calculate_loss(llrs_val, tx_val).item()
-
-            single_model.train()
+            current_loss = self.run_train_loop(llrs[:train_samples], tx_reshaped[:train_samples],first_half_flag)
+            if first_half_flag:
+                llrs_cur = llrs[train_samples:]
+                tx_reshaped_cur = tx_reshaped[train_samples:]
+                val_loss = self._calculate_loss(llrs_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
+                # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
+            else:
+                val_loss = self._calculate_loss(llrs[train_samples:], tx_reshaped[train_samples:])
+            val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)
             val_loss_vect.append(val_loss)

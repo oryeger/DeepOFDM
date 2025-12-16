@@ -51,6 +51,6 @@ cfo_and_iqmm_in_rx: True
 
 
 # validation phase protocol
-block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
+block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_data)
 blocks_num: 1 # 100 number of validation frames. values: int.
 

@@ -5,15 +5,16 @@ n_ants: 8
 snr_step: 1
 n_users: 1
 mcs: 4
+mod_pilot: 16
 block_length_factor: 5
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 100
+epochs: 2
 iterations: 1
-pilot_size: 1000
+pilot_size: 100
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True
@@ -65,5 +66,5 @@ cfo_and_iqmm_in_rx: True
 
 
 # validation phase protocol
-block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
+block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_data)
 blocks_num: 1 # 100 number of validation frames. values: int.

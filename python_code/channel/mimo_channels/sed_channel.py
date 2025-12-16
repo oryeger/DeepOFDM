@@ -219,7 +219,7 @@ class SEDChannel:
 
 
     @staticmethod
-    def transmit(s: np.ndarray, h: np.ndarray, noise_var: float, num_res: int, cfo_and_iqmm_in_rx: bool, n_users: int, pilots_length: int) -> np.ndarray:
+    def transmit(s: np.ndarray, h: np.ndarray, noise_var: float, num_res: int, cfo_and_iqmm_in_rx: bool, n_users: int, pilot_length: int) -> np.ndarray:
         """
         The MIMO SED Channel
         :param s: to transmit symbol words
@@ -262,7 +262,7 @@ class SEDChannel:
 
         else:
             qm, _ = get_mcs(conf.mcs)
-            pilot_chunk = int(pilots_length / np.log2(qm))
+            pilot_chunk = int(pilot_length / np.log2(qm))
             if conf.pilot_channel_seed < 0:
                 y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
             else:

@@ -17,9 +17,10 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 
 
 class MIMOChannel:
-    def __init__(self, block_length: int, pilots_length: int, clip_percentage_in_tx: int, cfo_and_iqmm_in_rx: bool, n_users: int):
+    def __init__(self, block_length: int, pilot_length: int, data_length: int, clip_percentage_in_tx: int, cfo_and_iqmm_in_rx: bool, n_users: int):
         self._block_length = block_length
-        self._pilots_length = pilots_length
+        self._pilot_length = pilot_length
+        self._data_length = data_length
         self._bits_generator = default_rng(seed=conf.seed)
         self.tx_length = n_users
         self._h_shape = [conf.n_ants, n_users]
@@ -28,11 +29,11 @@ class MIMOChannel:
         self.cfo_and_iqmm_in_rx = cfo_and_iqmm_in_rx
 
 
-    def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
-        data_length = self._block_length - self._pilots_length
+        data_length = self._block_length - self._pilot_length
         if conf.mcs<=-1:
-            tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
+            tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilot_length, n_users, num_res))
             tx_data = self._bits_generator.integers(0, 2, size=(data_length, n_users, num_res))
         else:
             if ldpc_k > 3824:
@@ -41,7 +42,7 @@ class MIMOChannel:
                 crc_length = 16
             codec = LDPC5GCodec(k=(ldpc_k+crc_length), n=ldpc_n)
             crc = CRC5GCodec(crc_length)
-            tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilots_length, n_users, num_res))
+            tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilot_length, n_users, num_res))
             tx_data_coded = np.zeros((n_users , data_length*num_res))
             num_slots = int(np.floor(data_length*num_res/ldpc_n))
             remainder = (data_length * num_res) % ldpc_n
@@ -56,18 +57,26 @@ class MIMOChannel:
 
         tx = np.concatenate([tx_pilots, tx_data])
 
+        if conf.mod_pilot>0:
+            mod_pilot = conf.mod_pilot
+        else:
+            mod_pilot = mod_data
+
         # modulation
-        if mod_pilot == 2:
+        if mod_data == 2:
             s_pilots = BPSKModulator.modulate(tx_pilots.T)
             s_data = BPSKModulator.modulate(tx_data.T)
         else:
             s_pilots = np.zeros((n_users, int(tx_pilots.shape[0]/np.log2(mod_pilot)), num_res), dtype=complex)
-            s_data = np.zeros((n_users, int(tx_data.shape[0]/np.log2(mod_pilot)), num_res), dtype=complex)
+            s_data = np.zeros((n_users, int(tx_data.shape[0]/np.log2(mod_data)), num_res), dtype=complex)
             qam = mod.QAMModem(mod_pilot)
             for user in range(n_users):
                 for re_index in range(num_res):
                     tx_pilots_cur = tx_pilots[:,:,re_index]
                     s_pilots[user,:, re_index] = qam.modulate(tx_pilots_cur.T[user,:])
+            qam = mod.QAMModem(mod_data)
+            for user in range(n_users):
+                for re_index in range(num_res):
                     tx_data_cur = tx_data[:,:,re_index]
                     s_data[user,:, re_index] = qam.modulate(tx_data_cur.T[user,:])
 
@@ -167,11 +176,11 @@ class MIMOChannel:
         # s_real[1::2, :, :] = s.imag  # Imaginary parts at odd indices
 
         # pass through channel
-        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res, cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users, pilots_length=self._pilots_length)
+        rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res, cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users, pilot_length=self._pilot_length)
         if conf.run_tdcnn:
             rx_clean, _ = SEDChannel.transmit(s=s_clean, h=h, noise_var=0, num_res=num_res,
                                             cfo_and_iqmm_in_rx=self.cfo_and_iqmm_in_rx, n_users=n_users,
-                                            pilots_length=self._pilots_length)
+                                            pilot_length=self._pilot_length)
             rx_clean = np.transpose(rx_clean, (1, 0, 2))
         else:
             rx_clean = None
@@ -189,8 +198,8 @@ class MIMOChannel:
 
         return tx, rx, rx_ce, s_orig, rx_clean
 
-    def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_pilot: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res)
-        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var,num_res, n_users, mod_pilot, ldpc_k, ldpc_n)
+        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var,num_res, n_users, mod_data, ldpc_k, ldpc_n)
         return tx, h, rx, rx_ce, s_orig, rx_clean

@@ -1,4 +1,4 @@
-snr: -10
+snr: 30
 cur_str: calc_nv_mcss
 num_snrs: 1
 n_ants: 8
@@ -46,7 +46,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'NO_AUGMENT'
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

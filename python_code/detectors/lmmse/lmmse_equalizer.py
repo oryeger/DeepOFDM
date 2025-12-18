@@ -44,7 +44,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
         for user in range(conf.n_users):
             if skip!= 1:
                 llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0])
-                detected_word_lmmse_for_aug[1::skip, user, re], llr_out[1::skip] = QPSKModulator.demodulate(
+                detected_word_lmmse_for_aug[::skip, user, re], llr_out[::skip] = QPSKModulator.demodulate(
                     equalized[:, user].numpy())
                 num_bits_int = int(skip*num_bits)
             else:

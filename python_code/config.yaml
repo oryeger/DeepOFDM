@@ -1,11 +1,11 @@
-snr: 30
+snr: -10
 cur_str: calc_nv_mcss
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 1
 mcs: 4
-mod_pilot: -1
+mod_pilot: 16
 block_length_factor: 5
 num_res: 24
 cfo: 0

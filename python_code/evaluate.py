@@ -30,7 +30,7 @@ from scipy.stats import entropy
 from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
-from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
+from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize,LmmseDemod
 
 from datetime import datetime
 from scipy.io import savemat
@@ -269,39 +269,41 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_sum_deepstag = np.zeros(iterations * 2)
         ber_sum_mhsa = np.zeros(iterations)
 
-        escnn_trainer._initialize_detector(num_bits_data, n_users, n_ants)  # For reseting the weights
-        if conf.run_tdfdcnn:
-            tdfdcnn_trainer._initialize_detector(num_bits_data, n_users, n_ants)  # For reseting the weights
-        deepsice2e_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-        deeprx_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-        if run_deepsic:
-            deepsic_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-
-        if conf.run_deepsicmb:
-            deepsicmb_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-
-        if conf.run_deepstag:
-            deepstag_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-
-        if run_mhsa:
-            mhsa_trainer._initialize_detector(num_bits_data, n_users, n_ants)
-
-        if conf.run_tdcnn:
-            tdcnn_trainer._initialize_detector(num_bits_data, n_users, n_ants)  # For reseting the weights
-
-        if conf.run_tdfdcnn:
-            tdfdcnn_trainer._initialize_detector(num_bits_data, n_users, n_ants)  # For reseting the weights
-
         if conf.mod_pilot> 0:
             num_bits_pilot = int(np.log2(conf.mod_pilot))
         else:
             num_bits_pilot = num_bits_data
 
+        pilot_data_ratio = int(num_bits_pilot/num_bits_data)
+
+        escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+        if conf.run_tdfdcnn:
+            tdfdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+        deepsice2e_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+        deeprx_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+        if run_deepsic:
+            deepsic_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+
+        if conf.run_deepsicmb:
+            deepsicmb_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+
+        if conf.run_deepstag:
+            deepstag_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+
+        if run_mhsa:
+            mhsa_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+
+        if conf.run_tdcnn:
+            tdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+
+        if conf.run_tdfdcnn:
+            tdfdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+
         pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT)
-        pilot_chunk = int(pilot_size / np.log2(mod_data))
+        pilot_chunk = int(pilot_size / num_bits_pilot)
 
         data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT)
-        data_chunk = int(pilot_size / np.log2(mod_data))
+        data_chunk = int(data_size / num_bits_data)
 
 
         noise_var = 10 ** (-0.1 * snr_cur) * constellation_factor
@@ -488,41 +490,46 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             rx_pilot, rx_data = rx_real[:pilot_chunk], rx_real[pilot_chunk:]
 
             rx_c = rx.cpu()  # rx_c is the rx in CPU
-            llrs_mat_lmmse_for_aug = np.zeros((rx_c.shape[0], num_bits_data * n_users, num_res, 1))
-            llrs_mat_sphere_for_aug = np.zeros((rx_c.shape[0], num_bits_data * n_users, num_res, 1))
-            detected_word_lmmse_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_data)), n_users, num_res))
-            detected_word_sphere_for_aug = np.zeros((int(rx_c.shape[0] * np.log2(mod_data)), n_users, num_res))
+            llrs_mat_lmmse_for_aug = np.zeros((rx_c.shape[0], num_bits_pilot * n_users, num_res, 1))
+            llrs_mat_sphere_for_aug = np.zeros((rx_c.shape[0], num_bits_pilot * n_users, num_res, 1))
+            detected_word_lmmse_for_aug = np.zeros((int(rx_c.shape[0] * num_bits_pilot), n_users, num_res))
+            detected_word_sphere_for_aug = np.zeros((int(rx_c.shape[0] * num_bits_pilot), n_users, num_res))
             time_ce = 0
             time_lmmse = 0
             time_sphere = 0
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
+
                 # Regular CE
-                if conf.pilot_channel_seed < 0:
-                    LmmseDemod(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, num_bits_data, llrs_mat_lmmse_for_aug,
-                               detected_word_lmmse_for_aug, H)
-                else:
+                if conf.pilot_channel_seed > 0:
                     # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
                     LmmseDemod(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
-                               noise_var, pilot_chunk, re, num_bits_data, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
+                               noise_var, pilot_chunk, re, num_bits_pilot, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                detected_word_lmmse_for_aug[:pilot_size, :, :], H)
                     LmmseDemod(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
                                noise_var, pilot_chunk, re, num_bits_data, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], H)
+                else:
+                    equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
+                               noise_var, pilot_chunk, re, H)
+                    LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
+                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                    LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
 
                 if run_sphere:
                     H = H.cpu().numpy()
                     llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                     noise_var, conf.sphere_radius)
                 else:
-                    llr_out = np.zeros((rx_c.shape[0] * num_bits_data, n_users))
-                    detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0] * num_bits_data, n_users))
+                    llr_out = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
+                    detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
 
                 for user in range(n_users):
-                    llrs_mat_sphere_for_aug[:, (user * num_bits_data):((user + 1) * num_bits_data), re, :] = -llr_out[:,
+                    llrs_mat_sphere_for_aug[:, (user * num_bits_pilot):((user + 1) * num_bits_pilot), re, :] = -llr_out[:,
                                                                                                     user].reshape(
-                        int(llr_out[:, user].shape[0] / num_bits_data), num_bits_data, 1)
+                        int(llr_out[:, user].shape[0] / num_bits_pilot), num_bits_pilot, 1)
 
             # Time measurements - currently not used
             # time_ce = time_ce / (conf.num_res-1) * conf.num_res
@@ -542,13 +549,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if run_deepsic:
                 if deepsic_trainer.is_online_training:
                     train_loss_vect_deepsic, val_loss_vect_deepsic = deepsic_trainer._online_training(
-                        tx_pilot, rx_pilot, num_bits_data, n_users, iterations, epochs, False, torch.empty(0))
-                    detected_word_deepsic_list, llrs_mat_deepsic_list = deepsic_trainer._forward(rx_data, num_bits_data,
+                        tx_pilot, rx_pilot, num_bits_pilot, n_users, iterations, epochs, False, torch.empty(0))
+                    detected_word_deepsic_list, llrs_mat_deepsic_list = deepsic_trainer._forward(rx_data, num_bits_pilot,
                                                                                                  n_users,
                                                                                                  iterations,
                                                                                                  torch.empty(0))
                     if conf.which_augment == 'AUGMENT_DEEPSIC':
-                        _, llrs_mat_deepsic_pilot_list = deepsic_trainer._forward(rx_pilot, num_bits_data, n_users,
+                        _, llrs_mat_deepsic_pilot_list = deepsic_trainer._forward(rx_pilot, num_bits_pilot, n_users,
                                                                                   iterations, torch.empty(0))
                         probs_for_aug = torch.cat(
                             (torch.sigmoid(llrs_mat_deepsic_pilot_list[0]), torch.sigmoid(llrs_mat_deepsic_list[0])),
@@ -558,14 +565,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if run_deeprx:
                 if deeprx_trainer.is_online_training:
                     train_loss_vect_deeprx, val_loss_vect_deeprx = deeprx_trainer._online_training(tx_pilot, rx_pilot,
-                                                                                                   num_bits_data, n_users,
+                                                                                                   num_bits_pilot, n_users,
                                                                                                    iterations, epochs,
                                                                                                    False,
                                                                                                    torch.empty(0))
-                    detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits_data, n_users,
+                    detected_word_deeprx, llrs_mat_deeprx = deeprx_trainer._forward(rx_data, num_bits_pilot, n_users,
                                                                                     iterations, torch.empty(0))
                     if conf.which_augment == 'AUGMENT_DEEPRX':
-                        _, llrs_mat_deeprx_pilot = deeprx_trainer._forward(rx_pilot, num_bits_data, n_users, iterations,
+                        _, llrs_mat_deeprx_pilot = deeprx_trainer._forward(rx_pilot, num_bits_pilot, n_users, iterations,
                                                                            torch.empty(0))
                         probs_for_aug = torch.cat(
                             (torch.sigmoid(llrs_mat_deeprx_pilot), torch.sigmoid(llrs_mat_deeprx)), dim=0).cpu()
@@ -576,64 +583,64 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # online training main function
             if escnn_trainer.is_online_training:
 
-                train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_data,
+                train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                 n_users, iterations, epochs, False,
                                                                                 probs_for_aug[:pilot_chunk], stage="base" )
 
                 if conf.use_film:
-                    train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_data,
+                    train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                     n_users, iterations, epochs, False,
                                                                                     probs_for_aug[:pilot_chunk], stage="film")
 
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
-                detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_data, n_users, iterations,
+                detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
                                                                            probs_for_aug[pilot_chunk:])
 
 
             if conf.run_tdfdcnn:
                 if tdfdcnn_trainer.is_online_training:
 
-                    train_loss_vect_tdfdcnn, val_loss_vect_tdfdcnn = tdfdcnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_data,
+                    train_loss_vect_tdfdcnn, val_loss_vect_tdfdcnn = tdfdcnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                     n_users, iterations, epochs, False,
                                                                                     probs_for_aug[:pilot_chunk])
 
-                    detected_word_tdfdcnn_list, llrs_mat_tdfdcnn_list = tdfdcnn_trainer._forward(rx_data, num_bits_data, n_users, iterations,
+                    detected_word_tdfdcnn_list, llrs_mat_tdfdcnn_list = tdfdcnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
                                                                            probs_for_aug[pilot_chunk:])
 
 
             if conf.run_e2e:
                 if deepsice2e_trainer.is_online_training:
                     train_loss_vect_e2e, val_loss_vect_e2e = deepsice2e_trainer._online_training(tx_pilot, rx_pilot,
-                                                                                                 num_bits_data, n_users,
+                                                                                                 num_bits_pilot, n_users,
                                                                                                  iters_e2e, epochs,
                                                                                                  False, torch.empty(0))
-                    detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits_data, n_users,
+                    detected_word_e2e_list, llrs_mat_e2e_list = deepsice2e_trainer._forward(rx_data, num_bits_pilot, n_users,
                                                                                             iters_e2e, torch.empty(0))
 
             if conf.run_deepsicmb:
                 if deepsicmb_trainer.is_online_training:
                     train_loss_vect_deepsicmb, val_loss_vect_deepsicmb = deepsicmb_trainer._online_training(
-                        tx_pilot, rx_pilot, num_bits_data, n_users, iterations, epochs, False, torch.empty(0))
+                        tx_pilot, rx_pilot, num_bits_pilot, n_users, iterations, epochs, False, torch.empty(0))
                     detected_word_deepsicmb_list, llrs_mat_deepsicmb_list = deepsicmb_trainer._forward(rx_data,
-                                                                                                       num_bits_data,
+                                                                                                       num_bits_pilot,
                                                                                                        n_users,
                                                                                                        iterations,
                                                                                                        torch.empty(0))
             if conf.run_deepstag:
                 if deepstag_trainer.is_online_training:
                     train_loss_vect_deepstag, val_loss_vect_deepstag = deepstag_trainer._online_training(
-                        tx_pilot, rx_pilot, num_bits_data, n_users, iterations, epochs, False, torch.empty(0))
-                    detected_word_deepstag_list, llrs_mat_deepstag_list = deepstag_trainer._forward(rx_data, num_bits_data,
+                        tx_pilot, rx_pilot, num_bits_pilot, n_users, iterations, epochs, False, torch.empty(0))
+                    detected_word_deepstag_list, llrs_mat_deepstag_list = deepstag_trainer._forward(rx_data, num_bits_pilot,
                                                                                                     n_users,
                                                                                                     iterations,
                                                                                                     torch.empty(0))
             if run_mhsa:
                 if mhsa_trainer.is_online_training:
                     train_loss_vect_mhsa, val_loss_vect_mhsa = mhsa_trainer._online_training(
-                        tx_pilot, rx_pilot, num_bits_data, n_users, iterations, epochs, False, torch.empty(0))
-                    detected_word_mhsa_list, llrs_mat_mhsa_list = mhsa_trainer._forward(rx_data, num_bits_data, n_users,
+                        tx_pilot, rx_pilot, num_bits_pilot, n_users, iterations, epochs, False, torch.empty(0))
+                    detected_word_mhsa_list, llrs_mat_mhsa_list = mhsa_trainer._forward(rx_data, num_bits_pilot, n_users,
                                                                                         iterations, torch.empty(0))
 
             # CE Based
@@ -641,8 +648,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
             for re in range(conf.num_res):
                 # Regular CE
-                detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
-                detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
+                if pilot_data_ratio <= 1:
+                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
+                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
+                else:
+                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+1::pilot_data_ratio, :, re]
+                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size+1::pilot_data_ratio, :, re]
 
                 # Sphere:
                 if conf.sphere_radius == 'inf':
@@ -655,7 +666,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # calculate accuracy
                 target = tx_data[:, :rx.shape[1], re]
                 for iteration in range(iterations):
-                    detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
+                    if pilot_data_ratio <= 1:
+                        detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
+                    else:
+                        detected_word_cur_re = detected_word_list[iteration][:, 1::pilot_data_ratio, re, :]
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
                     detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -831,7 +845,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     llr_all_res_mhsa = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     for re in range(conf.num_res):
                         # ESCNN
-                        llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
+                        if pilot_data_ratio<=1:
+                            llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
+                        else:
+                            llr_cur_re = llrs_mat_list[iteration][:, 1::pilot_data_ratio, re, :]
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -848,7 +865,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             llr_all_res_tdfdcnn[:, re::conf.num_res] = llr_cur_re_tdfdcnn.swapaxes(0, 1).cpu()
 
                         # lmmse
-                        llr_cur_re_lmmse = llrs_mat_lmmse[:, :, re, :]
+                        if pilot_data_ratio<=1:
+                            llr_cur_re_lmmse = llrs_mat_lmmse[:, :, re, :]
+                        else:
+                            llr_cur_re_lmmse = llrs_mat_lmmse[:, 1::pilot_data_ratio, re, :]
                         llr_cur_re_lmmse = llr_cur_re_lmmse.squeeze(-1)
                         llr_cur_re_lmmse = llr_cur_re_lmmse.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                     num_bits_data).swapaxes(1, 2).reshape(
@@ -856,7 +876,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         llr_all_res_lmmse[:, re::conf.num_res] = llr_cur_re_lmmse.swapaxes(0, 1)
 
                         # Sphere
-                        llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
+                        if pilot_data_ratio<=1:
+                            llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
+                        else:
+                            llr_cur_re_sphere = llrs_mat_sphere[:, 1::pilot_data_ratio, re, :]
                         llr_cur_re_sphere = llr_cur_re_sphere.squeeze(-1)
                         llr_cur_re_sphere = llr_cur_re_sphere.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                       num_bits_data).swapaxes(1, 2).reshape(
@@ -1588,15 +1611,21 @@ if __name__ == '__main__':
     start_time = time.time()
     num_bits_data, _ = get_mcs(conf.mcs)
     num_bits_data = int(num_bits_data)
-    escnn_trainer = ESCNNTrainer(num_bits_data, conf.n_users, conf.n_ants)
-    deepsice2e_trainer = DeepSICe2eTrainer(num_bits_data, conf.n_users, conf.n_ants)
+
+    if conf.mod_pilot > 0:
+        num_bits_pilot = int(np.log2(conf.mod_pilot))
+    else:
+        num_bits_pilot = num_bits_data
+
+    escnn_trainer = ESCNNTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    deepsice2e_trainer = DeepSICe2eTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
     deeprx_trainer = DeepRxTrainer(conf.num_res, conf.n_users, conf.n_ants)
-    deepsic_trainer = DeepSICTrainer(num_bits_data, conf.n_users, conf.n_ants)
-    deepsicmb_trainer = DeepSICMBTrainer(num_bits_data, conf.n_users, conf.n_ants)
-    deepstag_trainer = DeepSTAGTrainer(num_bits_data, conf.n_users, conf.n_ants)
-    mhsa_trainer = MHSATrainer(num_bits_data, conf.n_users, conf.n_ants)
-    tdcnn_trainer = TDCNNTrainer(num_bits_data, conf.n_users, conf.n_ants)
-    tdfdcnn_trainer = TDFDCNNTrainer(num_bits_data, conf.n_users, conf.n_ants)
+    deepsic_trainer = DeepSICTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    deepsicmb_trainer = DeepSICMBTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    deepstag_trainer = DeepSTAGTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    mhsa_trainer = MHSATrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    tdcnn_trainer = TDCNNTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    tdfdcnn_trainer = TDFDCNNTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
 
     # For measuring number of parameters
     # def iter_modules(obj):

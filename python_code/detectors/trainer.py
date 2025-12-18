@@ -30,7 +30,7 @@ class Trainer(object):
 
     def __init__(self, num_bits, n_users, n_ants):
         # initialize matrices, dataset and detector
-        self.lr = 5e-4
+        self.lr = conf.learning_rate
         self.is_online_training = True
         #  self._initialize_dataloader(num_res,self.pilot_size)
         self._initialize_detector(num_bits, n_users, n_ants)

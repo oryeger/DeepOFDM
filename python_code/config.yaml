@@ -12,9 +12,10 @@ cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 2
+epochs: 100
 iterations: 1
-pilot_size: 100
+pilot_size: 1000
+learning_rate: 5.0e-2 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True

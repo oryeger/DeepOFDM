@@ -1333,7 +1333,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             title_string = title_string + f'_Rc={code_rate:.2f}'
         title_string = title_string + '_scale_' + str(conf.scale_input)
         title_string = title_string + '_FILM_' + str(conf.use_film)
-        title_string = title_string + '_TDFDCNN_' + str(conf.run_tdfdcnn)
+        title_string = title_string + '_PDR_' + str(pilot_data_ratio)
         title_string = title_string + '_ONV_' + str(conf.override_noise_var)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)

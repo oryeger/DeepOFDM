@@ -48,7 +48,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                     equalized[:, user].numpy())
                 num_bits_int = int(skip*num_bits)
             else:
-                detected_word_lmmse_for_aug[:, user, re], llr_out = QAM16Modulator.demodulate(
+                detected_word_lmmse_for_aug[:, user, re], llr_out = QPSKModulator.demodulate(
                     equalized[:, user].numpy())
                 num_bits_int = num_bits
 

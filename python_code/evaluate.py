@@ -51,6 +51,15 @@ base_dir.mkdir(parents=True, exist_ok=True)
 pass
 
 
+import numpy as np
+
+def skip_indices(N, pilot_data_ratio):
+    x = np.arange(0, N, pilot_data_ratio)
+    idx = np.floor(x + 0.5).astype(int)   # round-half-up
+    idx = idx[idx < N]
+    return np.unique(idx)
+
+
 def entropy_with_bin_width(data, bin_width):
     """Estimate entropy using histogram binning with a specified bin width."""
     min_x, max_x = np.min(data), np.max(data)
@@ -274,7 +283,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         else:
             num_bits_pilot = num_bits_data
 
-        pilot_data_ratio = int(num_bits_pilot/num_bits_data)
+
+
+        pilot_data_ratio = num_bits_pilot/num_bits_data
 
         escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
         if conf.run_tdfdcnn:
@@ -652,8 +663,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
                     detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
                 else:
-                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size::pilot_data_ratio, :, re]
-                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size::pilot_data_ratio, :, re]
+                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+skip_indices(detected_word_lmmse_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
+                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size+skip_indices(detected_word_sphere_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
 
                 # Sphere:
                 if conf.sphere_radius == 'inf':
@@ -669,7 +680,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     if pilot_data_ratio <= 1:
                         detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
                     else:
-                        detected_word_cur_re = detected_word_list[iteration][:, ::pilot_data_ratio, re, :]
+                        detected_word_cur_re = detected_word_list[iteration][:, skip_indices(detected_word_list[iteration].shape[1],pilot_data_ratio), re, :]
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
                     detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -808,19 +819,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     ber_lmmse = calculate_ber(
                         torch.from_numpy(detected_word_lmmse[:, conf.ber_on_one_user]).unsqueeze(-1),
                         target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
-                    ber_sphere = calculate_ber(
-                        torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
-                        target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
+                    if run_sphere:
+                        ber_sphere = calculate_ber(
+                            torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
+                            target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
                 else:
                     ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse), target.cpu(), num_bits_data)
-                    ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
+                    if run_sphere:
+                        ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
 
                 ber_per_re_lmmse[re] = ber_lmmse
 
                 if run_deeprx:
                     ber_sum_deeprx += ber_deeprx
                 ber_sum_lmmse += ber_lmmse
-                ber_sum_sphere += ber_sphere
+                if run_sphere:
+                    ber_sum_sphere += ber_sphere
 
             # LDPC decoding
             bler_list = [None] * iterations
@@ -848,7 +862,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
                         else:
-                            llr_cur_re = llrs_mat_list[iteration][:, ::pilot_data_ratio, re, :]
+                            llr_cur_re = llrs_mat_list[iteration][:, skip_indices(llrs_mat_list[iteration].shape[1],pilot_data_ratio), re, :]
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -868,7 +882,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re_lmmse = llrs_mat_lmmse[:, :, re, :]
                         else:
-                            llr_cur_re_lmmse = llrs_mat_lmmse[:, ::pilot_data_ratio, re, :]
+                            llr_cur_re_lmmse = llrs_mat_lmmse[:, skip_indices(llrs_mat_lmmse.shape[1],pilot_data_ratio), re, :]
                         llr_cur_re_lmmse = llr_cur_re_lmmse.squeeze(-1)
                         llr_cur_re_lmmse = llr_cur_re_lmmse.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                     num_bits_data).swapaxes(1, 2).reshape(
@@ -879,7 +893,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
                         else:
-                            llr_cur_re_sphere = llrs_mat_sphere[:, ::pilot_data_ratio, re, :]
+                            llr_cur_re_sphere = llrs_mat_sphere[:, skip_indices(llrs_mat_sphere.shape[1],pilot_data_ratio), re, :]
                         llr_cur_re_sphere = llr_cur_re_sphere.squeeze(-1)
                         llr_cur_re_sphere = llr_cur_re_sphere.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                       num_bits_data).swapaxes(1, 2).reshape(

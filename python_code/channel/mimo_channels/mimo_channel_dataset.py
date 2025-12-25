@@ -80,6 +80,42 @@ class MIMOChannel:
                     tx_data_cur = tx_data[:,:,re_index]
                     s_data[user,:, re_index] = qam.modulate(tx_data_cur.T[user,:])
 
+        # import pandas as pd
+        #
+        # def int_to_bits(n: int, k: int = 6) -> np.ndarray:
+        #     """Return MSB->LSB bit vector of length k."""
+        #     return np.array([(n >> (k - 1 - i)) & 1 for i in range(k)], dtype=int)
+        #
+        # rows = []
+        # for idx in range(64):
+        #     bits = int_to_bits(idx, k=6)  # 6 bits for 64-QAM
+        #     bits_str = "".join(map(str, bits.tolist()))
+        #
+        #     # Try common shapes for modulate input
+        #     # (1) row vector (1, k)
+        #     try:
+        #         sym = qam.modulate(bits)
+        #     except Exception:
+        #         # (2) column vector (k, 1)
+        #         sym = qam.modulate(bits)
+        #
+        #     # sym might be scalar, 1-element array, or list
+        #     if isinstance(sym, (list, tuple, np.ndarray)):
+        #         sym_val = np.asarray(sym).reshape(-1)[0]
+        #     else:
+        #         sym_val = sym
+        #
+        #     rows.append({
+        #         "index": idx,
+        #         "bits": bits_str,
+        #         "I": float(np.real(sym_val)),
+        #         "Q": float(np.imag(sym_val)),
+        #         "symbol": complex(sym_val),
+        #     })
+        #
+        # df = pd.DataFrame(rows)
+        # df
+
         s = np.concatenate([s_pilots, s_data], axis=1)
 
         # OryEger - constant tx symbol

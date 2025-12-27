@@ -51,7 +51,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 BPSKModulator.demodulate(-torch.sign(equalized[:, i].real).numpy()))
     elif num_bits == 2:
         for user in range(conf.n_users):
-            if pilot_data_ratio <= 1:
+            if pilot_data_ratio != 1:
                 llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0])
                 detected_word_lmmse_for_aug[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QPSKModulator.demodulate(
                     equalized[:, user].numpy())

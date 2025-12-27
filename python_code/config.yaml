@@ -5,7 +5,7 @@ n_ants: 8
 snr_step: 1
 n_users: 1
 mcs: 30
-mod_pilot: 64
+mod_pilot: -1
 block_length_factor: 5
 num_res: 24
 cfo: 0

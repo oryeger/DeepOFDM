@@ -1,11 +1,11 @@
-snr: 30
+snr: 15
 cur_str: calc_nv_mcss
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 1
-mcs: 30
-mod_pilot: -1
+mcs: 28
+mod_pilot: 64
 block_length_factor: 5
 num_res: 24
 cfo: 0
@@ -21,7 +21,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [30]
+save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
 override_noise_var: False

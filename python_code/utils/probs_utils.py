@@ -2,6 +2,7 @@ import torch
 
 from python_code import DEVICE
 from python_code.utils.constants import HALF
+import numpy as np
 
 
 def calculate_mimo_states(n_user: int, transmitted_words: torch.Tensor) -> torch.Tensor:
@@ -39,4 +40,17 @@ def ensure_tensor_iterable(x):
         return torch.tensor([x])
     else:
         raise TypeError("Input must be an int or a torch.Tensor")
+
+
+def relevant_indices(N, pilot_data_ratio):
+    x = np.arange(0, N, pilot_data_ratio)
+    idx = np.floor(x + 0.5).astype(int)   # round-half-up
+    idx = idx[idx < N]
+    return np.unique(idx)
+
+def skip_indices(N, pilot_data_ratio):
+    pilot_idx = relevant_indices(N, pilot_data_ratio)
+    all_idx = np.arange(N)
+    data_idx = np.setdiff1d(all_idx, pilot_idx, assume_unique=True)
+    return data_idx
 

@@ -15,11 +15,13 @@ from python_code import DEVICE
 
 from typing import List
 
-import numpy as np
 import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib.pyplot as plt
+from python_code.utils.probs_utils import relevant_indices
+from python_code.utils.probs_utils import skip_indices
+
 from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI)
 
@@ -52,12 +54,6 @@ pass
 
 
 import numpy as np
-
-def skip_indices(N, pilot_data_ratio):
-    x = np.arange(0, N, pilot_data_ratio)
-    idx = np.floor(x + 0.5).astype(int)   # round-half-up
-    idx = idx[idx < N]
-    return np.unique(idx)
 
 
 def entropy_with_bin_width(data, bin_width):
@@ -594,6 +590,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # online training main function
             if escnn_trainer.is_online_training:
 
+                # OryEger
+                if conf.make_64QAM_16QAM:
+                    indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
+                    probs_for_aug[:, indexes, :, :] = 0.5
+                # -----------------------------------------------------------------------------
+
                 train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                 n_users, iterations, epochs, False,
                                                                                 probs_for_aug[:pilot_chunk], stage="base" )
@@ -663,8 +665,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
                     detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
                 else:
-                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+skip_indices(detected_word_lmmse_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
-                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size+skip_indices(detected_word_sphere_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
+                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+relevant_indices(detected_word_lmmse_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
+                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size+relevant_indices(detected_word_sphere_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
 
                 # Sphere:
                 if conf.sphere_radius == 'inf':
@@ -680,7 +682,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     if pilot_data_ratio <= 1:
                         detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
                     else:
-                        detected_word_cur_re = detected_word_list[iteration][:, skip_indices(detected_word_list[iteration].shape[1],pilot_data_ratio), re, :]
+                        detected_word_cur_re = detected_word_list[iteration][:, relevant_indices(detected_word_list[iteration].shape[1],pilot_data_ratio), re, :]
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
                     detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -862,7 +864,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
                         else:
-                            llr_cur_re = llrs_mat_list[iteration][:, skip_indices(llrs_mat_list[iteration].shape[1],pilot_data_ratio), re, :]
+                            llr_cur_re = llrs_mat_list[iteration][:, relevant_indices(llrs_mat_list[iteration].shape[1],pilot_data_ratio), re, :]
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                         num_bits_data).swapaxes(1, 2).reshape(
@@ -882,7 +884,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re_lmmse = llrs_mat_lmmse[:, :, re, :]
                         else:
-                            llr_cur_re_lmmse = llrs_mat_lmmse[:, skip_indices(llrs_mat_lmmse.shape[1],pilot_data_ratio), re, :]
+                            llr_cur_re_lmmse = llrs_mat_lmmse[:, relevant_indices(llrs_mat_lmmse.shape[1],pilot_data_ratio), re, :]
                         llr_cur_re_lmmse = llr_cur_re_lmmse.squeeze(-1)
                         llr_cur_re_lmmse = llr_cur_re_lmmse.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                     num_bits_data).swapaxes(1, 2).reshape(
@@ -893,7 +895,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if pilot_data_ratio<=1:
                             llr_cur_re_sphere = llrs_mat_sphere[:, :, re, :]
                         else:
-                            llr_cur_re_sphere = llrs_mat_sphere[:, skip_indices(llrs_mat_sphere.shape[1],pilot_data_ratio), re, :]
+                            llr_cur_re_sphere = llrs_mat_sphere[:, relevant_indices(llrs_mat_sphere.shape[1],pilot_data_ratio), re, :]
                         llr_cur_re_sphere = llr_cur_re_sphere.squeeze(-1)
                         llr_cur_re_sphere = llr_cur_re_sphere.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                       num_bits_data).swapaxes(1, 2).reshape(

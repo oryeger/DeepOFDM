@@ -1,20 +1,20 @@
-snr: 15
+snr: 30
 cur_str: calc_nv_mcss
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 1
+n_users: 4
 mcs: 28
 mod_pilot: 64
 block_length_factor: 5
-num_res: 24
+num_res: 23
 cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 2
+epochs: 100
 iterations: 1
-pilot_size: 100
+pilot_size: 5000
 learning_rate: 5.0e-2 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
@@ -25,6 +25,7 @@ save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
 override_noise_var: False
+make_64QAM_16QAM: False
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

@@ -1,15 +1,10 @@
 from python_code import conf
 import torch
 from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator, QAM64Modulator
-import numpy as np
+from python_code.utils.probs_utils import relevant_indices
+
 
 import numpy as np
-
-def skip_indices(N, pilot_data_ratio):
-    x = np.arange(0, N, pilot_data_ratio)
-    idx = np.floor(x + 0.5).astype(int)   # round-half-up
-    idx = idx[idx < N]
-    return np.unique(idx)
 
 def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
     noise_var = 0
@@ -53,7 +48,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
         for user in range(conf.n_users):
             if pilot_data_ratio != 1:
                 llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0])
-                detected_word_lmmse_for_aug[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QPSKModulator.demodulate(
+                detected_word_lmmse_for_aug[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QPSKModulator.demodulate(
                     equalized[:, user].numpy())
                 num_bits_int = int(pilot_data_ratio*num_bits)
             else:
@@ -67,8 +62,9 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
     elif num_bits == 4:
         for user in range(conf.n_users):
             if pilot_data_ratio != 1:
-                detected_word_lmmse_for_aug[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[skip_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QAM16Modulator.demodulate(
+                detected_word_lmmse_for_aug[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QAM16Modulator.demodulate(
                     equalized[:, user].numpy())
+
                 # detected_word_lmmse_for_aug[0::3,user, re] = 1 - detected_word_lmmse_for_aug[0::3,user, re]
                 # llr_out[0::3] *= -1
 

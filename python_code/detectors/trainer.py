@@ -9,7 +9,7 @@ from torch.nn import BCEWithLogitsLoss
 from torch.optim import Adam
 
 from python_code import DEVICE, conf
-
+from python_code.utils.probs_utils import relevant_indices
 
 
 random.seed(conf.seed)
@@ -82,7 +82,12 @@ class Trainer(object):
             est_cur = est
             tx_cur = tx
 
-        loss = self._calculate_loss(est=est_cur, tx=tx_cur)
+        if conf.make_64QAM_16QAM:
+            indices = relevant_indices(tx_cur.shape[1], 1.5)
+        else:
+            indices = list(range(0, tx_cur.shape[1]))
+
+        loss = self._calculate_loss(est=est_cur[:,indices,:,:], tx=tx_cur[:,indices,:])
         current_loss = loss.item()
         # back propagation
         self.optimizer.zero_grad()

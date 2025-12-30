@@ -12,6 +12,8 @@ import tensorflow as tf
 
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.crc_wrapper import CRC5GCodec
+from python_code.utils.probs_utils import skip_indices
+
 
 
 
@@ -67,6 +69,10 @@ class MIMOChannel:
             s_pilots = BPSKModulator.modulate(tx_pilots.T)
             s_data = BPSKModulator.modulate(tx_data.T)
         else:
+            if conf.make_64QAM_16QAM:
+                indices = skip_indices(tx_pilots.shape[0],1.5)
+                tx_pilots[indices,:,:] = 1
+
             s_pilots = np.zeros((n_users, int(tx_pilots.shape[0]/np.log2(mod_pilot)), num_res), dtype=complex)
             s_data = np.zeros((n_users, int(tx_data.shape[0]/np.log2(mod_data)), num_res), dtype=complex)
             qam = mod.QAMModem(mod_pilot)

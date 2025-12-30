@@ -12,6 +12,7 @@ from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
+from python_code.utils.probs_utils import relevant_indices
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -50,13 +51,19 @@ class ESCNNTrainer(Trainer):
 
             train_samples = int(llrs.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(llrs[:train_samples], tx_reshaped[:train_samples],first_half_flag)
+
+            if conf.make_64QAM_16QAM:
+                indices = relevant_indices(tx_reshaped.shape[1], 1.5)
+            else:
+                indices = list(range(0, tx_reshaped.shape[1]))
+
             if first_half_flag:
                 llrs_cur = llrs[train_samples:]
                 tx_reshaped_cur = tx_reshaped[train_samples:]
                 val_loss = self._calculate_loss(llrs_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
                 # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             else:
-                val_loss = self._calculate_loss(llrs[train_samples:], tx_reshaped[train_samples:])
+                val_loss = self._calculate_loss(llrs[train_samples:,indices,:,:], tx_reshaped[train_samples:,indices,:])
             val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)

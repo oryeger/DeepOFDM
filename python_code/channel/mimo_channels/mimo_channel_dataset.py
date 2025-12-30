@@ -84,7 +84,7 @@ class MIMOChannel:
                     tx_pilots_cur = tx_pilots[:,:,re_index]
                     s_pilots[user,:, re_index] = qam.modulate(tx_pilots_cur.T[user,:])
             # OryEger
-            tx_data[:6, 0, 0] = [0, 1, 0, 1, 1, 1]
+            # tx_data[:6, 0, 0] = [0, 1, 0, 1, 1, 1]
 
             qam = mod.QAMModem(mod_data)
             for user in range(n_users):

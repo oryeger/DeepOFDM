@@ -4,7 +4,7 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 1
-mcs: 17
+mcs: 5
 mod_pilot: 64
 block_length_factor: 5
 num_res: 24
@@ -15,7 +15,7 @@ iqmm_phase: 0 # in degrees
 epochs: 200
 iterations: 1
 pilot_size: 5000
-learning_rate: 5.0e-4 # 5.0e-4
+learning_rate: 5.0e-3 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True
@@ -47,7 +47,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'NO_AUGMENT'
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

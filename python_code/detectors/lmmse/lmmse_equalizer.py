@@ -65,9 +65,6 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 detected_word_lmmse_for_aug[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio), user, re], llr_out[relevant_indices(detected_word_lmmse_for_aug.shape[0],pilot_data_ratio)] = QAM16Modulator.demodulate(
                     equalized[:, user].numpy())
 
-                # detected_word_lmmse_for_aug[0::3,user, re] = 1 - detected_word_lmmse_for_aug[0::3,user, re]
-                # llr_out[0::3] *= -1
-
                 num_bits_int = 6
             else:
                 detected_word_lmmse_for_aug[:, user, re], llr_out = QAM16Modulator.demodulate(

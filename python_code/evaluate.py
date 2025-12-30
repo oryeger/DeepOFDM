@@ -525,6 +525,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
 
+
                 if run_sphere:
                     H = H.cpu().numpy()
                     llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
@@ -548,7 +549,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if conf.which_augment == 'AUGMENT_SPHERE':
                 probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere_for_aug, dtype=torch.float32))
             elif conf.which_augment == 'AUGMENT_LMMSE':
-                probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
+                llrs_mat_lmmse_for_aug_c = llrs_mat_lmmse_for_aug.copy()
+                if pilot_data_ratio == 1.5:
+                    llrs_mat_lmmse_for_aug_c[pilot_chunk:, 2::3, :, :] *= -1
+
+                probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug_c, dtype=torch.float32))
             else:
                 probs_for_aug = torch.tensor([], dtype=torch.float32)
 
@@ -703,7 +708,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                                         num_bits_data).swapaxes(1, 2).reshape(
                         tx_data.shape[0], n_users)
 
-                    if conf.make_64QAM_16QAM:
+                    if pilot_data_ratio == 1.5:
                         detected_word_cur_re[1::2, :] = 1 - detected_word_cur_re[1::2, :]
 
                     if conf.ber_on_one_user >= 0:
@@ -884,7 +889,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             llr_cur_re = llrs_mat_list[iteration][:, relevant_indices(llrs_mat_list[iteration].shape[1],pilot_data_ratio), re, :]
 
-                        if conf.make_64QAM_16QAM:
+                        if pilot_data_ratio == 1.5:
                             llr_cur_re[:, 1::2, :] *= -1
 
                         llr_cur_re = llr_cur_re.squeeze(-1)

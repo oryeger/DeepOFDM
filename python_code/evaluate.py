@@ -591,10 +591,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if escnn_trainer.is_online_training:
 
                 # OryEger
-                if conf.make_64QAM_16QAM:
-                    indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
-                    probs_for_aug[:, indexes, :, :] = 0.5
+                # if conf.make_64QAM_16QAM:
+                #     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
+                #     probs_for_aug[:, indexes, :, :] = 0.5
                 # -----------------------------------------------------------------------------
+
+                # torch.save(tx_pilot, "tx_pilot.pt")
+                # torch.save(rx_pilot, "rx_pilot.pt")
+                # tx_pilot = torch.load("tx_pilot.pt", map_location="cuda")
+                # rx_pilot = torch.load("rx_pilot.pt", map_location="cpu")
 
                 train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                 n_users, iterations, epochs, False,
@@ -608,8 +613,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
+                # OryEger
+                # torch.save(rx_data, "rx_data.pt")
+                # rx_data = torch.load("rx_data.pt", map_location="cpu")
+                # state = torch.load("model_weights.pt", map_location="cpu")
+                # escnn_trainer.detector[0][0].load_state_dict(state)
+                # escnn_trainer.detector[0][0].eval()
+                # for i in range(1,rx_data.shape[2]):
+                #     rx_data[0, :, i] = rx_data[0, :, 0]
+
                 detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
                                                                            probs_for_aug[pilot_chunk:])
+
 
 
             if conf.run_tdfdcnn:
@@ -687,6 +702,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                                         num_bits_data).swapaxes(1, 2).reshape(
                         tx_data.shape[0], n_users)
+
+                    if conf.make_64QAM_16QAM:
+                        detected_word_cur_re[1::2, :] = 1 - detected_word_cur_re[1::2, :]
 
                     if conf.ber_on_one_user >= 0:
                         ber = calculate_ber(detected_word_cur_re[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
@@ -865,6 +883,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             llr_cur_re = llrs_mat_list[iteration][:, :, re, :]
                         else:
                             llr_cur_re = llrs_mat_list[iteration][:, relevant_indices(llrs_mat_list[iteration].shape[1],pilot_data_ratio), re, :]
+
+                        if conf.make_64QAM_16QAM:
+                            llr_cur_re[:, 1::2, :] *= -1
+
                         llr_cur_re = llr_cur_re.squeeze(-1)
                         llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
                                                         num_bits_data).swapaxes(1, 2).reshape(

@@ -52,10 +52,11 @@ class ESCNNTrainer(Trainer):
             train_samples = int(llrs.shape[0]*TRAIN_PERCENTAGE/100)
             current_loss = self.run_train_loop(llrs[:train_samples], tx_reshaped[:train_samples],first_half_flag)
 
-            if conf.make_64QAM_16QAM:
-                indices = relevant_indices(tx_reshaped.shape[1], 1.5)
-            else:
-                indices = list(range(0, tx_reshaped.shape[1]))
+            # if conf.make_64QAM_16QAM:
+            #     indices = relevant_indices(tx_reshaped.shape[1], 1.5)
+            # else:
+            #     indices = list(range(0, tx_reshaped.shape[1]))
+            indices = list(range(0, tx_reshaped.shape[1]))
 
             if first_half_flag:
                 llrs_cur = llrs[train_samples:]
@@ -76,7 +77,7 @@ class ESCNNTrainer(Trainer):
         val_loss_vect_user = []
         for user in range(n_users):
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage)
-            if user == 1:
+            if user == 0:
                 train_loss_vect_user = train_loss_vect
                 val_loss_vect_user = val_loss_vect
         return train_loss_vect_user , val_loss_vect_user

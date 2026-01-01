@@ -595,17 +595,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # online training main function
             if escnn_trainer.is_online_training:
 
-                # OryEger
-                # if conf.make_64QAM_16QAM:
-                #     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
-                #     probs_for_aug[:, indexes, :, :] = 0.5
-                # -----------------------------------------------------------------------------
-
-                # torch.save(tx_pilot, "tx_pilot.pt")
-                # torch.save(rx_pilot, "rx_pilot.pt")
-                # tx_pilot = torch.load("tx_pilot.pt", map_location="cuda")
-                # rx_pilot = torch.load("rx_pilot.pt", map_location="cpu")
-
                 train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                 n_users, iterations, epochs, False,
                                                                                 probs_for_aug[:pilot_chunk], stage="base" )

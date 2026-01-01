@@ -60,8 +60,6 @@ class MIMOChannel:
         if conf.make_64QAM_16QAM_percentage>0:
             indices = skip_indices(int(tx_pilots.shape[0]*conf.make_64QAM_16QAM_percentage/100), 1.5)
             tx_pilots[indices, :, :] = 1
-            # indices = skip_indices(tx_data.shape[0], 1.5)
-            # tx_data[indices, :, :] = 1
 
         tx = np.concatenate([tx_pilots, tx_data])
 

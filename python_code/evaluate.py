@@ -595,6 +595,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # online training main function
             if escnn_trainer.is_online_training:
 
+                if conf.make_64QAM_16QAM_percentage>0:
+                    indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
+                    probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5
+
                 train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                 n_users, iterations, epochs, False,
                                                                                 probs_for_aug[:pilot_chunk], stage="base" )

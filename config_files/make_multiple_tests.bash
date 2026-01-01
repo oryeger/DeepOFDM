@@ -9,20 +9,31 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-# Define parameters
-seeds=(123 17 41 58)
-snrs=($(seq 5 30))
-cfos=(0)
+# ---------------- Parameters ----------------
+#seeds=(123 17 41 58)
+seeds=(17)
+snrs=($(seq -5 20))
+cfos=(0 0.07 0.15)
+
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
-which_augment_vals=('NO_AUGMENT' 'AUGMENT_LMMSE')
-TDL_model_vals=('C')     # NEW
-kernel_size_vals=(3)           # NEW
-run_tdfdcnn_vals=(False)          # NEW
-pilot_size_vals=(5000 20000)     # NEW
-mcs_vals=(4)                 # NEW
-override_noise_var_vals=(False)  # NEW
+which_augment_vals=('AUGMENT_LMMSE' 'NO_AUGMENT')
 
+TDL_model_vals=('C')
+kernel_size_vals=(3)
+run_tdfdcnn_vals=(False)
+
+pilot_size_vals=(20000)
+mcs_vals=(28)
+override_noise_var_vals=(False)
+
+# mod_pilot values (including negative)
+mod_pilot_vals=(-1 64)
+
+# NEW: n_users values
+n_users_vals=(4)
+
+# --------------------------------------------
 total_count=0
 all_config_files=()
 
@@ -35,11 +46,9 @@ for seed in "${seeds[@]}"; do
         for which_aug in "${which_augment_vals[@]}"; do
           for run_tdfdcnn in "${run_tdfdcnn_vals[@]}"; do
 
-            # TD tag for filename
             [[ "$run_tdfdcnn" == True ]] && tdtag="td1" || tdtag="td0"
 
             for override_noise_var in "${override_noise_var_vals[@]}"; do
-              # override_noise_var tag
               [[ "$override_noise_var" == True ]] && ovtag="ov1" || ovtag="ov0"
 
               for tdl in "${TDL_model_vals[@]}"; do
@@ -52,7 +61,6 @@ for seed in "${seeds[@]}"; do
                   ktag="k${kernel_size}"
 
                   for pilot_size in "${pilot_size_vals[@]}"; do
-                    # pilot tag for filename
                     if [[ "$pilot_size" -eq 1000 ]]; then
                       ptag="p1k"
                     elif [[ "$pilot_size" -eq 5000 ]]; then
@@ -68,27 +76,45 @@ for seed in "${seeds[@]}"; do
                     for mcs in "${mcs_vals[@]}"; do
                       mtag="m${mcs}"
 
-                      for snr in "${snrs[@]}"; do
+                      # NEW: n_users loop
+                      for n_users in "${n_users_vals[@]}"; do
+                        utag="u${n_users}"
 
-                        # Filename including td tag, pilot tag, mcs tag, and override_noise_var tag
-                        out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${ptag}_${mtag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                        # -------- mod_pilot loop --------
+                        for mod_pilot in "${mod_pilot_vals[@]}"; do
 
-                        sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                            -e "s/^snr:.*/snr: $snr/" \
-                            -e "s/^cfo:.*/cfo: $cfo/" \
-                            -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                            -e "s/^use_film:.*/use_film: $use_film/" \
-                            -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                            -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
-                            -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                            -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                            -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
-                            -e "s/^mcs:.*/mcs: $mcs/" \
-                            -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                            "$input_file" > "$out_file"
+                          # Filename tag:
+                          # -1 -> mpm1
+                          if [[ "$mod_pilot" -lt 0 ]]; then
+                            mptag="mpm${mod_pilot#-}"
+                          else
+                            mptag="mp${mod_pilot}"
+                          fi
 
-                        all_config_files+=("\"$out_file\"")
-                        ((total_count++))
+                          for snr in "${snrs[@]}"; do
+
+                            out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+
+                            sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                -e "s/^snr:.*/snr: $snr/" \
+                                -e "s/^cfo:.*/cfo: $cfo/" \
+                                -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                -e "s/^use_film:.*/use_film: $use_film/" \
+                                -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
+                                -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                -e "s/^mcs:.*/mcs: $mcs/" \
+                                -e "s/^n_users:.*/n_users: $n_users/" \
+                                -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                "$input_file" > "$out_file"
+
+                            all_config_files+=("\"$out_file\"")
+                            ((total_count++))
+                          done
+                        done
                       done
                     done
                   done
@@ -111,4 +137,6 @@ done
 
 config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
+
+echo "Total configs generated: $total_count"
 

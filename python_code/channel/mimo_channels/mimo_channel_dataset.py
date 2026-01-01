@@ -57,8 +57,8 @@ class MIMOChannel:
             tx_data_coded[:,(num_slots*ldpc_n):data_length*num_res] = self._bits_generator.integers(0, 2, size=(n_users,remainder))
             tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(int)
 
-        if conf.make_64QAM_16QAM:
-            indices = skip_indices(tx_pilots.shape[0], 1.5)
+        if conf.make_64QAM_16QAM_percentage>0:
+            indices = skip_indices(int(tx_pilots.shape[0]*conf.make_64QAM_16QAM_percentage/100), 1.5)
             tx_pilots[indices, :, :] = 1
             # indices = skip_indices(tx_data.shape[0], 1.5)
             # tx_data[indices, :, :] = 1

@@ -81,7 +81,7 @@ class Trainer(object):
             est_cur = est
             tx_cur = tx
 
-        loss = self._calculate_loss(est=est_cur[:,:,:,:], tx=tx_cur[:,indices,:])
+        loss = self._calculate_loss(est=est_cur, tx=tx_cur)
         current_loss = loss.item()
         # back propagation
         self.optimizer.zero_grad()

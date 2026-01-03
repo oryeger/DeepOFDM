@@ -57,7 +57,7 @@ class ESCNNTrainer(Trainer):
                 val_loss = self._calculate_loss(llrs_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
                 # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
             else:
-                val_loss = self._calculate_loss(llrs[train_samples:,:,:,:], tx_reshaped[train_samples:,indices,:])
+                val_loss = self._calculate_loss(llrs[train_samples:,:,:,:], tx_reshaped[train_samples:,:,:])
             val_loss = val_loss.item()
             loss += current_loss
             train_loss_vect.append(current_loss)

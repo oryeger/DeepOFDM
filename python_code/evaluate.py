@@ -520,16 +520,32 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
-                    LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
+                    if not(conf.prime_QPSK_make_16QAM):
+                        LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
+                                   detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                        LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                                   detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
+                    else:
+                        detected_word_lmmse_for_aug[1::2,:,re] = 0.5
+                        llrs_mat_lmmse_for_aug[:, 1::2, re:re+1, :] = 0
+                        LmmseDemod(equalized, postEqSINR, 2, re, llrs_mat_lmmse_for_aug[:, 0::2, :, :],
+                                   detected_word_lmmse_for_aug[0::2,:,:], 1)
+
 
 
                 if run_sphere:
                     H = H.cpu().numpy()
-                    llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
-                                                                                    noise_var, conf.sphere_radius)
+
+                    if not (conf.prime_QPSK_make_16QAM):
+                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
+                                                                                        noise_var, conf.sphere_radius)
+                    else:
+                        detected_word_lmmse_for_aug[1::2,:,re] = 0.5
+                        llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
+                                                                                        noise_var, conf.sphere_radius)
+                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), 1))
+                        llr_out[0::2,:] = llr_out_red
+
                 else:
                     llr_out = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
                     detected_word_sphere_for_aug[:, :, re] = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
@@ -1367,10 +1383,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_' + conf.which_augment
         if conf.mcs > -1:
             title_string = title_string + f'_Rc={code_rate:.2f}'
-        title_string = title_string + '_scale_' + str(conf.scale_input)
+        # title_string = title_string + '_scale_' + str(conf.scale_input)
         title_string = title_string + '_FILM_' + str(conf.use_film)
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
-        title_string = title_string + '_ONV_' + str(conf.override_noise_var)
+        # title_string = title_string + '_ONV_' + str(conf.override_noise_var)
+        title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

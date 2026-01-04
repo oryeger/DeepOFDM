@@ -3,7 +3,7 @@ cur_str: modtrain
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 1
+n_users: 4
 mcs: 10
 mod_pilot: -1
 block_length_factor: 5

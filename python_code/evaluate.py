@@ -543,7 +543,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         detected_word_lmmse_for_aug[1::2,:,re] = 0.5
                         llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
-                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), 1))
+                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
                         llr_out[0::2,:] = llr_out_red
 
                 else:

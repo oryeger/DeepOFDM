@@ -13,25 +13,32 @@ base_name=$(basename "$input_file" .yaml)
 #seeds=(123 17 41 58)
 seeds=(17)
 snrs=($(seq -5 20))
-cfos=(0 0.07 0.15)
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
-which_augment_vals=('AUGMENT_LMMSE' 'NO_AUGMENT')
+
+# FIX: each augment mode must be a separate array element
+which_augment_vals=(
+  'AUGMENT_SPHERE'
+)
 
 TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
+pilot_size_vals=(100 5000 20000)
 mcs_vals=(28)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)
-mod_pilot_vals=(-1 64)
+mod_pilot_vals=(-1)
 
-# NEW: n_users values
+# n_users values
 n_users_vals=(4)
+
+# make_64QAM_16QAM_percentage values
+make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
 total_count=0
@@ -54,8 +61,20 @@ for seed in "${seeds[@]}"; do
               for tdl in "${TDL_model_vals[@]}"; do
 
                 [[ "$use_film" == True ]] && uf="f1" || uf="f0"
-                [[ "$which_aug" == "NO_AUGMENT" ]] && aug="NA" || aug="LMMSE"
                 ttag="T${tdl}"
+
+                # FIX: robust filename tag mapping for which_augment
+                case "$which_aug" in
+                  NO_AUGMENT)      aug="NA" ;;
+                  AUGMENT_LMMSE)   aug="LMMSE" ;;
+                  AUGMENT_DEEPRX)  aug="DEEPRX" ;;
+                  AUGMENT_SPHERE)  aug="SPHERE" ;;
+                  AUGMENT_DEEPSIC) aug="DEEPSIC" ;;
+                  *)
+                    echo "ERROR: Unknown which_augment: $which_aug" >&2
+                    exit 1
+                    ;;
+                esac
 
                 for kernel_size in "${kernel_size_vals[@]}"; do
                   ktag="k${kernel_size}"
@@ -76,43 +95,48 @@ for seed in "${seeds[@]}"; do
                     for mcs in "${mcs_vals[@]}"; do
                       mtag="m${mcs}"
 
-                      # NEW: n_users loop
                       for n_users in "${n_users_vals[@]}"; do
                         utag="u${n_users}"
 
-                        # -------- mod_pilot loop --------
-                        for mod_pilot in "${mod_pilot_vals[@]}"; do
+                        for mix_pct in "${make_64QAM_16QAM_percentage_vals[@]}"; do
+                          mixtag="mix${mix_pct}"
 
-                          # Filename tag:
-                          # -1 -> mpm1
-                          if [[ "$mod_pilot" -lt 0 ]]; then
-                            mptag="mpm${mod_pilot#-}"
-                          else
-                            mptag="mp${mod_pilot}"
-                          fi
+                          # -------- mod_pilot loop --------
+                          for mod_pilot in "${mod_pilot_vals[@]}"; do
 
-                          for snr in "${snrs[@]}"; do
+                            # Filename tag:
+                            # -1 -> mpm1
+                            if [[ "$mod_pilot" -lt 0 ]]; then
+                              mptag="mpm${mod_pilot#-}"
+                            else
+                              mptag="mp${mod_pilot}"
+                            fi
 
-                            out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                            for snr in "${snrs[@]}"; do
 
-                            sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                                -e "s/^snr:.*/snr: $snr/" \
-                                -e "s/^cfo:.*/cfo: $cfo/" \
-                                -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                                -e "s/^use_film:.*/use_film: $use_film/" \
-                                -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                                -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
-                                -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                                -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
-                                -e "s/^mcs:.*/mcs: $mcs/" \
-                                -e "s/^n_users:.*/n_users: $n_users/" \
-                                -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
-                                -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                                "$input_file" > "$out_file"
+                              out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
-                            all_config_files+=("\"$out_file\"")
-                            ((total_count++))
+                              sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                  -e "s/^snr:.*/snr: $snr/" \
+                                  -e "s/^cfo:.*/cfo: $cfo/" \
+                                  -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                  -e "s/^use_film:.*/use_film: $use_film/" \
+                                  -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                  -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
+                                  -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                  -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                  -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                  -e "s/^mcs:.*/mcs: $mcs/" \
+                                  -e "s/^n_users:.*/n_users: $n_users/" \
+                                  -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                  -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
+                                  -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                  "$input_file" > "$out_file"
+
+                              # Store raw filenames (no quotes) like normal
+                              all_config_files+=("$out_file")
+                              ((total_count++))
+                            done
                           done
                         done
                       done
@@ -130,9 +154,13 @@ for seed in "${seeds[@]}"; do
   done
 done
 
+# ----- PRINTING: match old version output style -----
+# Old style was a single quoted line containing a bash array with \"file\" entries.
 quoted_files=()
 for f in "${all_config_files[@]}"; do
-  quoted_files+=("\\\"$f\\\"")
+  # Escape any embedded double quotes just in case (rare, but safe)
+  safe_f=${f//\"/\\\"}
+  quoted_files+=("\\\"$safe_f\\\"")
 done
 
 config_line="config_files=(${quoted_files[*]})"

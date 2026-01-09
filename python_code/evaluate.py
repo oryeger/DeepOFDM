@@ -1388,6 +1388,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
         # title_string = title_string + '_ONV_' + str(conf.override_noise_var)
         title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
+        title_string = title_string + '_p4make16_' + str(int(conf.prime_QPSK_make_16QAM))
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

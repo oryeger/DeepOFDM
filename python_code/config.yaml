@@ -4,10 +4,10 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 10
-mod_pilot: -1
+mcs: 4
+mod_pilot: 64
 block_length_factor: 5
-num_res: 24
+num_res: 23
 cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
@@ -26,7 +26,7 @@ use_film: False
 scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
-prime_QPSK_make_16QAM: True
+prime_QPSK_make_16QAM: False
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
@@ -48,7 +48,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'AUGMENT_SPHERE'
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

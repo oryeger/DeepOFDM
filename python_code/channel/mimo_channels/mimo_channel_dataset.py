@@ -57,7 +57,23 @@ class MIMOChannel:
             tx_data_coded[:,(num_slots*ldpc_n):data_length*num_res] = self._bits_generator.integers(0, 2, size=(n_users,remainder))
             tx_data = tx_data_coded.reshape(conf.n_users, data_length, conf.num_res).transpose(1, 0, 2).astype(int)
 
-        if conf.make_64QAM_16QAM_percentage>0:
+        if conf.make_64QAM_16QAM_percentage == 50 and conf.mod_pilot == 64:  # 64QAM special case
+            # For 64QAM (6 bits per symbol), divide pilot_length into three parts
+            pilot_length = tx_pilots.shape[0]
+            third_size = pilot_length // 3
+
+            # First third: skip_indices with ratio 3
+            indices_first = skip_indices(third_size, 3)
+            tx_pilots[indices_first, :, :] = 1
+
+            # Second third: skip_indices with ratio 1.5
+            indices_second = skip_indices(third_size, 1.5) + third_size
+            tx_pilots[indices_second, :, :] = 1
+
+            # Third part: unchanged (full 64QAM), no modification needed
+
+        elif conf.make_64QAM_16QAM_percentage>0:
+            # Original logic for other percentages
             indices = skip_indices(int(tx_pilots.shape[0]*conf.make_64QAM_16QAM_percentage/100), 1.5)
             tx_pilots[indices, :, :] = 1
 

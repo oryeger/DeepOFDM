@@ -54,3 +54,42 @@ def skip_indices(N, pilot_data_ratio):
     data_idx = np.setdiff1d(all_idx, pilot_idx, assume_unique=True)
     return data_idx
 
+
+def get_64QAM_16QAM_indices_and_probs(total_bits, bits_per_symbol=6):
+    """
+    For 64QAM with make_64QAM_16QAM_percentage=50:
+    Divides the bits into three equal parts (each being a multiple of bits_per_symbol):
+    - First third: skip_indices with ratio 3 (constant 1 symbols)
+    - Second third: skip_indices with ratio 1.5 (16QAM symbols with prob 0.5)
+    - Last third: unchanged (full 64QAM)
+
+    Returns:
+        tuple: (first_third_indices, second_third_indices, first_third_size, second_third_size, third_size)
+    """
+    # Ensure total_bits is divisible by bits_per_symbol
+    total_symbols = total_bits // bits_per_symbol
+
+    # Divide symbols into three equal parts (or as equal as possible)
+    symbols_per_third = total_symbols // 3
+    remaining_symbols = total_symbols % 3
+
+    # Distribute remaining symbols: give extras to the last third
+    first_third_symbols = symbols_per_third
+    second_third_symbols = symbols_per_third
+    third_symbols = symbols_per_third + remaining_symbols
+
+    # Convert to bit counts
+    first_third_size = first_third_symbols * bits_per_symbol
+    second_third_size = second_third_symbols * bits_per_symbol
+    third_size = third_symbols * bits_per_symbol
+
+    # Get skip indices for first third (ratio 3)
+    first_third_indices = skip_indices(first_third_size, 3)
+
+    # Get skip indices for second third (ratio 1.5), offset by first_third_size
+    second_third_indices_relative = skip_indices(second_third_size, 1.5)
+    second_third_indices = second_third_indices_relative + first_third_size
+
+    return first_third_indices, second_third_indices, first_third_size, second_third_size, third_size
+
+

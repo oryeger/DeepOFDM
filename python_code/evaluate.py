@@ -611,7 +611,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # online training main function
             if escnn_trainer.is_online_training:
 
-                if conf.make_64QAM_16QAM_percentage>0:
+                if conf.make_64QAM_16QAM_percentage == 50 and num_bits_pilot == 6:  # 64QAM special case
+                    # Divide pilot_chunk into three equal parts
+                    third_size = pilot_chunk // 3
+
+                    # First third: skip_indices with ratio 3
+                    indexes_first = skip_indices(int(num_bits_pilot*conf.n_users), 3)
+                    probs_for_aug[:third_size, indexes_first, :, :] = 0.5
+
+                    # Second third: skip_indices with ratio 1.5
+                    indexes_second = skip_indices(int(num_bits_pilot*conf.n_users), 1.5)
+                    probs_for_aug[third_size:2*third_size, indexes_second, :, :] = 0.5
+
+                    # Third part: unchanged (full 64QAM), no modification needed
+
+                elif conf.make_64QAM_16QAM_percentage>0:
+                    # Original logic for other percentages
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5
 

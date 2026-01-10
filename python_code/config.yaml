@@ -25,7 +25,7 @@ save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
 override_noise_var: False
-make_64QAM_16QAM_percentage: 0
+make_64QAM_16QAM_percentage: 50
 prime_QPSK_make_16QAM: False
 
 use_data_as_pilots: False

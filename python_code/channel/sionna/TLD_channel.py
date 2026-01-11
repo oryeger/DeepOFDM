@@ -53,16 +53,96 @@ from typing import Tuple
 
 class TDLChannel:
     @staticmethod
+    def _get_spatial_correlation_matrices(correlation_level: str, num_tx_ant: int, num_rx_ant: int):
+        """
+        Generate spatial correlation matrices for TX and RX based on 3GPP TS 38.101-4 correlation model.
+
+        Args:
+            correlation_level: One of 'none', 'low', 'medium', 'medium_a', 'high', or 'custom'
+            num_tx_ant: Number of transmit antennas
+            num_rx_ant: Number of receive antennas
+
+        Returns:
+            Tuple of (tx_correlation_matrix, rx_correlation_matrix)
+
+        Note:
+            3GPP TS 38.101-4 defines correlation using α and β parameters.
+            The correlation matrix is: R(n,m) = [(α^|n-m| + β^|n-m|)/2] for n≠m, and 1 for n=m
+        """
+        if correlation_level == 'none' or correlation_level is None:
+            return None, None
+
+        # 3GPP TS 38.101-4 correlation parameters
+        # Format: (α, β)
+        correlation_params = {
+            'low': (0.0, 0.0),           # Low correlation
+            'medium': (0.3, 0.9),        # Medium correlation
+            'medium_a': (0.3, 0.3874),   # Medium Correlation A
+            'high': (0.9, 0.9)           # High correlation
+        }
+
+        # Check for custom correlation parameters
+        if correlation_level == 'custom':
+            # Get custom α and β from config
+            alpha = getattr(conf, 'spatial_correlation_alpha', 0.0)
+            beta = getattr(conf, 'spatial_correlation_beta', 0.0)
+        else:
+            params = correlation_params.get(correlation_level)
+            if params is None:
+                print(f"Warning: Unknown correlation level '{correlation_level}', using 'none'")
+                return None, None
+            alpha, beta = params
+
+        # Generate correlation matrices using 3GPP model
+        def generate_correlation_matrix_3gpp(num_ant, alpha, beta):
+            """
+            Generate correlation matrix according to 3GPP TS 38.101-4
+            R(n,m) = [(α^|n-m| + β^|n-m|)/2] for n≠m
+            R(n,n) = 1
+            """
+            R = np.zeros((num_ant, num_ant), dtype=np.complex128)
+            for i in range(num_ant):
+                for j in range(num_ant):
+                    if i == j:
+                        R[i, j] = 1.0
+                    else:
+                        distance = abs(i - j)
+                        R[i, j] = (alpha ** distance + beta ** distance) / 2.0
+            return tf.constant(R, dtype=tf.complex64)
+
+        tx_corr = generate_correlation_matrix_3gpp(num_tx_ant, alpha, beta)
+        rx_corr = generate_correlation_matrix_3gpp(num_rx_ant, alpha, beta)
+
+        return tx_corr, rx_corr
+
+    @staticmethod
     def conv_cir(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
         sionna.config.seed = seed
 
-        tdl = TDL(model=conf.TDL_model,
-                          delay_spread=float(conf.delay_spread),
-                          carrier_frequency=float(conf.carrier_frequency),
-                          num_tx_ant=y_in.shape[0],
-                          num_rx_ant=conf.n_ants,
-                          min_speed=conf.speed)
+        # Get spatial correlation matrices if configured
+        spatial_corr_level = getattr(conf, 'spatial_correlation', 'none')
+        tx_corr, rx_corr = TDLChannel._get_spatial_correlation_matrices(
+            spatial_corr_level,
+            y_in.shape[0],
+            conf.n_ants
+        )
+
+        # Create TDL channel with optional spatial correlation
+        tdl_params = {
+            'model': conf.TDL_model,
+            'delay_spread': float(conf.delay_spread),
+            'carrier_frequency': float(conf.carrier_frequency),
+            'num_tx_ant': y_in.shape[0],
+            'num_rx_ant': conf.n_ants,
+            'min_speed': conf.speed
+        }
+
+        # Add spatial correlation if configured
+        if rx_corr is not None:
+            tdl_params['spatial_corr_mat'] = rx_corr
+
+        tdl = TDL(**tdl_params)
 
 
         # num_time_samples = NUM_SAMPLES_PER_SLOT * num_slots

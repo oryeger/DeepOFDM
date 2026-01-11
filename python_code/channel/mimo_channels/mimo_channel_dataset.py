@@ -72,7 +72,7 @@ class MIMOChannel:
 
             # Third part: unchanged (full 64QAM), no modification needed
 
-        elif conf.make_64QAM_16QAM_percentage>0:
+        elif not(conf.make_64QAM_16QAM_percentage == 50) and conf.make_64QAM_16QAM_percentage>0:
             # Original logic for other percentages
             indices = skip_indices(int(tx_pilots.shape[0]*conf.make_64QAM_16QAM_percentage/100), 1.5)
             tx_pilots[indices, :, :] = 1

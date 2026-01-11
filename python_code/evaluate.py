@@ -306,11 +306,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.run_tdfdcnn:
             tdfdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
 
-        pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT)
+        pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
         pilot_chunk = int(pilot_size / num_bits_pilot)
 
-        data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT)
-        data_chunk = int(data_size / num_bits_data)
+        data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT * 3)
 
 
         noise_var = 10 ** (-0.1 * snr_cur) * constellation_factor
@@ -625,7 +624,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     # Third part: unchanged (full 64QAM), no modification needed
 
-                elif conf.make_64QAM_16QAM_percentage>0:
+                elif not(conf.make_64QAM_16QAM_percentage == 50) and conf.make_64QAM_16QAM_percentage>0:
                     # Original logic for other percentages
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5

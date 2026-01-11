@@ -239,8 +239,7 @@ for BER in [1, 0]:
     ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
                 label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
 
-    # ---- Sphere only for BER (right panel) ----
-    if BER == 1 and not (np.unique(ber_sphere).shape[0] == 1):
+    if not (np.unique(ber_sphere).shape[0] == 1):
         interp_func = interp1d(ber_sphere, snrs, fill_value="extrapolate")
         snr_target_sphere = np.round(interp_func(ber_target), 1)
         ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",

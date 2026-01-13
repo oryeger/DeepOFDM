@@ -1479,11 +1479,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.mcs > -1:
             title_string = title_string + f'_Rc={code_rate:.2f}'
         # title_string = title_string + '_scale_' + str(conf.scale_input)
-        title_string = title_string + '_FILM_' + str(conf.use_film)
+        # title_string = title_string + '_FILM_' + str(conf.use_film)
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
         # title_string = title_string + '_ONV_' + str(conf.override_noise_var)
         title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
         title_string = title_string + '_incPrime_' + str(int(conf.increase_prime_modulation))
+        title_string = title_string + '_b' + str(conf.batch_size)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

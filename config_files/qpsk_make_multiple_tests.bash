@@ -34,18 +34,18 @@ TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
-mcs_vals=(17)
+pilot_size_vals=(10000)
+mcs_vals=(4)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)
-mod_pilot_vals=(-1)
+mod_pilot_vals=(-1 64)
 
 # n_users values
 n_users_vals=(4)
 
 # make_64QAM_16QAM_percentage values
-make_64QAM_16QAM_percentage_vals=(0 50)
+make_64QAM_16QAM_percentage_vals=(50)
 
 # --------------------------------------------
 total_count=0

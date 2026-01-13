@@ -18,8 +18,8 @@ cfos=(0)
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
 
-# NEW: prime_QPSK_make_16QAM sweep
-prime_QPSK_make_16QAM_vals=(False)
+# NEW: increase_prime_modulation sweep (replaces prime_QPSK_make_16QAM)
+increase_prime_modulation_vals=(False)
 
 # NEW: spatial_correlation sweep
 # Examples requested: 'none', 'medium'
@@ -67,7 +67,7 @@ for seed in "${seeds[@]}"; do
 
               for tdl in "${TDL_model_vals[@]}"; do
 
-                # NEW: spatial_correlation loop
+                # spatial_correlation loop
                 for spatial_corr in "${spatial_correlation_vals[@]}"; do
                   # Filename tag mapping for spatial_correlation
                   case "$spatial_corr" in
@@ -83,7 +83,7 @@ for seed in "${seeds[@]}"; do
                   [[ "$use_film" == True ]] && uf="f1" || uf="f0"
                   ttag="T${tdl}"
 
-                  # FIX: robust filename tag mapping for which_augment
+                  # robust filename tag mapping for which_augment
                   case "$which_aug" in
                     NO_AUGMENT)      aug="NA" ;;
                     AUGMENT_LMMSE)   aug="LMMSE" ;;
@@ -132,13 +132,13 @@ for seed in "${seeds[@]}"; do
                                 mptag="mp${mod_pilot}"
                               fi
 
-                              # -------- NEW: prime_QPSK_make_16QAM loop --------
-                              for prime_make16 in "${prime_QPSK_make_16QAM_vals[@]}"; do
-                                [[ "$prime_make16" == True ]] && p4m16="p4m16_1" || p4m16="p4m16_0"
+                              # -------- increase_prime_modulation loop --------
+                              for ipm_val in "${increase_prime_modulation_vals[@]}"; do
+                                [[ "$ipm_val" == True ]] && ipm_tag="ipm1" || ipm_tag="ipm0"
 
                                 for snr in "${snrs[@]}"; do
 
-                                  out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${p4m16}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                  out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
                                   sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                       -e "s/^snr:.*/snr: $snr/" \
@@ -156,7 +156,7 @@ for seed in "${seeds[@]}"; do
                                       -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
                                       -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
                                       -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                                      -e "s/^prime_QPSK_make_16QAM:.*/prime_QPSK_make_16QAM: $prime_make16/" \
+                                      -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
                                       "$input_file" > "$out_file"
 
                                   # Store raw filenames (no quotes) like normal

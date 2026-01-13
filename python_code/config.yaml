@@ -4,8 +4,8 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 4
-mod_pilot: 64
+mcs: 17
+mod_pilot: -1
 block_length_factor: 5
 num_res: 24
 cfo: 0
@@ -52,7 +52,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'AUGMENT_LMMSE'
+which_augment: 'AUGMENT_SPHERE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

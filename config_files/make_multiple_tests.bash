@@ -19,7 +19,7 @@ clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
 
 # NEW: increase_prime_modulation sweep (replaces prime_QPSK_make_16QAM)
-increase_prime_modulation_vals=(False)
+increase_prime_modulation_vals=(False True)
 
 # NEW: spatial_correlation sweep
 # Examples requested: 'none', 'medium'
@@ -28,6 +28,7 @@ spatial_correlation_vals=('none')
 # FIX: each augment mode must be a separate array element
 which_augment_vals=(
   'AUGMENT_LMMSE'
+  'AUGMENT_SPHERE'
 )
 
 TDL_model_vals=('C')
@@ -35,7 +36,7 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)
-mcs_vals=(17)
+mcs_vals=(28 17)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)
@@ -85,7 +86,7 @@ for seed in "${seeds[@]}"; do
 
                   # robust filename tag mapping for which_augment
                   case "$which_aug" in
-                    NO_AUGMENT)      aug="NA" ;;
+                    NO_AUGMENT)      aug="NOAUG" ;;
                     AUGMENT_LMMSE)   aug="LMMSE" ;;
                     AUGMENT_DEEPRX)  aug="DEEPRX" ;;
                     AUGMENT_SPHERE)  aug="SPHERE" ;;

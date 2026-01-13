@@ -29,7 +29,7 @@ use_film: False
 scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 50
-prime_QPSK_make_16QAM: False
+increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

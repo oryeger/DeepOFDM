@@ -519,31 +519,107 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
-                    if not(conf.prime_QPSK_make_16QAM):
+                    if not(conf.increase_prime_modulation):
                         LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                    detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
                         LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                    detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                     else:
-                        detected_word_lmmse_for_aug[1::2,:,re] = 0.5
-                        llrs_mat_lmmse_for_aug[:, 1::2, re:re+1, :] = 0
-                        LmmseDemod(equalized, postEqSINR, 2, re, llrs_mat_lmmse_for_aug[:, 0::2, :, :],
-                                   detected_word_lmmse_for_aug[0::2,:,:], 1)
+                        # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
+                        if num_bits_pilot == 2:
+                            # QPSK→16QAM: 2 bits → 4 bits
+                            # Bits 0,2 (signs) from QPSK; bits 1,3 (magnitudes) unknown
+                            detected_word_lmmse_for_aug[1::2,:,re] = 0.5
+                            llrs_mat_lmmse_for_aug[:, 1::2, re:re+1, :] = 0
+                            LmmseDemod(equalized, postEqSINR, 2, re, llrs_mat_lmmse_for_aug[:, 0::2, :, :],
+                                       detected_word_lmmse_for_aug[0::2,:,:], 1)
+                        elif num_bits_pilot == 4:
+                            # 16QAM→64QAM: 4 bits → 6 bits
+                            # 64QAM bits: [sign_I, half_I, pos_I, sign_Q, half_Q, pos_Q]
+                            # From 16QAM: [sign_I, mag_I, sign_Q, mag_Q]
+                            # Mapping: 64b0=16b0, 64b1=0, 64b2=-16b1, 64b3=16b2, 64b4=0, 64b5=-16b3
+
+                            # First, get 16QAM LLRs into temporary storage
+                            llrs_16qam = np.zeros((llrs_mat_lmmse_for_aug.shape[0], 4 * n_users, 1, 1))
+                            det_16qam = np.zeros((detected_word_lmmse_for_aug.shape[0] // 6 * 4, n_users, 1))
+                            LmmseDemod(equalized, postEqSINR, 4, re, llrs_16qam, det_16qam[:,:,0], 1)
+
+                            # Map to 64QAM (6 bits per user)
+                            for user in range(n_users):
+                                # 16QAM bit indices for this user
+                                i16_b0 = user * 4 + 0  # sign_I
+                                i16_b1 = user * 4 + 1  # mag_I
+                                i16_b2 = user * 4 + 2  # sign_Q
+                                i16_b3 = user * 4 + 3  # mag_Q
+
+                                # 64QAM bit indices for this user
+                                i64_b0 = user * 6 + 0  # sign_I
+                                i64_b1 = user * 6 + 1  # half_I (unknown)
+                                i64_b2 = user * 6 + 2  # pos_I (inverted mag_I)
+                                i64_b3 = user * 6 + 3  # sign_Q
+                                i64_b4 = user * 6 + 4  # half_Q (unknown)
+                                i64_b5 = user * 6 + 5  # pos_Q (inverted mag_Q)
+
+                                # Copy signs directly
+                                llrs_mat_lmmse_for_aug[:, i64_b0, re:re+1, :] = llrs_16qam[:, i16_b0, :, :]
+                                llrs_mat_lmmse_for_aug[:, i64_b3, re:re+1, :] = llrs_16qam[:, i16_b2, :, :]
+
+                                # Unknown bits (half selection) - set to 0
+                                llrs_mat_lmmse_for_aug[:, i64_b1, re:re+1, :] = 0
+                                llrs_mat_lmmse_for_aug[:, i64_b4, re:re+1, :] = 0
+
+                                # Inverted magnitude bits
+                                llrs_mat_lmmse_for_aug[:, i64_b2, re:re+1, :] = -llrs_16qam[:, i16_b1, :, :]
+                                llrs_mat_lmmse_for_aug[:, i64_b5, re:re+1, :] = -llrs_16qam[:, i16_b3, :, :]
+
+                            # Set detected words for unknown bits to 0.5
+                            detected_word_lmmse_for_aug[1::3,:,re] = 0.5  # half bits (positions 1,4 in each 6-bit group)
 
 
 
                 if run_sphere:
                     H = H.cpu().numpy()
 
-                    if not (conf.prime_QPSK_make_16QAM):
+                    if not (conf.increase_prime_modulation):
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
                     else:
-                        detected_word_lmmse_for_aug[1::2,:,re] = 0.5
-                        llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
-                                                                                        noise_var, conf.sphere_radius)
-                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
-                        llr_out[0::2,:] = llr_out_red
+                        # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
+                        if num_bits_pilot == 2:
+                            # QPSK→16QAM: 2 bits → 4 bits
+                            detected_word_sphere_for_aug[1::2,:,re] = 0.5
+                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
+                                                                                            noise_var, conf.sphere_radius)
+                            llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
+                            llr_out[0::2,:] = llr_out_red
+                        elif num_bits_pilot == 4:
+                            # 16QAM→64QAM: 4 bits → 6 bits
+                            llr_out_16qam, _ = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
+
+                            # Expand from 4 bits to 6 bits per symbol
+                            num_symbols = llr_out_16qam.shape[0] // 4
+                            llr_out = np.zeros((num_symbols * 6, n_users))
+
+                            for user in range(n_users):
+                                for sym in range(num_symbols):
+                                    # 16QAM indices
+                                    i16_base = sym * 4
+                                    # 64QAM indices
+                                    i64_base = sym * 6
+
+                                    # Signs - direct copy
+                                    llr_out[i64_base + 0, user] = llr_out_16qam[i16_base + 0, user]  # sign_I
+                                    llr_out[i64_base + 3, user] = llr_out_16qam[i16_base + 2, user]  # sign_Q
+
+                                    # Half bits - no info
+                                    llr_out[i64_base + 1, user] = 0  # half_I
+                                    llr_out[i64_base + 4, user] = 0  # half_Q
+
+                                    # Position bits - inverted magnitude
+                                    llr_out[i64_base + 2, user] = -llr_out_16qam[i16_base + 1, user]  # pos_I
+                                    llr_out[i64_base + 5, user] = -llr_out_16qam[i16_base + 3, user]  # pos_Q
+
+                            detected_word_sphere_for_aug[1::3,:,re] = 0.5  # half bits unknown
 
                 else:
                     llr_out = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
@@ -1407,7 +1483,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
         # title_string = title_string + '_ONV_' + str(conf.override_noise_var)
         title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
-        title_string = title_string + '_p4make16_' + str(int(conf.prime_QPSK_make_16QAM))
+        title_string = title_string + '_incPrimeMod_' + str(int(conf.increase_prime_modulation))
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

@@ -99,8 +99,12 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     n_users = H.shape[1]
     bits_per_symbol, _ = get_mcs(conf.mcs)
     bits_per_symbol = int(bits_per_symbol)
-    if conf.prime_QPSK_make_16QAM:
-        bits_per_symbol = int(bits_per_symbol/2)
+    if conf.increase_prime_modulation:
+        # Reduce modulation: 16QAM(4)→QPSK(2), 64QAM(6)→16QAM(4)
+        if bits_per_symbol == 4:
+            bits_per_symbol = 2  # QPSK for 16QAM output
+        elif bits_per_symbol == 6:
+            bits_per_symbol = 4  # 16QAM for 64QAM output
     qam = mod.QAMModem(int(2 ** bits_per_symbol))
 
     # Constellation and bit mapping

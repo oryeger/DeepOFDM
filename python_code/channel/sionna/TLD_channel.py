@@ -138,9 +138,11 @@ class TDLChannel:
             'min_speed': conf.speed
         }
 
-        # Add spatial correlation if configured
+        # Add spatial correlation if configured (use separate tx/rx matrices)
         if rx_corr is not None:
-            tdl_params['spatial_corr_mat'] = rx_corr
+            tdl_params['rx_corr_mat'] = rx_corr
+        if tx_corr is not None:
+            tdl_params['tx_corr_mat'] = tx_corr
 
         tdl = TDL(**tdl_params)
 

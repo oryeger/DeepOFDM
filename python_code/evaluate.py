@@ -624,7 +624,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     # Third part: unchanged (full 64QAM), no modification needed
 
-                elif not(conf.make_64QAM_16QAM_percentage == 50) and conf.make_64QAM_16QAM_percentage>0:
+                elif not(conf.make_64QAM_16QAM_percentage
+                ) and conf.make_64QAM_16QAM_percentage>0:
                     # Original logic for other percentages
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5
@@ -1391,6 +1392,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
+        # Add spatial correlation indicator
+        corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
+        corr_level = getattr(conf, 'spatial_correlation', 'none')
+        title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
         title_string = title_string + '_n_ants=' + str(conf.n_ants)
         # title_string = title_string + '_FFT_size=' + str(FFT_size)
         # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)

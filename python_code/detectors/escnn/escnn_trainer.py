@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
@@ -18,7 +19,6 @@ Softmax = torch.nn.Softmax(dim=1)
 class ESCNNTrainer(Trainer):
 
     def __init__(self, num_bits: int, n_users: int, n_ants: int):
-        self.lr = 5e-3
         super().__init__(num_bits, n_users, n_ants)
 
     def __str__(self):
@@ -39,30 +39,68 @@ class ESCNNTrainer(Trainer):
             single_model.set_stage(stage)
 
         self._deep_learning_setup(single_model)
-        loss = 0
         train_loss_vect = []
         val_loss_vect = []
-        # for _ in range(epochs):
+
+        # Reshape tx to match the expected format
+        tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
+
+        # Split into train and validation sets
+        train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
+        rx_prob_train = rx_prob[:train_samples]
+        rx_prob_val = rx_prob[train_samples:]
+        tx_train = tx_reshaped[:train_samples]
+        tx_val = tx_reshaped[train_samples:]
+
+        # Create DataLoader for mini-batch training
+        # batch_size <= 0 means full-batch (no mini-batching)
+        batch_size = conf.batch_size if hasattr(conf, 'batch_size') else 32
+        if batch_size <= 0:
+            batch_size = len(rx_prob_train)  # Full batch
+        shuffle = conf.shuffle if hasattr(conf, 'shuffle') else True
+        train_dataset = TensorDataset(rx_prob_train, tx_train)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
+
         for epoch in range(epochs):
-            soft_estimation, llrs = single_model(rx_prob)
-            tx_cur = tx
-            tx_reshaped = tx_cur.reshape(int(tx_cur.shape[0] // num_bits), num_bits, tx_cur.shape[1])
+            epoch_loss = 0.0
+            num_batches = 0
 
-            train_samples = int(llrs.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(llrs[:train_samples], tx_reshaped[:train_samples],first_half_flag)
+            # Mini-batch training
+            for batch_rx, batch_tx in train_loader:
+                batch_rx = batch_rx.to(DEVICE)
+                batch_tx = batch_tx.to(DEVICE)
 
-            if first_half_flag:
-                llrs_cur = llrs[train_samples:]
-                tx_reshaped_cur = tx_reshaped[train_samples:]
-                val_loss = self._calculate_loss(llrs_cur[:,0::2,:,:], tx_reshaped_cur[:,0::2,:])
-                # val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
-            else:
-                val_loss = self._calculate_loss(llrs[train_samples:,:,:,:], tx_reshaped[train_samples:,:,:])
-            val_loss = val_loss.item()
-            loss += current_loss
-            train_loss_vect.append(current_loss)
-            val_loss_vect.append(val_loss)
-        return train_loss_vect , val_loss_vect
+                soft_estimation, llrs = single_model(batch_rx)
+
+                if first_half_flag:
+                    llrs_cur = llrs[:, 0::2, :, :]
+                    batch_tx_cur = batch_tx[:, 0::2, :]
+                else:
+                    llrs_cur = llrs
+                    batch_tx_cur = batch_tx
+
+                loss = self._calculate_loss(llrs_cur, batch_tx_cur)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                epoch_loss += loss.item()
+                num_batches += 1
+
+            avg_train_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
+            train_loss_vect.append(avg_train_loss)
+
+            # Calculate validation loss
+            with torch.no_grad():
+                rx_prob_val_device = rx_prob_val.to(DEVICE)
+                _, llrs_val = single_model(rx_prob_val_device)
+                if first_half_flag:
+                    val_loss = self._calculate_loss(llrs_val[:, 0::2, :, :], tx_val[:, 0::2, :].to(DEVICE))
+                else:
+                    val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE))
+                val_loss_vect.append(val_loss.item())
+
+        return train_loss_vect, val_loss_vect
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str):

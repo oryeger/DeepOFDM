@@ -2,6 +2,7 @@ from typing import List
 
 import torch
 from torch import nn
+from torch.utils.data import DataLoader, TensorDataset
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
@@ -15,7 +16,6 @@ Softmax = torch.nn.Softmax(dim=1)
 class DeepRxTrainer(Trainer):
 
     def __init__(self, num_res: int, n_users: int, n_ants: int):
-        self.lr = 5e-3
         super().__init__(num_res, n_users, n_ants)
 
     def __str__(self):
@@ -34,16 +34,63 @@ class DeepRxTrainer(Trainer):
         self._deep_learning_setup(single_model)
         train_loss_vect = []
         val_loss_vect = []
-        for _ in range(epochs):
-            soft_estimation, llrs = single_model(rx)
-            tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits,tx.shape[1])
-            train_samples = int(soft_estimation.shape[0]*TRAIN_PERCENTAGE/100)
-            current_loss = self.run_train_loop(soft_estimation[:train_samples], tx_reshaped[:train_samples], first_half_flag)
-            val_loss = self._calculate_loss(soft_estimation[train_samples:], tx_reshaped[train_samples:])
-            val_loss = val_loss.item()
-            train_loss_vect.append(current_loss)
-            val_loss_vect.append(val_loss)
-        return train_loss_vect , val_loss_vect
+
+        # Reshape tx to match the expected format
+        tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
+
+        # Split into train and validation sets
+        train_samples = int(rx.shape[0] * TRAIN_PERCENTAGE / 100)
+        rx_train = rx[:train_samples]
+        rx_val = rx[train_samples:]
+        tx_train = tx_reshaped[:train_samples]
+        tx_val = tx_reshaped[train_samples:]
+
+        # Create DataLoader for mini-batch training
+        # batch_size <= 0 means full-batch (no mini-batching)
+        batch_size = conf.batch_size if hasattr(conf, 'batch_size') else 32
+        if batch_size <= 0:
+            batch_size = len(rx_train)  # Full batch
+        shuffle = conf.shuffle if hasattr(conf, 'shuffle') else True
+        train_dataset = TensorDataset(rx_train, tx_train)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
+
+        for epoch in range(epochs):
+            epoch_loss = 0.0
+            num_batches = 0
+
+            # Mini-batch training
+            for batch_rx, batch_tx in train_loader:
+                batch_rx = batch_rx.to(DEVICE)
+                batch_tx = batch_tx.to(DEVICE)
+
+                soft_estimation, llrs = single_model(batch_rx)
+
+                if first_half_flag:
+                    soft_cur = soft_estimation[:, 0::2, :]
+                    batch_tx_cur = batch_tx[:, 0::2, :]
+                else:
+                    soft_cur = soft_estimation
+                    batch_tx_cur = batch_tx
+
+                loss = self._calculate_loss(soft_cur, batch_tx_cur)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
+
+                epoch_loss += loss.item()
+                num_batches += 1
+
+            avg_train_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
+            train_loss_vect.append(avg_train_loss)
+
+            # Calculate validation loss
+            with torch.no_grad():
+                rx_val_device = rx_val.to(DEVICE)
+                soft_estimation_val, _ = single_model(rx_val_device)
+                val_loss = self._calculate_loss(soft_estimation_val, tx_val.to(DEVICE))
+                val_loss_vect.append(val_loss.item())
+
+        return train_loss_vect, val_loss_vect
 
     def _train_models(self, model: List[DeepRxDetector], tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):

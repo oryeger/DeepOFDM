@@ -116,7 +116,7 @@ class TDLChannel:
         return tx_corr, rx_corr
 
     @staticmethod
-    def conv_cir(y_in: np.ndarray, batch_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
+    def conv_cir(y_in: np.ndarray, conv_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
         sionna.config.seed = seed
 
@@ -154,7 +154,7 @@ class TDLChannel:
         l_tot = l_max-l_min+1
 
         if tf.size(external_channel) == 0:
-            cir = tdl(batch_size, num_time_samples+l_tot-1, bandwidth)
+            cir = tdl(conv_size, num_time_samples+l_tot-1, bandwidth)
             h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
         else:
             h_time = external_channel
@@ -175,7 +175,7 @@ class TDLChannel:
         no = tf.convert_to_tensor(float(noise_var))
         y_out = np.zeros([1,1,conf.n_ants,NUM_SAMPLES_PER_SLOT*num_slots],dtype=np.complex128)
         for slot in range(num_slots):
-            y_reshaped = tf.reshape(y_tf[:,:,slot*num_time_samples:(slot+1)*num_time_samples], [batch_size, 1, y_in.shape[0], num_time_samples])
+            y_reshaped = tf.reshape(y_tf[:,:,slot*num_time_samples:(slot+1)*num_time_samples], [conv_size, 1, y_in.shape[0], num_time_samples])
             y_reshaped = tf.cast(y_reshaped, h_time.dtype)
             y_out_cur_slot = channel_time([y_reshaped, h_time, no])
             y_out_cur_slot = y_out_cur_slot[:,:,:,TA:-l_tot+1+TA]

@@ -1,4 +1,3 @@
-import concurrent.futures
 from typing import Tuple, List
 
 import numpy as np
@@ -63,9 +62,8 @@ class ChannelModelDataset(Dataset):
 
     def __getitem__(self, noise_var_list: List[float], num_bits_pilot: int, num_bits_data: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         database = []
-        # do not change max_workers
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-            [executor.submit(self.get_snr_data, noise_var, database, num_bits_pilot, num_bits_data, n_users, mod_data, ldpc_k, ldpc_n) for noise_var in noise_var_list]
+        for noise_var in noise_var_list:
+            self.get_snr_data(noise_var, database, num_bits_pilot, num_bits_data, n_users, mod_data, ldpc_k, ldpc_n)
         tx, rx, rx_ce, h, s_orig, rx_clean = (np.concatenate(arrays) for arrays in zip(*database))
         tx, rx, rx_ce, h , s_orig, rx_clean = torch.Tensor(tx).to(device=DEVICE), torch.from_numpy(rx).to(device=DEVICE), torch.from_numpy(rx_ce).to(device=DEVICE), torch.from_numpy(
             h).to(device=DEVICE), torch.from_numpy(s_orig).to(device=DEVICE), torch.from_numpy(rx_clean).to(device=DEVICE)

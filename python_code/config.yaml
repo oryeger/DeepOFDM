@@ -1,5 +1,5 @@
-snr: 20
-cur_str: modtrain
+snr: -5
+cur_str: percrerun
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -7,15 +7,15 @@ n_users: 4
 mcs: 4
 mod_pilot: 64
 block_length_factor: 5
-num_res: 23
+num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 100
+epochs: 2
 iterations: 1
-pilot_size: 1000
-learning_rate: 5.0e-3 # 5.0e-4
+pilot_size: 100
+learning_rate: 5.0e-4 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True
@@ -33,14 +33,7 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'N'
-# Spatial correlation based on 3GPP TS 38.101-4
-# Options: 'none', 'low', 'medium', 'medium_a', 'high', 'custom'
-spatial_correlation: 'low'
-# For custom mode, set spatial_correlation: 'custom' and specify α and β:
-spatial_correlation_alpha: 0.0  # Custom α parameter (used only if spatial_correlation='custom')
-spatial_correlation_beta: 0.0   # Custom β parameter (used only if spatial_correlation='custom')
-
+TDL_model: 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s

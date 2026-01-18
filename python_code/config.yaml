@@ -4,7 +4,7 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 4
+mcs: 17
 mod_pilot: -1
 block_length_factor: 5
 num_res: 24
@@ -28,8 +28,8 @@ save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
 override_noise_var: False
-make_64QAM_16QAM_percentage: 50
-increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
+make_64QAM_16QAM_percentage: 0
+increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

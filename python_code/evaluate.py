@@ -700,8 +700,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     # Third part: unchanged (full 64QAM), no modification needed
 
-                elif not(conf.make_64QAM_16QAM_percentage
-                ) and conf.make_64QAM_16QAM_percentage>0:
+                elif not(conf.make_64QAM_16QAM_percentage == 50) and conf.make_64QAM_16QAM_percentage>0:
                     # Original logic for other percentages
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5

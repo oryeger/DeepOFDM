@@ -1,11 +1,11 @@
-snr: -5
+snr: 40
 cur_str: percrerun
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 17
-mod_pilot: -1
+mcs: 28
+mod_pilot: 64
 block_length_factor: 5
 num_res: 24
 cfo: 0
@@ -24,12 +24,12 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [15]
+save_loss_plot_snr: [40]
 use_film: False
 scale_input: True
 override_noise_var: False
-make_64QAM_16QAM_percentage: 0
-increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
+make_64QAM_16QAM_percentage: 100
+increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
@@ -52,7 +52,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'AUGMENT_SPHERE'
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

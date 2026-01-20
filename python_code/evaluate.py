@@ -584,6 +584,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     if not (conf.increase_prime_modulation):
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
+                        #OryEger - to remove
+                        # llr_out[1::2, :] = 0
                     else:
                         # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
                         if num_bits_pilot == 4:

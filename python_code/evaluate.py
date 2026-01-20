@@ -948,9 +948,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
                             target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
                 else:
-                    ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse), target.cpu(), num_bits_data)
-                    if run_sphere:
-                        ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
+                    if not(conf.increase_prime_modulation):
+                        ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse), target.cpu(), num_bits_data)
+                        if run_sphere:
+                            ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
+                    else:
+                        if num_bits_pilot == 6:
+                            indices = relevant_indices(target.shape[0], 1.5)
+                            num_bits_data_cur = 4
+                        elif num_bits_pilot == 4:
+                            indices = relevant_indices(target.shape[0], 2)
+                            num_bits_data_cur = 2
+
+                        ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
+                        if run_sphere:
+                            ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
 
                 ber_per_re_lmmse[re] = ber_lmmse
 

@@ -179,6 +179,6 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     # ---------------- Timing summary ----------------
     t_total = time.perf_counter() - t_start_total
 
-    # print(f"SphereDecoder ORIGINAL: {t_total:.3f}s | {t_total / n_symbols * 1e3:.2f} ms/sym")
+    print(f"SphereDecoder ORIGINAL: {t_total:.3f}s | {t_total / n_symbols * 1e3:.2f} ms/sym")
 
     return LLRs_all, hard_bits_all

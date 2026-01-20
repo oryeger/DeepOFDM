@@ -39,10 +39,10 @@ def Sphere16qamEvenbits(
     max_attempts=4,
     max_leaves=3000,
     # --- guarantee fallback controls ---
-    guarantee_mode="hybrid",     # "forced_bit" or "bruteforce" or "hybrid"
+    guarantee_mode="forced_bit",     # "forced_bit" or "bruteforce" or "hybrid"
     bruteforce_max_users=4,
-    forced_radius_expand=32.0,  # radius for forced searches relative to best_dist (squared)
-    max_nodes_forced=400000,
+    forced_radius_expand=8.0,  # radius for forced searches relative to best_dist (squared)
+    max_nodes_forced=80000,
     # --- debug ---
     debug=False,
 ):
@@ -348,6 +348,6 @@ def Sphere16qamEvenbits(
     hard_bits_all = hard_3d.transpose(0, 2, 1).reshape(n_sym * kout, n_users)
 
     elapsed = time.perf_counter() - t0
-    # print(f"Sphere16qamEvenbits: {elapsed:.3f}s | {elapsed/max(n_sym,1)*1e3:.2f} ms/sym")
+    print(f"Sphere16qamEvenbits: {elapsed:.3f}s | {elapsed/max(n_sym,1)*1e3:.2f} ms/sym")
 
     return LLRs_all, hard_bits_all

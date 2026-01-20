@@ -32,6 +32,7 @@ from scipy.stats import entropy
 from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
+from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize,LmmseDemod
 
 from datetime import datetime
@@ -588,7 +589,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if num_bits_pilot == 4:
                             # QPSK→16QAM: 2 bits → 4 bits
                             detected_word_sphere_for_aug[1::2,:,re] = 0.5
-                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
+                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(H, rx_c[:, :, re].numpy(),
                                                                                             noise_var, conf.sphere_radius)
                             llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
                             llr_out[0::2,:] = llr_out_red

@@ -3,8 +3,8 @@ cur_str: percrerun
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 4
-mcs: 17
+n_users: 2
+mcs: 28
 mod_pilot: -1
 block_length_factor: 5
 num_res: 24
@@ -18,7 +18,7 @@ batch_size: 32
 shuffle: True
 
 learning_rate: 1e-3 # 5.0e-4
-pilot_size: 100
+pilot_size: 40
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True
@@ -52,8 +52,7 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-which_augment: 'AUGMENT_LMMSE'
-which_augment: 'AUGMENT_LMMSE'
+which_augment: 'AUGMENT_SPHERE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

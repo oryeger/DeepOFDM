@@ -589,8 +589,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if num_bits_pilot == 4:
                             # QPSK→16QAM: 2 bits → 4 bits
                             detected_word_sphere_for_aug[1::2,:,re] = 0.5
-                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(H, rx_c[:, :, re].numpy(),
-                                                                                            noise_var, conf.sphere_radius)
+                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
+                                H,
+                                rx_c[:, :, re].numpy(),
+                                noise_var=noise_var,
+                                keep_bits=(0, 2),
+                                init_expand=conf.sphere_radius  # OR whatever parameter you intended
+                            )
                             llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
                             llr_out[0::2,:] = llr_out_red
                         elif num_bits_pilot == 6:

@@ -6,6 +6,38 @@ from python_code.utils.probs_utils import relevant_indices
 
 import numpy as np
 
+
+def ChannelEstimate(rx_ce, s_orig, pilot_chunk, re):
+    """
+    Perform channel estimation only (no equalization).
+    Returns the estimated channel matrix H for a given RE.
+
+    Args:
+        rx_ce: Received signal for channel estimation (n_users, n_symbols, n_ants, num_res)
+        s_orig: Original transmitted symbols (n_symbols, n_users, num_res)
+        pilot_chunk: Number of pilot symbols
+        re: Resource element index
+
+    Returns:
+        H: Estimated channel matrix (n_ants, n_users) complex
+    """
+    H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
+
+    for user in range(conf.n_users):
+        if not conf.separate_pilots:
+            rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
+            s_orig_pilot = s_orig[:pilot_chunk, user, re]
+            LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
+            H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
+        else:
+            rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:conf.n_users, :, re]
+            s_orig_pilot = s_orig[user:pilot_chunk:conf.n_users, user, re]
+            LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
+            H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
+
+    return H
+
+
 def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
     noise_var = 0
     for user in range(conf.n_users):

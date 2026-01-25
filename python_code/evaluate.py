@@ -10,6 +10,7 @@ from python_code.detectors.deepstag.deepstag_trainer import DeepSTAGTrainer
 from python_code.detectors.mhsa.mhsa_trainer import MHSATrainer
 from python_code.detectors.tdcnn.tdcnn_trainer import TDCNNTrainer
 from python_code.detectors.tdfdcnn.tdfdcnn_trainer import TDFDCNNTrainer
+from python_code.detectors.jointllr.jointllr_trainer import JointLLRTrainer
 from python_code import DEVICE
 
 
@@ -33,7 +34,7 @@ from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
-from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize,LmmseDemod
+from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate
 
 from datetime import datetime
 from scipy.io import savemat
@@ -144,7 +145,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
 
 
 def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer) -> List[float]:
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer, jointllr_trainer) -> List[float]:
     """
     The online evaluation run. Main function for running the experiments of sequential transmission of pilots and
     data blocks for the paper.
@@ -210,6 +211,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_ber_deepstag_list = [[] for _ in range(iterations * 2)]
     total_ber_mhsa_list = [[] for _ in range(iterations)]
     total_bler_mhsa_list = [[] for _ in range(iterations)]
+    total_ber_jointllr_list = [[] for _ in range(iterations)]
+    total_bler_jointllr_list = [[] for _ in range(iterations)]
     total_ber_deeprx = []
     total_ber_lmmse = []
     total_bler_lmmse = []
@@ -274,6 +277,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_sum_deepsicmb = np.zeros(iterations)
         ber_sum_deepstag = np.zeros(iterations * 2)
         ber_sum_mhsa = np.zeros(iterations)
+        ber_sum_jointllr = np.zeros(iterations)
+        ber_per_re_jointllr = np.zeros((iterations, conf.num_res))
 
         if conf.mod_pilot> 0:
             num_bits_pilot = int(np.log2(conf.mod_pilot))
@@ -306,6 +311,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         if conf.run_tdfdcnn:
             tdfdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+
+        if conf.run_jointllr:
+            jointllr_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
 
         pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
         pilot_chunk = int(pilot_size / num_bits_pilot)
@@ -504,6 +512,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             time_ce = 0
             time_lmmse = 0
             time_sphere = 0
+
+            # For JointLLR: collect channel estimates for all REs
+            if conf.run_jointllr:
+                H_all_res = torch.zeros((rx_c.shape[0], 2 * conf.n_ants * conf.n_users, num_res), dtype=torch.float32)
+
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
@@ -576,7 +589,19 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             # Set detected words for unknown bits to 0.5
                             detected_word_lmmse_for_aug[1::3,:,re] = 0.5  # half bits (positions 1,4 in each 6-bit group)
 
-
+                # Store H for JointLLR detector (convert complex to real/imag interleaved)
+                if conf.run_jointllr:
+                    H_cpu = H.cpu()
+                    # H is (n_ants, n_users) complex, convert to (2*n_ants*n_users) real
+                    # Interleave real/imag: [Re(H[0,0]), Im(H[0,0]), Re(H[1,0]), Im(H[1,0]), ...]
+                    H_real = torch.zeros(2 * conf.n_ants * conf.n_users, dtype=torch.float32)
+                    for user in range(conf.n_users):
+                        for ant in range(conf.n_ants):
+                            idx = user * conf.n_ants * 2 + ant * 2
+                            H_real[idx] = H_cpu[ant, user].real
+                            H_real[idx + 1] = H_cpu[ant, user].imag
+                    # Broadcast H to all symbols for this RE
+                    H_all_res[:, :, re] = H_real.unsqueeze(0).expand(rx_c.shape[0], -1)
 
                 if run_sphere:
                     H = H.cpu().numpy()
@@ -783,6 +808,19 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     detected_word_mhsa_list, llrs_mat_mhsa_list = mhsa_trainer._forward(rx_data, num_bits_pilot, n_users,
                                                                                         iterations, torch.empty(0))
 
+            if conf.run_jointllr:
+                if jointllr_trainer.is_online_training:
+                    # Prepare H for pilot and data portions
+                    H_pilot = H_all_res[:pilot_chunk]
+                    H_data = H_all_res[pilot_chunk:]
+
+                    train_loss_vect_jointllr, val_loss_vect_jointllr = jointllr_trainer._online_training(
+                        tx_pilot, rx_pilot, H_pilot, num_bits_pilot, n_users, iterations, epochs, False,
+                        probs_for_aug[:pilot_chunk])
+
+                    detected_word_jointllr_list, llrs_mat_jointllr_list = jointllr_trainer._forward(
+                        rx_data, H_data, num_bits_pilot, n_users, iterations, probs_for_aug[pilot_chunk:])
+
             # CE Based
             rx_data_c = rx[pilot_chunk:].cpu()
 
@@ -947,6 +985,29 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         ber_sum_mhsa[iteration] += ber_mhsa
                         ber_per_re_mhsa[iteration, re] = ber_mhsa
 
+                if conf.run_jointllr:
+                    for iteration in range(iterations):
+                        if pilot_data_ratio <= 1:
+                            detected_word_cur_re_jointllr = detected_word_jointllr_list[iteration][:, :, re, :]
+                        else:
+                            detected_word_cur_re_jointllr = detected_word_jointllr_list[iteration][:, relevant_indices(detected_word_jointllr_list[iteration].shape[1], pilot_data_ratio), re, :]
+                        detected_word_cur_re_jointllr = detected_word_cur_re_jointllr.squeeze(-1)
+                        detected_word_cur_re_jointllr = detected_word_cur_re_jointllr.reshape(int(tx_data.shape[0] / num_bits_data),
+                                                                                              n_users, num_bits_data).swapaxes(1, 2).reshape(
+                            tx_data.shape[0], n_users)
+
+                        if pilot_data_ratio == 1.5:
+                            detected_word_cur_re_jointllr[1::2, :] = 1 - detected_word_cur_re_jointllr[1::2, :]
+
+                        if conf.ber_on_one_user >= 0:
+                            ber_jointllr = calculate_ber(
+                                detected_word_cur_re_jointllr[:, conf.ber_on_one_user].unsqueeze(-1).cpu(),
+                                target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
+                        else:
+                            ber_jointllr = calculate_ber(detected_word_cur_re_jointllr.cpu(), target.cpu(), num_bits_data)
+                        ber_sum_jointllr[iteration] += ber_jointllr
+                        ber_per_re_jointllr[iteration, re] = ber_jointllr
+
                 if conf.ber_on_one_user >= 0:
                     ber_lmmse = calculate_ber(
                         torch.from_numpy(detected_word_lmmse[:, conf.ber_on_one_user]).unsqueeze(-1),
@@ -985,6 +1046,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             bler_deepsic_list = [None] * iterations
             bler_tdfdcnn_list = [None] * iterations
             bler_mhsa_list = [None] * iterations
+            bler_jointllr_list = [None] * iterations
             if conf.mcs > -1:
                 # llrs_mat_lmmse = llrs_mat_lmmse * 0.0092
                 if ldpc_k > 3824:
@@ -1001,6 +1063,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     llr_all_res_deeprx = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_deepsic = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_mhsa = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
+                    llr_all_res_jointllr = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     for re in range(conf.num_res):
                         # ESCNN
                         if pilot_data_ratio<=1:
@@ -1065,6 +1128,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                 tx_data.shape[0], n_users)
                             llr_all_res_mhsa[:, re::conf.num_res] = llr_cur_re_mhsa.swapaxes(0, 1).cpu()
 
+                        # JointLLR
+                        if conf.run_jointllr:
+                            if pilot_data_ratio <= 1:
+                                llr_cur_re_jointllr = llrs_mat_jointllr_list[iteration][:, :, re, :]
+                            else:
+                                llr_cur_re_jointllr = llrs_mat_jointllr_list[iteration][:, relevant_indices(llrs_mat_jointllr_list[iteration].shape[1], pilot_data_ratio), re, :]
+
+                            if pilot_data_ratio == 1.5:
+                                llr_cur_re_jointllr[:, 1::2, :] *= -1
+
+                            llr_cur_re_jointllr = llr_cur_re_jointllr.squeeze(-1)
+                            llr_cur_re_jointllr = llr_cur_re_jointllr.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
+                                                                              num_bits_data).swapaxes(1, 2).reshape(
+                                tx_data.shape[0], n_users)
+                            llr_all_res_jointllr[:, re::conf.num_res] = llr_cur_re_jointllr.swapaxes(0, 1).cpu()
+
                         # DeepRx
                         if run_deeprx:
                             llr_cur_re_deeprx = llrs_mat_deeprx[:, :, re, :]
@@ -1082,6 +1161,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     crc_count_deeprx = 0
                     crc_count_deepsic = 0
                     crc_count_mhsa = 0
+                    crc_count_jointllr = 0
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
@@ -1111,6 +1191,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             decodedwords_mhsa = codec.decode(llr_all_res_mhsa[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_mhsa = crc.decode(decodedwords_mhsa)
                             crc_count_mhsa += (~crc_out_mhsa).numpy().astype(int).sum()
+                        if conf.run_jointllr:
+                            decodedwords_jointllr = codec.decode(llr_all_res_jointllr[:, slot * ldpc_n:(slot + 1) * ldpc_n])
+                            crc_out_jointllr = crc.decode(decodedwords_jointllr)
+                            crc_count_jointllr += (~crc_out_jointllr).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
 
@@ -1134,6 +1218,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     else:
                         bler_mhsa_list[iteration] = 0
                         total_bler_mhsa_list[iteration].append(bler_mhsa_list[iteration])
+
+                    if conf.run_jointllr:
+                        bler_jointllr_list[iteration] = crc_count_jointllr / (num_slots * n_users)
+                        total_bler_jointllr_list[iteration].append(bler_jointllr_list[iteration])
+                    else:
+                        bler_jointllr_list[iteration] = 0
+                        total_bler_jointllr_list[iteration].append(bler_jointllr_list[iteration])
 
                     if iteration == 0:
                         bler_lmmse = crc_count_lmmse / (num_slots * n_users)
@@ -1161,6 +1252,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     total_bler_deepsic_list[iteration].append(0)
                     total_bler_tdfdcnn_list[iteration].append(0)
                     total_bler_mhsa_list[iteration].append(0)
+                    total_bler_jointllr_list[iteration].append(0)
                 bler_lmmse = 0
                 total_bler_lmmse.append(0)
                 total_bler_sphere.append(0)
@@ -1226,6 +1318,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 ber_mhsa_list[iteration] = ber_sum_mhsa[iteration] / num_res
                 total_ber_mhsa_list[iteration].append(ber_mhsa_list[iteration])
 
+            ber_jointllr_list = [None] * iterations
+            for iteration in range(iterations):
+                ber_jointllr_list[iteration] = ber_sum_jointllr[iteration] / num_res
+                total_ber_jointllr_list[iteration].append(ber_jointllr_list[iteration])
+
             total_ber_deeprx.append(ber_deeprx)
             total_ber_lmmse.append(ber_lmmse)
             total_ber_sphere.append(ber_sphere)
@@ -1253,6 +1350,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 print(f'current MHSA: {block_ind, float(ber_mhsa_list[iterations - 1])}')
                 if conf.mcs > -1:
                     print(f'current MHSA BLER: {block_ind, float(bler_mhsa_list[iterations - 1])}')
+            if conf.run_jointllr:
+                print(f'current JointLLR: {block_ind, float(ber_jointllr_list[iterations - 1])}')
+                if conf.mcs > -1:
+                    print(f'current JointLLR BLER: {block_ind, float(bler_jointllr_list[iterations - 1])}')
 
             if conf.run_deepsicmb:
                 print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
@@ -1313,6 +1414,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                               snr_cur, "MHSA", 3,
                                               train_samples, val_samples, mod_text, cfo_str, ber_mhsa_list[iteration],
                                               ber_lmmse, conf.iterations)
+
+        if conf.run_jointllr:
+            for iteration in range(iterations):
+                fig_jointllr = plot_loss_and_LLRs(train_loss_vect_jointllr, val_loss_vect_jointllr, llrs_mat_jointllr_list[iteration],
+                                              snr_cur, "JointLLR", conf.kernel_size,
+                                              train_samples, val_samples, mod_text, cfo_str, ber_jointllr_list[iteration],
+                                              ber_lmmse, iteration)
 
         if conf.run_deepsicmb:
             for iteration in range(iterations):
@@ -1380,6 +1488,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             for i in range(conf.iterations):
                 data[f"total_ber_tdfdcnn_{i + 1}"] = total_ber_tdfdcnn_list[i]
 
+        if conf.run_jointllr:
+            for i in range(conf.iterations):
+                data[f"total_ber_jointllr_{i + 1}"] = total_ber_jointllr_list[i]
+
         df = pd.DataFrame(data)
 
         data_bler = {
@@ -1403,6 +1515,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if run_mhsa:
             for i in range(conf.iterations):
                 data_bler[f"total_ber_mhsa_{i + 1}"] = total_bler_mhsa_list[i]
+
+        if conf.run_jointllr:
+            for i in range(conf.iterations):
+                data_bler[f"total_ber_jointllr_{i + 1}"] = total_bler_jointllr_list[i]
 
         df_bler = pd.DataFrame(data_bler)
 
@@ -1795,6 +1911,7 @@ if __name__ == '__main__':
     mhsa_trainer = MHSATrainer(num_bits_pilot, conf.n_users, conf.n_ants)
     tdcnn_trainer = TDCNNTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
     tdfdcnn_trainer = TDFDCNNTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
+    jointllr_trainer = JointLLRTrainer(num_bits_pilot, conf.n_users, conf.n_ants)
 
     # For measuring number of parameters
     # def iter_modules(obj):
@@ -1889,7 +2006,7 @@ if __name__ == '__main__':
     # print(f"Parameters MHSA: {total_params}")
 
     run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
-                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer)
+                 deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer, jointllr_trainer)
     end_time = time.time()
     elapsed_time = end_time - start_time
     days = int(elapsed_time // (24 * 3600))

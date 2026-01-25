@@ -53,7 +53,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_LMMSE'
+which_augment: 'AUGMENT_SPHERE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

@@ -87,8 +87,11 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
 
     n_symbols, n_rx = y.shape
     n_users = H.shape[1]
-    bits_per_symbol, _ = get_mcs(conf.mcs)
-    bits_per_symbol = int(bits_per_symbol)
+    if conf.mod_pilot <= 0:
+        bits_per_symbol, _ = get_mcs(conf.mcs)
+        bits_per_symbol = int(bits_per_symbol)
+    else:
+        bits_per_symbol = int(np.log2(conf.mod_pilot))
 
     if conf.increase_prime_modulation:
         if bits_per_symbol == 4:

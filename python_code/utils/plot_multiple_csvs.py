@@ -32,6 +32,57 @@ def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = "\n".join([cleaned_name[i:i+80] for i in range(0, len(cleaned_name), 80)])
     return cleaned_name
 
+def _to_float_cell(x):
+    """
+    Robust conversion for cells like:
+      tensor(0.0011), 'tensor(0.0011)', 0, 0.0, '0.0'
+    """
+    s = str(x)
+    s = s.replace("tensor(", "").replace(")", "").strip()
+    # handle "0" / "0.0" / empty
+    if s == "" or s.lower() == "nan":
+        return np.nan
+    try:
+        return float(s)
+    except Exception:
+        return np.nan
+
+def _get_first_present(df, candidates):
+    """Return the first column name that exists in df.columns, else None."""
+    for c in candidates:
+        if c in df.columns:
+            return c
+    return None
+
+def _safe_interp_x_to_y(x, y, x_target):
+    """
+    Your code does interp1d(ber, snr). That requires x to be monotonic-ish.
+    This helper makes it safer by sorting by x and dropping duplicates.
+    """
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+
+    mask = np.isfinite(x) & np.isfinite(y)
+    x = x[mask]
+    y = y[mask]
+    if x.size < 2:
+        return np.nan
+
+    # Sort by x
+    order = np.argsort(x)
+    x_sorted = x[order]
+    y_sorted = y[order]
+
+    # Drop duplicate x (keep first)
+    x_unique, idx = np.unique(x_sorted, return_index=True)
+    y_unique = y_sorted[idx]
+
+    if x_unique.size < 2:
+        return np.nan
+
+    f = interp1d(x_unique, y_unique, fill_value="extrapolate", bounds_error=False)
+    return float(np.round(f(x_target), 1))
+
 # ---- MAIN LOOP: plot BER=1 (right) and BER=0 (left) ----
 used_seeds_overall = set()
 title_source_file = None  # keep one real file used (for the cleaned title)
@@ -57,6 +108,8 @@ for BER in [1, 0]:
         "ber_lmmse": [], "ber_sphere": [],
         "ber_mhsa_1": [], "ber_mhsa_2": [], "ber_mhsa_3": [],
         "ber_tdfdcnn_1": [], "ber_tdfdcnn_2": [], "ber_tdfdcnn_3": [],
+        # ✅ NEW: JointLLR (support both total_ber_jointllr and total_ber_jointllr_1)
+        "ber_jointllr_1": [],
     })
 
     used_seeds_this_panel = set()
@@ -96,104 +149,118 @@ for BER in [1, 0]:
             df = pd.read_csv(file)
 
             # ------------ BER parsing (same as your script) ------------
-            snr_ber_dict[snr]["ber_1"].append(float(df["total_ber_1"]))
-            snr_ber_dict[snr]["ber_2"].append(float(df["total_ber_2"]) if "total_ber_2" in df.columns else float(df["total_ber_1"]))
-            snr_ber_dict[snr]["ber_3"].append(float(df["total_ber_3"]) if "total_ber_3" in df.columns else float(df["total_ber_1"]))
+            snr_ber_dict[snr]["ber_1"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+
+            if "total_ber_2" in df.columns:
+                snr_ber_dict[snr]["ber_2"].append(_to_float_cell(df["total_ber_2"].iloc[0]))
+            else:
+                snr_ber_dict[snr]["ber_2"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+
+            if "total_ber_3" in df.columns:
+                snr_ber_dict[snr]["ber_3"].append(_to_float_cell(df["total_ber_3"].iloc[0]))
+            else:
+                snr_ber_dict[snr]["ber_3"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+
+            # ✅ NEW: JointLLR parsing
+            # Examples you gave:
+            #   total_ber_jointllr_1
+            # Sometimes it might be total_ber_jointllr (no suffix)
+            joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
+            if joint_col is not None:
+                snr_ber_dict[snr]["ber_jointllr_1"].append(_to_float_cell(df[joint_col].iloc[0]))
 
             # MHSA parsing
             if any(col.startswith("total_ber_mhsa") for col in df.columns):
                 if "total_ber_mhsa" in df.columns and not any(col.startswith("total_ber_mhsa_") for col in df.columns):
-                    val = float(df["total_ber_mhsa"])
+                    val = _to_float_cell(df["total_ber_mhsa"].iloc[0])
                     for key in ["ber_mhsa_1", "ber_mhsa_2", "ber_mhsa_3"]:
                         snr_ber_dict[snr][key].append(val)
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_mhsa_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         elif "total_ber_mhsa" in df.columns:
-                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(float(df["total_ber_mhsa"]))
+                            snr_ber_dict[snr][f"ber_mhsa_{k}"].append(_to_float_cell(df["total_ber_mhsa"].iloc[0]))
 
             # TDFDCNN parsing (tfdfcnn)
             if any(col.startswith("total_ber_tfdfcnn") for col in df.columns):
                 if "total_ber_tfdfcnn" in df.columns and not any(col.startswith("total_ber_tfdfcnn_") for col in df.columns):
-                    val = float(df["total_ber_tfdfcnn"])
+                    val = _to_float_cell(df["total_ber_tfdfcnn"].iloc[0])
                     for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
                         snr_ber_dict[snr][key].append(val)
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_tfdfcnn_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         elif "total_ber_tdfdcnn" in df.columns:
-                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df["total_ber_tfdfcnn"]))
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df["total_ber_tfdfcnn"].iloc[0]))
 
             # TDFDCNN parsing (tdfdcnn)
             if any(col.startswith("total_ber_tdfdcnn") for col in df.columns):
                 if "total_ber_tdfdcnn" in df.columns and not any(col.startswith("total_ber_tdfdcnn_") for col in df.columns):
-                    val = float(df["total_ber_tdfdcnn"])
+                    val = _to_float_cell(df["total_ber_tdfdcnn"].iloc[0])
                     for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
                         snr_ber_dict[snr][key].append(val)
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_tdfdcnn_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         elif "total_ber_tdfdcnn" in df.columns:
-                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(float(df["total_ber_tdfdcnn"]))
+                            snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df["total_ber_tdfdcnn"].iloc[0]))
 
             # DeepSIC
             if any(col.startswith("total_ber_deepsic") for col in df.columns):
                 if "total_ber_deepsic" in df.columns:
                     for k in [1, 2, 3]:
-                        snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df["total_ber_deepsic"]))
+                        snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df["total_ber_deepsic"].iloc[0]))
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_deepsic_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         else:
-                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(float(df["total_ber_deepsic_1"]))
+                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df["total_ber_deepsic_1"].iloc[0]))
 
             # DeepSIC-MB
             if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
                 if "total_ber_deepsicmb" in df.columns:
                     for k in [1, 2, 3]:
-                        snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df["total_ber_deepsicmb"]))
+                        snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df["total_ber_deepsicmb"].iloc[0]))
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_deepsicmb_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         else:
-                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(float(df["total_ber_deepsicmb_1"]))
+                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df["total_ber_deepsicmb_1"].iloc[0]))
 
             # DeepSTAG
             if any(col.startswith("total_ber_deepstag") for col in df.columns):
                 if "total_ber_deepstag" in df.columns:
                     for k in [1, 2, 3]:
-                        snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df["total_ber_deepstag"]))
+                        snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df["total_ber_deepstag"].iloc[0]))
                 else:
                     for k in [1, 2, 3]:
                         colname = f"total_ber_deepstag_{k}"
                         if colname in df.columns:
-                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df[colname]))
+                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df[colname].iloc[0]))
                         else:
-                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(float(df["total_ber_deepstag_1"]))
+                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df["total_ber_deepstag_1"].iloc[0]))
 
             # DeepRx
             if "total_ber_deeprx" in df.columns:
-                val = str(df["total_ber_deeprx"].iloc[0]).replace("tensor(", "").replace(")", "")
-                snr_ber_dict[snr]["ber_deeprx"].append(float(val))
+                snr_ber_dict[snr]["ber_deeprx"].append(_to_float_cell(df["total_ber_deeprx"].iloc[0]))
 
             # LMMSE
-            val = str(df["total_ber_lmmse"].iloc[0]).replace("tensor(", "").replace(")", "")
-            snr_ber_dict[snr]["ber_lmmse"].append(float(val))
+            if "total_ber_lmmse" in df.columns:
+                snr_ber_dict[snr]["ber_lmmse"].append(_to_float_cell(df["total_ber_lmmse"].iloc[0]))
 
             # Sphere
             if "total_ber_sphere" in df.columns:
-                val = str(df["total_ber_sphere"].iloc[0]).replace("tensor(", "").replace(")", "")
-                snr_ber_dict[snr]["ber_sphere"].append(float(val))
+                snr_ber_dict[snr]["ber_sphere"].append(_to_float_cell(df["total_ber_sphere"].iloc[0]))
 
     # If nothing was loaded for this panel, skip plotting
     if len(snr_ber_dict) == 0:
@@ -206,44 +273,63 @@ for BER in [1, 0]:
 
     # ---- Averages ----
     snrs = sorted(snr_ber_dict.keys())
-    def avg(key): return [np.mean(snr_ber_dict[s][key]) for s in snrs]
+
+    def avg(key):
+        vals = []
+        for s in snrs:
+            arr = np.asarray(snr_ber_dict[s][key], dtype=float)
+            arr = arr[np.isfinite(arr)]
+            vals.append(np.mean(arr) if arr.size else np.nan)
+        return vals
 
     ber_1 = avg("ber_1")
     ber_2 = avg("ber_2")
     ber_3 = avg("ber_3")
+    ber_jointllr_1 = avg("ber_jointllr_1")  # ✅ NEW
     ber_lmmse = avg("ber_lmmse")
     ber_sphere = avg("ber_sphere")
 
-    markers = ["o", "*", "x", "D", "+"]
+    markers = ["o", "*", "x", "D", "+", "s"]
     dashes  = [":", "-.", "--", "-", "-"]
 
     # ---- Plot ESCNN1/2/3 ----
-    interp_func = interp1d(ber_1, snrs, fill_value="extrapolate")
-    snr_target_1 = np.round(interp_func(ber_target), 1)
+    snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, ber_target)
     ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
                 label=f"ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}")
 
-    interp_func = interp1d(ber_2, snrs, fill_value="extrapolate")
-    snr_target_2 = np.round(interp_func(ber_target), 1)
+    snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
     ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
                 label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
 
-    interp_func = interp1d(ber_3, snrs, fill_value="extrapolate")
-    snr_target_3 = np.round(interp_func(ber_target), 1)
+    snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
     ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
                 label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
 
+    # ✅ NEW: JointLLR curve (only if exists / not all-NaN / not flat single value)
+    joint_arr = np.asarray(ber_jointllr_1, dtype=float)
+    if np.isfinite(joint_arr).any() and (np.unique(joint_arr[np.isfinite(joint_arr)]).shape[0] > 1):
+        snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, ber_target)
+        ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
+                    label=f"JointLLR1 @ {round(100*ber_target)}% = {snr_target_joint}")
+    elif np.isfinite(joint_arr).any():
+        # still plot it (flat) but without target label confusion
+        ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
+                    label=f"JointLLR1")
+
     # ---- LMMSE ----
-    interp_func = interp1d(ber_lmmse, snrs, fill_value="extrapolate")
-    snr_target_lmmse = np.round(interp_func(ber_target), 1)
+    snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, ber_target)
     ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
                 label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
 
-    if not (np.unique(ber_sphere).shape[0] == 1):
-        interp_func = interp1d(ber_sphere, snrs, fill_value="extrapolate")
-        snr_target_sphere = np.round(interp_func(ber_target), 1)
+    # ---- Sphere ----
+    sphere_arr = np.asarray(ber_sphere, dtype=float)
+    if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
+        snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
         ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
                     label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
+    elif np.isfinite(sphere_arr).any():
+        ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
+                    label=f"Sphere")
 
     # ---- Formatting ----
     ax.set_xlabel("SNR (dB)")

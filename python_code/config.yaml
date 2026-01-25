@@ -5,7 +5,7 @@ n_ants: 8
 snr_step: 1
 n_users: 4
 mcs: 5
-mod_pilot: -1
+mod_pilot: 64
 block_length_factor: 5
 num_res: 1
 cfo: 0
@@ -28,7 +28,7 @@ save_loss_plot_snr: [40]
 use_film: False
 scale_input: True
 override_noise_var: False
-make_64QAM_16QAM_percentage: 0
+make_64QAM_16QAM_percentage: 100
 increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
@@ -52,8 +52,8 @@ run_mhsa: False
 run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
-run_jointllr: True
-which_augment: 'NO_AUGMENT'
+run_jointllr: False
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

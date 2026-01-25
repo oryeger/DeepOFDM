@@ -606,18 +606,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if run_sphere:
                     H = H.cpu().numpy()
 
+                    import time
+                    t0 = time.perf_counter()
                     if not (conf.increase_prime_modulation):
-                        import time
-                        t0 = time.perf_counter()
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
-                        t1 = time.perf_counter()
-
-                        print(f"SphereDecoder: {(t1 - t0):.3f} s "
-                              f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
-
                         #OryEger - to remove
-                        llr_out[1::2, :] = 0
+                        # llr_out[1::2, :] = 0
                     else:
                         # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
                         if num_bits_pilot == 4:
@@ -660,6 +655,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                     llr_out[i64_base + 5, user] = -llr_out_16qam[i16_base + 3, user]  # pos_Q
 
                             detected_word_sphere_for_aug[1::3,:,re] = 0.5  # half bits unknown
+
+                    t1 = time.perf_counter()
+
+                    print(f"SphereDecoder: {(t1 - t0):.3f} s "
+                          f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
+
 
                 else:
                     llr_out = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))

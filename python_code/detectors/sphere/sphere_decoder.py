@@ -3,7 +3,6 @@ from itertools import product
 import commpy.modulation as mod
 from python_code import conf
 from python_code.coding.mcs_table import get_mcs
-import time
 
 # import time
 
@@ -72,12 +71,7 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     """
     Sphere decoder with LLR computation (Max-Log-MAP).
     Soft-output version with optional sphere radius.
-    Includes detailed timing measurements.
     """
-
-    # ---------------- Timing start ----------------
-    t_start_total = time.perf_counter()
-
     # Handle radius input
     if isinstance(radius, str):
         if radius.strip().lower() in {"inf", "+inf", "infinity"}:
@@ -87,6 +81,7 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
 
     n_symbols, n_rx = y.shape
     n_users = H.shape[1]
+
     if conf.mod_pilot <= 0:
         bits_per_symbol, _ = get_mcs(conf.mcs)
         bits_per_symbol = int(bits_per_symbol)
@@ -101,10 +96,9 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
 
     qam = mod.QAMModem(int(2 ** bits_per_symbol))
 
+    # Constellation and bit mapping
     constellation = qam.constellation
     bit_combinations = np.array(list(product([0, 1], repeat=bits_per_symbol)), dtype=np.int64)
-
-    # ⚠️ (kept as-is; float-key dict is unsafe but unchanged intentionally)
     sym2bits = {constellation[i]: bit_combinations[i] for i in range(len(constellation))}
 
     # QR decomposition
@@ -114,74 +108,53 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     LLRs_all = np.zeros((n_symbols, n_users, bits_per_symbol))
     hard_bits_all = np.zeros((n_symbols, n_users, bits_per_symbol), dtype=int)
 
-    # Timing / stats
-    t_search_total = 0.0
-    t_llr_total = 0.0
-    n_fallback = 0
-
-    # ---------------- Main loop ----------------
+    # Loop over received symbols
+#     for idx in range(1):
+#     for idx in np.array([0,1,2, 3]):
     for idx in range(n_symbols):
-        t_sym_start = time.perf_counter()
-
         y_tilde = Q.conj().T @ y[idx, :]
 
         best = {"dist": np.inf, "bits": None}
         candidates = []
-        radius_sq = radius
+        radius_sq = radius  # squared distance scale
 
-        # ---- Sphere search timing ----
-        t0 = time.perf_counter()
-        sphere_search(
-            n_users - 1,
-            np.zeros(n_users, dtype=complex),
-            0.0,
-            y_tilde,
-            R,
-            sym2bits,
-            best,
-            candidates,
-            radius_sq,
-            constellation
-        )
-        t_search_total += time.perf_counter() - t0
+        # Sphere search
+        sphere_search(n_users - 1, np.zeros(n_users, dtype=complex), 0.0,
+                      y_tilde, R, sym2bits, best, candidates, radius_sq, constellation)
 
-        # ---- Fallback if sphere empty ----
+
+        # Fallback if sphere too tight
         if len(candidates) == 0:
-            n_fallback += 1
-            best, candidates = brute_force_candidates(
-                y_tilde, R, n_users, constellation, sym2bits
-            )
+            best, candidates = brute_force_candidates(y_tilde, R, n_users, constellation, sym2bits)
 
-        # ---- LLR computation timing ----
-        t0 = time.perf_counter()
-
+        # --- Compute LLRs (Max-Log-MAP) ---
         n_bits_total = n_users * bits_per_symbol
         LLRs_flat = np.zeros(n_bits_total)
 
+        # Check coverage; fallback to brute-force if missing hypotheses
         for k in range(n_bits_total):
+            # collect d0 and d1 across candidates
             d0_candidates = [dist for bits, dist in candidates if bits[k] == 0]
             d1_candidates = [dist for bits, dist in candidates if bits[k] == 1]
 
             if d0_candidates and d1_candidates:
+                # both hypotheses exist → normal LLR
                 d0 = min(d0_candidates)
                 d1 = min(d1_candidates)
                 LLRs_flat[k] = (d1 - d0) / noise_var
             else:
+                # missing one side → set to zero
                 LLRs_flat[k] = 0.0
-
-        t_llr_total += time.perf_counter() - t0
 
         # Store outputs
         LLRs_all[idx] = LLRs_flat.reshape(n_users, bits_per_symbol)
         hard_bits_all[idx] = best["bits"].reshape(n_users, bits_per_symbol)
+        # end = time.time()
+        # print(f"SphereDecoder took {end - start:.4f} seconds")
 
-    # ---------------- Final reshape ----------------
+
+    # Final reshape
     LLRs_all = LLRs_all.transpose(0, 2, 1).reshape(n_symbols * bits_per_symbol, n_users)
     hard_bits_all = hard_bits_all.transpose(0, 2, 1).reshape(n_symbols * bits_per_symbol, n_users)
-
-    # ---------------- Timing summary ----------------
-    t_total = time.perf_counter() - t_start_total
-
-    # print(f"SphereDecoder ORIGINAL: {t_total:.3f}s | {t_total / n_symbols * 1e3:.2f} ms/sym")
 
     return LLRs_all, hard_bits_all

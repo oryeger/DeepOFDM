@@ -607,8 +607,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     H = H.cpu().numpy()
 
                     if not (conf.increase_prime_modulation):
+                        import time
+                        t0 = time.perf_counter()
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
+                        t1 = time.perf_counter()
+
+                        print(f"SphereDecoder: {(t1 - t0):.3f} s "
+                              f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
+
                         #OryEger - to remove
                         llr_out[1::2, :] = 0
                     else:

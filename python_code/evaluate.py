@@ -35,6 +35,7 @@ from scipy.interpolate import interp1d
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
 from python_code.detectors.sphere.sphere_64qam_fourbits import Sphere64qamFourbits
+from python_code.detectors.sphere.sphere_256qam_fourbits import Sphere256qamFourbits
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate
 
 from datetime import datetime
@@ -534,7 +535,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
-                    if not(conf.increase_prime_modulation):
+                    if not(conf.increase_prime_modulation) and not(num_bits_pilot == 8):
                         LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                    detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
                         LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
@@ -691,26 +692,78 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         for sym in range(num_symbols):
                             i4_base = sym * 4
                             i6_base = sym * 6
-                            # Bit 0: direct from fourbits[0] (sign_I)
+                            # Bit 0: from fourbits[0] (sign_I)
                             llr_out[i6_base + 0, :] = llr_out_4bits[i4_base + 0, :]
                             hard_out[i6_base + 0, :] = hard_bits_4[i4_base + 0, :]
                             # Bit 1: unknown (half_I)
                             llr_out[i6_base + 1, :] = 0
                             hard_out[i6_base + 1, :] = 0.5
-                            # Bit 2: flipped from fourbits[1] (pos_I)
+                            # Bit 2: from fourbits[1] (pos_I)
                             llr_out[i6_base + 2, :] = llr_out_4bits[i4_base + 1, :]
                             hard_out[i6_base + 2, :] =  hard_bits_4[i4_base + 1, :]
-                            # Bit 3: direct from fourbits[2] (sign_Q)
+                            # Bit 3: from fourbits[2] (sign_Q)
                             llr_out[i6_base + 3, :] = llr_out_4bits[i4_base + 2, :]
                             hard_out[i6_base + 3, :] = hard_bits_4[i4_base + 2, :]
                             # Bit 4: unknown (half_Q)
                             llr_out[i6_base + 4, :] = 0
                             hard_out[i6_base + 4, :] = 0.5
-                            # Bit 5: flipped from fourbits[3] (pos_Q)
+                            # Bit 5: from fourbits[3] (pos_Q)
                             llr_out[i6_base + 5, :] = llr_out_4bits[i4_base + 3, :]
                             hard_out[i6_base + 5, :] =  hard_bits_4[i4_base + 3, :]
 
                         detected_word_sphere_for_aug[:, :, re] = hard_out
+                    elif num_bits_pilot == 8:
+                        # increase_prime_modulation mode: 16QAM→256QAM (4 bits → 8 bits)
+                        # Use Sphere256qamFourbits to calculate bits 0, 3, 4, 7
+                        llr_out_4bits, hard_bits_4 = Sphere256qamFourbits(
+                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        )
+
+                        # Expand from 4 bits to 8 bits per symbol
+                        # fourbits output order: [b0, b3, b4, b7] per symbol
+                        # 256QAM order:          [b0, b1, b2, b3, b4, b5, b6, b7] per symbol
+                        num_symbols = llr_out_4bits.shape[0] // 4
+                        llr_out = np.zeros((num_symbols * 8, n_users), dtype=float)
+                        hard_out = np.zeros((num_symbols * 8, n_users), dtype=float)
+
+                        for sym in range(num_symbols):
+                            i4_base = sym * 4
+                            i8_base = sym * 8
+
+                            # Bit 0: from fourbits[0]
+                            llr_out[i8_base + 0, :] = llr_out_4bits[i4_base + 0, :]
+                            hard_out[i8_base + 0, :] = hard_bits_4[i4_base + 0, :]
+
+                            # Bit 1: unknown
+                            llr_out[i8_base + 1, :] = 0.0
+                            hard_out[i8_base + 1, :] = 0.5
+
+                            # Bit 2: unknown
+                            llr_out[i8_base + 2, :] = 0.0
+                            hard_out[i8_base + 2, :] = 0.5
+
+                            # Bit 3: from fourbits[1]
+                            llr_out[i8_base + 3, :] = llr_out_4bits[i4_base + 1, :]
+                            hard_out[i8_base + 3, :] = hard_bits_4[i4_base + 1, :]
+
+                            # Bit 4: from fourbits[2]
+                            llr_out[i8_base + 4, :] = llr_out_4bits[i4_base + 2, :]
+                            hard_out[i8_base + 4, :] = hard_bits_4[i4_base + 2, :]
+
+                            # Bit 5: unknown
+                            llr_out[i8_base + 5, :] = 0.0
+                            hard_out[i8_base + 5, :] = 0.5
+
+                            # Bit 6: unknown
+                            llr_out[i8_base + 6, :] = 0.0
+                            hard_out[i8_base + 6, :] = 0.5
+
+                            # Bit 7: from fourbits[3]
+                            llr_out[i8_base + 7, :] = llr_out_4bits[i4_base + 3, :]
+                            hard_out[i8_base + 7, :] = hard_bits_4[i4_base + 3, :]
+
+                        detected_word_sphere_for_aug[:, :, re] = hard_out
+
                     else:
                         # Fallback for other bit configurations
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(

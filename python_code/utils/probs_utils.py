@@ -42,17 +42,52 @@ def ensure_tensor_iterable(x):
         raise TypeError("Input must be an int or a torch.Tensor")
 
 
-def relevant_indices(N, pilot_data_ratio):
-    x = np.arange(0, N, pilot_data_ratio)
-    idx = np.floor(x + 0.5).astype(int)   # round-half-up
+import numpy as np
+
+def relevant_indices(N, pilot_data_ratio, is_256qam=False):
+    """
+    Returns indices of the bits that are explicitly computed.
+
+    Default (is_256qam=False):
+        Original ratio-based behavior (backward compatible).
+
+    256-QAM mode (is_256qam=True):
+        Uses fixed pattern per 8-bit symbol:
+            [0, 3, 4, 7] + 8*k
+        Requires pilot_data_ratio = 2 (8 bits / 4 computed bits).
+    """
+
+    if not is_256qam:
+        # ---- original behavior ----
+        x = np.arange(0, N, pilot_data_ratio)
+        idx = np.floor(x + 0.5).astype(int)   # round-half-up
+        idx = idx[idx < N]
+        return np.unique(idx)
+
+    # ---- 256-QAM special behavior ----
+    if abs(float(pilot_data_ratio) - 2.0) > 1e-12:
+        raise ValueError(
+            f"is_256qam=True expects pilot_data_ratio=2, got {pilot_data_ratio}"
+        )
+
+    keep = np.array([0, 3, 4, 7], dtype=int)
+    bps = 8
+
+    n_syms = int(np.ceil(N / bps))
+    base = (np.arange(n_syms, dtype=int) * bps)[:, None]
+    idx = (base + keep[None, :]).ravel()
     idx = idx[idx < N]
+
     return np.unique(idx)
 
-def skip_indices(N, pilot_data_ratio):
-    pilot_idx = relevant_indices(N, pilot_data_ratio)
-    all_idx = np.arange(N)
-    data_idx = np.setdiff1d(all_idx, pilot_idx, assume_unique=True)
-    return data_idx
+
+def skip_indices(N, pilot_data_ratio, is_256qam=False):
+    """
+    Returns indices of the bits that are NOT explicitly computed.
+    """
+    rel = relevant_indices(N, pilot_data_ratio, is_256qam)
+    all_idx = np.arange(N, dtype=int)
+    return np.setdiff1d(all_idx, rel, assume_unique=False)
 
 
 def get_64QAM_16QAM_indices_and_probs(total_bits, bits_per_symbol=6):

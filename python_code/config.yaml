@@ -59,6 +59,7 @@ mhsa_no_probs: True
 
 run_e2e: False
 iters_e2e: 1
+calc_mi: False
 no_probs: False
 separate_pilots: True
 

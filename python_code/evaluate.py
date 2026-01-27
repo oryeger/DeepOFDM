@@ -24,7 +24,7 @@ from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
 
 from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO,
-                                         FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT, PLOT_MI)
+                                         FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
 
 import pandas as pd
 
@@ -225,8 +225,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_mi_list = [[] for _ in range(iterations)]
     total_mi_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_mi_deeprx = []
-    if mod_data == 4:
-        total_mi_lmmse = []
+    total_mi_lmmse = []
+    total_mi_sphere = []
     Final_SNR = conf.snr + conf.num_snrs - 1
 
     if mod_data == 2:
@@ -606,14 +606,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if run_sphere:
                     H = H.cpu().numpy()
 
-                    import time
-                    t0 = time.perf_counter()
+                    # import time
+                    # t0 = time.perf_counter()
                     if not (conf.increase_prime_modulation):
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
                                                                                         noise_var, conf.sphere_radius)
-                        #OryEger - to remove
-                        # llr_out[1::2, :] = 0
                     else:
+                        #OryEger - to remove
+                        # llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
+                        #                                                                 noise_var, conf.sphere_radius)
+                        # llr_out[1::2, :] = 0
+
                         # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
                         if num_bits_pilot == 4:
                             # QPSK→16QAM: 2 bits → 4 bits
@@ -656,10 +659,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                             detected_word_sphere_for_aug[1::3,:,re] = 0.5  # half bits unknown
 
-                    t1 = time.perf_counter()
-
-                    print(f"SphereDecoder: {(t1 - t0):.3f} s "
-                          f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
+                    # t1 = time.perf_counter()
+                    #
+                    # print(f"SphereDecoder: {(t1 - t0):.3f} s "
+                    #       f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
 
 
                 else:
@@ -1266,22 +1269,34 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 total_bler_sphere.append(0)
                 total_bler_deeprx.append(0)
 
-            if PLOT_MI:
+            if conf.calc_mi:
                 for iteration in range(iterations):
                     mi = calc_mi(tx_data.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
                     total_mi_list[iteration].append(mi)
-                mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
-                total_mi_deeprx.append(mi_deeprx)
+                if run_deeprx:
+                    mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
+                    total_mi_deeprx.append(mi_deeprx)
+                else:
+                    mi_deeprx = 0
                 for iteration in range(iters_e2e_disp):
-                    mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_e2e_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                    if conf.run_e2e:
+                        mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_e2e_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                    else:
+                        mi_e2e = 0
                     total_mi_e2e_list[iteration].append(mi_e2e)
-                mi_lmmse = calc_mi(tx_data.cpu(), llrs_mat_lmmse, num_bits_data, n_users, num_res)
+                mi_lmmse = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_lmmse), num_bits_data, n_users, num_res)
                 total_mi_lmmse.append(mi_lmmse)
+                if run_sphere:
+                    mi_sphere = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_sphere), num_bits_data, n_users, num_res)
+                else:
+                    mi_sphere = 0
+                total_mi_sphere.append(mi_sphere)
             else:
                 mi = 0
                 mi_e2e = 0
                 mi_deeprx = 0
                 mi_lmmse = 0
+                mi_sphere = 0
 
             ber_list = [None] * iterations
             for iteration in range(iterations):
@@ -1639,6 +1654,24 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
             df_bler.to_csv(file_path_bler, index=False)
 
+        if conf.calc_mi:
+            data_mi = {
+                "SNR_range": SNR_range[:len(total_mi_lmmse)],
+                "total_ber_lmmse": total_mi_lmmse,
+            }
+            if run_sphere:
+                data_mi["total_ber_sphere"] = total_mi_sphere
+            if run_deeprx:
+                data_mi["total_ber_deeprx"] = total_mi_deeprx
+            for i in range(conf.iterations):
+                data_mi[f"total_ber_{i + 1}"] = total_mi_list[i]
+            if conf.run_e2e:
+                for i in range(iters_e2e_disp):
+                    data_mi[f"total_ber_e2e_{i + 1}"] = total_mi_e2e_list[i]
+            df_mi = pd.DataFrame(data_mi)
+            file_path_mi = os.path.abspath(os.path.join(output_dir, title_string) + "_mi.csv")
+            df_mi.to_csv(file_path_mi, index=False)
+
         if snr_cur in conf.save_loss_plot_snr:
             title_string_cur = "escnn_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
@@ -1708,7 +1741,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
     markers = ['o', '*', 'x', 'D', '+', 'o']
     dashes = [':', '-.', '--', '-', '-', '-']
-    if PLOT_MI:
+    if conf.calc_mi:
         for iteration in range(iterations):
             plt.semilogy(SNR_range, total_mi_list[iteration], linestyle=dashes[iteration], marker=markers[iteration],
                          color='g', label='ESCNN' + str(iteration))
@@ -1716,6 +1749,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             plt.semilogy(SNR_range, total_mi_deeprx, '-o', color='c', label='DeepRx')
         if mod_data == 4:
             plt.semilogy(SNR_range, total_mi_lmmse, '-o', color='r', label='lmmse')
+        if run_sphere:
+            plt.semilogy(SNR_range, total_mi_sphere, '-x', color='m', label='sphere')
         plt.xlabel('SNR (dB)')
         plt.ylabel('MI')
         title_string = (chan_text + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(

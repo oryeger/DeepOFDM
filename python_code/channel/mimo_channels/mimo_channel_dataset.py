@@ -31,7 +31,7 @@ class MIMOChannel:
         self.cfo_and_iqmm_in_rx = cfo_and_iqmm_in_rx
 
 
-    def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit(self, h: np.ndarray, noise_var: float, num_res: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int, pilot_data_ratio: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
 
         data_length = self._block_length - self._pilot_length
         if conf.mcs<=-1:
@@ -73,8 +73,7 @@ class MIMOChannel:
             # Third part: unchanged (full 64QAM), no modification needed
 
         elif not(conf.make_64QAM_16QAM_percentage == 50) and conf.make_64QAM_16QAM_percentage>0:
-            # Original logic for other percentages
-            indices = skip_indices(int(tx_pilots.shape[0]*conf.make_64QAM_16QAM_percentage/100), 1.5)
+            indices = skip_indices(int(tx_pilots.shape[0] * conf.make_64QAM_16QAM_percentage / 100), pilot_data_ratio)
             tx_pilots[indices, :, :] = 1
 
         tx = np.concatenate([tx_pilots, tx_data])
@@ -260,8 +259,8 @@ class MIMOChannel:
 
         return tx, rx, rx_ce, s_orig, rx_clean
 
-    def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int, pilot_data_ratio: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res)
-        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var,num_res, n_users, mod_data, ldpc_k, ldpc_n)
+        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var, num_res, n_users, mod_data, ldpc_k, ldpc_n, pilot_data_ratio)
         return tx, h, rx, rx_ce, s_orig, rx_clean

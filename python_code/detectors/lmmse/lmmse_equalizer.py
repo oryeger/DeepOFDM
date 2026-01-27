@@ -1,6 +1,6 @@
 from python_code import conf
 import torch
-from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator, QAM64Modulator
+from python_code.channel.modulator import BPSKModulator, QPSKModulator, QAM16Modulator, QAM64Modulator, QAM256Modulator
 from python_code.utils.probs_utils import relevant_indices
 
 
@@ -112,8 +112,17 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
                 int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
 
+    elif num_bits == 8:
+
+        for user in range(conf.n_users):
+
+            detected_word_lmmse_for_aug[:, user, re], llr_out = QAM256Modulator.demodulate(equalized[:, user].numpy())
+
+            llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
+
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
     else:
-        print('Unknown modulator')
+            print('Unknown modulator')
 
     return detected_word_lmmse_for_aug, llrs_mat_lmmse_for_aug
 

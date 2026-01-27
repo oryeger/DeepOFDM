@@ -211,3 +211,137 @@ class QAM64Modulator:
         LLRs = np.ravel(np.column_stack((DI1, DI2, DI3, DQ1, DQ2, DQ3)))
 
         return x, LLRs
+
+
+class QAM256Modulator:
+    @staticmethod
+    def _D1_256qam(y: np.ndarray) -> np.ndarray:
+        y = np.asarray(y)
+        D = np.empty_like(y, dtype=float)
+
+        m = (np.abs(y) <= 2)
+        D[m] = y[m]
+
+        # Positive side
+        m = (y > 2) & (y <= 4)
+        D[m] = 2.0 * (y[m] - 1.0)
+        m = (y > 4) & (y <= 6)
+        D[m] = 3.0 * (y[m] - 2.0)
+        m = (y > 6) & (y <= 8)
+        D[m] = 4.0 * (y[m] - 3.0)
+        m = (y > 8) & (y <= 10)
+        D[m] = 5.0 * (y[m] - 4.0)
+        m = (y > 10) & (y <= 12)
+        D[m] = 6.0 * (y[m] - 5.0)
+        m = (y > 12) & (y <= 14)
+        D[m] = 7.0 * (y[m] - 6.0)
+        m = (y > 14)
+        D[m] = 8.0 * (y[m] - 7.0)
+
+        # Negative side
+        m = (y >= -4) & (y < -2)
+        D[m] = 2.0 * (y[m] + 1.0)
+        m = (y >= -6) & (y < -4)
+        D[m] = 3.0 * (y[m] + 2.0)
+        m = (y >= -8) & (y < -6)
+        D[m] = 4.0 * (y[m] + 3.0)
+        m = (y >= -10) & (y < -8)
+        D[m] = 5.0 * (y[m] + 4.0)
+        m = (y >= -12) & (y < -10)
+        D[m] = 6.0 * (y[m] + 5.0)
+        m = (y >= -14) & (y < -12)
+        D[m] = 7.0 * (y[m] + 6.0)
+        m = (y < -14)
+        D[m] = 8.0 * (y[m] + 7.0)
+
+        return D
+
+    @staticmethod
+    def _D2_256qam(y: np.ndarray) -> np.ndarray:
+        """Bit-2 metric (boundary at ±8)."""
+        y = np.asarray(y)
+        D = np.empty_like(y, dtype=float)
+        m = (y >= 0)
+        D[m] = y[m] - 8.0
+        D[~m] = y[~m] + 8.0
+        return D
+
+    @staticmethod
+    def _D3_256qam(y: np.ndarray) -> np.ndarray:
+        """Bit-3 metric (boundaries at ±4, ±12)."""
+        y = np.asarray(y)
+        D = np.empty_like(y, dtype=float)
+
+        m = (y < -8)                 # nearest -12
+        D[m] = y[m] + 12.0
+        m = (y >= -8) & (y < 0)      # nearest -4
+        D[m] = y[m] + 4.0
+        m = (y >= 0) & (y < 8)       # nearest +4
+        D[m] = y[m] - 4.0
+        m = (y >= 8)                 # nearest +12
+        D[m] = y[m] - 12.0
+        return D
+
+    @staticmethod
+    def _D4_256qam(y: np.ndarray) -> np.ndarray:
+        """Bit-4 metric (boundaries at ±2, ±6, ±10, ±14)."""
+        y = np.asarray(y)
+        D = np.empty_like(y, dtype=float)
+
+        m = (y < -12)                # nearest -14
+        D[m] = y[m] + 14.0
+        m = (y >= -12) & (y < -8)    # nearest -10
+        D[m] = y[m] + 10.0
+        m = (y >= -8) & (y < -4)     # nearest -6
+        D[m] = y[m] + 6.0
+        m = (y >= -4) & (y < 0)      # nearest -2
+        D[m] = y[m] + 2.0
+        m = (y >= 0) & (y < 4)       # nearest +2
+        D[m] = y[m] - 2.0
+        m = (y >= 4) & (y < 8)       # nearest +6
+        D[m] = y[m] - 6.0
+        m = (y >= 8) & (y < 12)      # nearest +10
+        D[m] = y[m] - 10.0
+        m = (y >= 12)                # nearest +14
+        D[m] = y[m] - 14.0
+
+        return D
+
+    @staticmethod
+    def demodulate(s: np.ndarray, denorm: float = 1.0) -> Tuple[np.ndarray, np.ndarray]:
+        """
+        256-QAM soft demodulation.
+        :param s: complex symbol vector
+        :param denorm: scaling factor (e.g., sqrt(170) for normalized 256-QAM constellation)
+        :return: (hard bits, LLRs)
+        """
+        yI = np.real(s) * denorm
+        yQ = np.imag(s) * denorm
+
+        DI1, DI2, DI3, DI4 = (
+            QAM256Modulator._D1_256qam(yI),
+            QAM256Modulator._D2_256qam(yI),
+            QAM256Modulator._D3_256qam(yI),
+            QAM256Modulator._D4_256qam(yI),
+        )
+        DQ1, DQ2, DQ3, DQ4 = (
+            QAM256Modulator._D1_256qam(yQ),
+            QAM256Modulator._D2_256qam(yQ),
+            QAM256Modulator._D3_256qam(yQ),
+            QAM256Modulator._D4_256qam(yQ),
+        )
+
+        # Hard decisions (0/1) from the sign of the soft metrics
+        xI1 = HALF * (np.sign(DI1) + 1)
+        xI2 = HALF * (np.sign(DI2) + 1)
+        xI3 = HALF * (np.sign(DI3) + 1)
+        xI4 = HALF * (np.sign(DI4) + 1)
+        xQ1 = HALF * (np.sign(DQ1) + 1)
+        xQ2 = HALF * (np.sign(DQ2) + 1)
+        xQ3 = HALF * (np.sign(DQ3) + 1)
+        xQ4 = HALF * (np.sign(DQ4) + 1)
+
+        x = np.ravel(np.column_stack((xI1, xI2, xI3, xI4, xQ1, xQ2, xQ3, xQ4)))
+        LLRs = np.ravel(np.column_stack((DI1, DI2, DI3, DI4, DQ1, DQ2, DQ3, DQ4)))
+
+        return x, LLRs

@@ -34,6 +34,7 @@ from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
+from python_code.detectors.sphere.sphere_64qam_fourbits import Sphere64qamFourbits
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate
 
 from datetime import datetime
@@ -558,15 +559,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             det_16qam = np.zeros((detected_word_lmmse_for_aug.shape[0] // 6 * 4, n_users, detected_word_lmmse_for_aug.shape[2]))
                             LmmseDemod(equalized, postEqSINR, 4, re, llrs_16qam, det_16qam, 1)
 
-                            # Map to 64QAM (6 bits per user)
+                            # Map LLRs and detected words to 64QAM (6 bits per user)
+                            num_symbols = det_16qam.shape[0] // 4
                             for user in range(n_users):
-                                # 16QAM bit indices for this user
+                                # 16QAM bit indices for this user (in llrs_16qam)
                                 i16_b0 = user * 4 + 0  # sign_I
                                 i16_b1 = user * 4 + 1  # mag_I
                                 i16_b2 = user * 4 + 2  # sign_Q
                                 i16_b3 = user * 4 + 3  # mag_Q
 
-                                # 64QAM bit indices for this user
+                                # 64QAM bit indices for this user (in llrs_mat_lmmse_for_aug)
                                 i64_b0 = user * 6 + 0  # sign_I
                                 i64_b1 = user * 6 + 1  # half_I (unknown)
                                 i64_b2 = user * 6 + 2  # pos_I (inverted mag_I)
@@ -574,20 +576,34 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                 i64_b4 = user * 6 + 4  # half_Q (unknown)
                                 i64_b5 = user * 6 + 5  # pos_Q (inverted mag_Q)
 
-                                # Copy signs directly
+                                # Copy signs directly (LLRs)
                                 llrs_mat_lmmse_for_aug[:, i64_b0, re:re+1, :] = llrs_16qam[:, i16_b0, re:re+1, :]
                                 llrs_mat_lmmse_for_aug[:, i64_b3, re:re+1, :] = llrs_16qam[:, i16_b2, re:re+1, :]
 
-                                # Unknown bits (half selection) - set to 0
+                                # Unknown bits (half selection) - set LLRs to 0
                                 llrs_mat_lmmse_for_aug[:, i64_b1, re:re+1, :] = 0
                                 llrs_mat_lmmse_for_aug[:, i64_b4, re:re+1, :] = 0
 
-                                # Inverted magnitude bits
+                                # Inverted magnitude bits (LLRs)
                                 llrs_mat_lmmse_for_aug[:, i64_b2, re:re+1, :] = -llrs_16qam[:, i16_b1, re:re+1, :]
                                 llrs_mat_lmmse_for_aug[:, i64_b5, re:re+1, :] = -llrs_16qam[:, i16_b3, re:re+1, :]
 
-                            # Set detected words for unknown bits to 0.5
-                            detected_word_lmmse_for_aug[1::3,:,re] = 0.5  # half bits (positions 1,4 in each 6-bit group)
+                            # Map detected words from 16QAM (4 bits) to 64QAM (6 bits)
+                            for sym in range(num_symbols):
+                                i4_base = sym * 4
+                                i6_base = sym * 6
+                                # Bit 0: direct from 16QAM bit 0 (sign_I)
+                                detected_word_lmmse_for_aug[i6_base + 0, :, re] = det_16qam[i4_base + 0, :, re]
+                                # Bit 1: unknown (half_I)
+                                detected_word_lmmse_for_aug[i6_base + 1, :, re] = 0.5
+                                # Bit 2: inverted from 16QAM bit 1 (pos_I)
+                                detected_word_lmmse_for_aug[i6_base + 2, :, re] = 1 - det_16qam[i4_base + 1, :, re]
+                                # Bit 3: direct from 16QAM bit 2 (sign_Q)
+                                detected_word_lmmse_for_aug[i6_base + 3, :, re] = det_16qam[i4_base + 2, :, re]
+                                # Bit 4: unknown (half_Q)
+                                detected_word_lmmse_for_aug[i6_base + 4, :, re] = 0.5
+                                # Bit 5: inverted from 16QAM bit 3 (pos_Q)
+                                detected_word_lmmse_for_aug[i6_base + 5, :, re] = 1 - det_16qam[i4_base + 3, :, re]
 
                 # Store H for JointLLR detector (convert complex to real/imag interleaved)
                 if conf.run_jointllr:
@@ -606,63 +622,100 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if run_sphere:
                     H = H.cpu().numpy()
 
-                    # import time
-                    # t0 = time.perf_counter()
-                    if not (conf.increase_prime_modulation):
-                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
-                                                                                        noise_var, conf.sphere_radius)
+                    if not conf.increase_prime_modulation:
+                        # Standard sphere decoder - all bits
+                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
+                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        )
+                    elif num_bits_pilot == 4:
+                        # increase_prime_modulation mode: QPSK→16QAM (2 bits → 4 bits)
+                        if conf.mhsa_no_probs:
+                            llr_out[1::2, :] = 0
+                            detected_word_sphere_for_aug[1::2, :, re] = 0.5  # half bits unknown
+                        else:
+                            llr_out[0::2, :] = 0
+                            detected_word_sphere_for_aug[0::2, :, re] = 0.5  # half bits unknown
+
+                        # # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
+                        # if num_bits_pilot == 4:
+                        #     # QPSK→16QAM: 2 bits → 4 bits
+                        #     detected_word_sphere_for_aug[1::2,:,re] = 0.5
+                        #     llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
+                        #         H,
+                        #         rx_c[:, :, re].numpy(),
+                        #         noise_var=noise_var,
+                        #         keep_bits=(0, 2),
+                        #         init_expand=conf.sphere_radius  # OR whatever parameter you intended
+                        #     )
+                        #     llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
+                        #     llr_out[0::2,:] = llr_out_red
+                        # elif num_bits_pilot == 6:
+                        #     # 16QAM→64QAM: 4 bits → 6 bits
+                        #     llr_out_16qam, _ = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
+                        #
+                        #     # Expand from 4 bits to 6 bits per symbol
+                        #     num_symbols = llr_out_16qam.shape[0] // 4
+                        #     llr_out = np.zeros((num_symbols * 6, n_users))
+                        #
+                        #     for user in range(n_users):
+                        #         for sym in range(num_symbols):
+                        #             # 16QAM indices
+                        #             i16_base = sym * 4
+                        #             # 64QAM indices
+                        #             i64_base = sym * 6
+                        #
+                        #             # Signs - direct copy
+                        #             llr_out[i64_base + 0, user] = llr_out_16qam[i16_base + 0, user]  # sign_I
+                        #             llr_out[i64_base + 3, user] = llr_out_16qam[i16_base + 2, user]  # sign_Q
+                        #
+                        #             # Half bits - no info
+                        #             llr_out[i64_base + 1, user] = 0  # half_I
+                        #             llr_out[i64_base + 4, user] = 0  # half_Q
+                        #
+                        #             # Position bits - inverted magnitude
+                        #             llr_out[i64_base + 2, user] = -llr_out_16qam[i16_base + 1, user]  # pos_I
+
+                    elif num_bits_pilot == 6:
+                        # increase_prime_modulation mode: 16QAM→64QAM (4 bits → 6 bits)
+                        # Use Sphere64qamFourbits to calculate bits 0, 2, 3, 5
+                        llr_out_4bits, hard_bits_4 = Sphere64qamFourbits(
+                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        )
+                        # Expand from 4 bits to 6 bits per symbol
+                        # fourbits output order: [b0, b2, b3, b5] per symbol
+                        # 64QAM order: [b0, b1, b2, b3, b4, b5] per symbol
+                        num_symbols = llr_out_4bits.shape[0] // 4
+                        llr_out = np.zeros((num_symbols * 6, n_users))
+                        hard_out = np.zeros((num_symbols * 6, n_users))
+
+                        for sym in range(num_symbols):
+                            i4_base = sym * 4
+                            i6_base = sym * 6
+                            # Bit 0: direct from fourbits[0] (sign_I)
+                            llr_out[i6_base + 0, :] = llr_out_4bits[i4_base + 0, :]
+                            hard_out[i6_base + 0, :] = hard_bits_4[i4_base + 0, :]
+                            # Bit 1: unknown (half_I)
+                            llr_out[i6_base + 1, :] = 0
+                            hard_out[i6_base + 1, :] = 0.5
+                            # Bit 2: flipped from fourbits[1] (pos_I)
+                            llr_out[i6_base + 2, :] = llr_out_4bits[i4_base + 1, :]
+                            hard_out[i6_base + 2, :] =  hard_bits_4[i4_base + 1, :]
+                            # Bit 3: direct from fourbits[2] (sign_Q)
+                            llr_out[i6_base + 3, :] = llr_out_4bits[i4_base + 2, :]
+                            hard_out[i6_base + 3, :] = hard_bits_4[i4_base + 2, :]
+                            # Bit 4: unknown (half_Q)
+                            llr_out[i6_base + 4, :] = 0
+                            hard_out[i6_base + 4, :] = 0.5
+                            # Bit 5: flipped from fourbits[3] (pos_Q)
+                            llr_out[i6_base + 5, :] = llr_out_4bits[i4_base + 3, :]
+                            hard_out[i6_base + 5, :] =  hard_bits_4[i4_base + 3, :]
+
+                        detected_word_sphere_for_aug[:, :, re] = hard_out
                     else:
-                        #OryEger - to remove
-                        # llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(H, rx_c[:, :, re].numpy(),
-                        #                                                                 noise_var, conf.sphere_radius)
-                        # llr_out[1::2, :] = 0
-
-                        # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
-                        if num_bits_pilot == 4:
-                            # QPSK→16QAM: 2 bits → 4 bits
-                            detected_word_sphere_for_aug[1::2,:,re] = 0.5
-                            llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
-                                H,
-                                rx_c[:, :, re].numpy(),
-                                noise_var=noise_var,
-                                keep_bits=(0, 2),
-                                init_expand=conf.sphere_radius  # OR whatever parameter you intended
-                            )
-                            llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
-                            llr_out[0::2,:] = llr_out_red
-                        elif num_bits_pilot == 6:
-                            # 16QAM→64QAM: 4 bits → 6 bits
-                            llr_out_16qam, _ = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
-
-                            # Expand from 4 bits to 6 bits per symbol
-                            num_symbols = llr_out_16qam.shape[0] // 4
-                            llr_out = np.zeros((num_symbols * 6, n_users))
-
-                            for user in range(n_users):
-                                for sym in range(num_symbols):
-                                    # 16QAM indices
-                                    i16_base = sym * 4
-                                    # 64QAM indices
-                                    i64_base = sym * 6
-
-                                    # Signs - direct copy
-                                    llr_out[i64_base + 0, user] = llr_out_16qam[i16_base + 0, user]  # sign_I
-                                    llr_out[i64_base + 3, user] = llr_out_16qam[i16_base + 2, user]  # sign_Q
-
-                                    # Half bits - no info
-                                    llr_out[i64_base + 1, user] = 0  # half_I
-                                    llr_out[i64_base + 4, user] = 0  # half_Q
-
-                                    # Position bits - inverted magnitude
-                                    llr_out[i64_base + 2, user] = -llr_out_16qam[i16_base + 1, user]  # pos_I
-                                    llr_out[i64_base + 5, user] = -llr_out_16qam[i16_base + 3, user]  # pos_Q
-
-                            detected_word_sphere_for_aug[1::3,:,re] = 0.5  # half bits unknown
-
-                    # t1 = time.perf_counter()
-                    #
-                    # print(f"SphereDecoder: {(t1 - t0):.3f} s "
-                    #       f"| {(t1 - t0) / llr_out.shape[0] * 1e3:.2f} ms/symbol")
+                        # Fallback for other bit configurations
+                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
+                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        )
 
 
                 else:

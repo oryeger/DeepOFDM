@@ -3,18 +3,18 @@ cur_str: thirddd
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 4
-mcs: 28 # [0..4] - QPSK, [5..10] - 16QAM
+n_users: 1
+mcs: 17 # [0..4] - QPSK, [5..10] - 16QAM
 mod_pilot: -1
 block_length_factor: 5
-num_res: 24
+num_res: 1
 cfo:  0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
 iterations: 1
-pilot_size: 40   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 batch_size: 32
 shuffle: True
 learning_rate: 5.0e-4 # 5.0e-4
@@ -35,11 +35,11 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-spatial_correlation: 'medium' # Options: none, low, medium, medium_a, high, custom
+spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
 pilot_channel_seed: -1
 channel_seed: 21
 

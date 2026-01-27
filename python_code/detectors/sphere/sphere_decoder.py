@@ -74,12 +74,6 @@ def SphereDecoder(
     else:
         bits_per_symbol = int(np.log2(conf.mod_pilot))
 
-    if conf.increase_prime_modulation:
-        if bits_per_symbol == 4:
-            bits_per_symbol = 2
-        elif bits_per_symbol == 6:
-            bits_per_symbol = 4
-
     bps = int(bits_per_symbol)
     M = int(2 ** bps)
 

@@ -535,7 +535,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
-                    if not(conf.increase_prime_modulation) and not(num_bits_pilot == 8):
+                    if not(conf.increase_prime_modulation) or (num_bits_pilot == 8):
                         LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                    detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
                         LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
@@ -629,55 +629,20 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
                         )
                     elif num_bits_pilot == 4:
-                        # increase_prime_modulation mode: QPSK→16QAM (2 bits → 4 bits)
-                        if conf.mhsa_no_probs:
-                            llr_out[1::2, :] = 0
-                            detected_word_sphere_for_aug[1::2, :, re] = 0.5  # half bits unknown
-                        else:
-                            llr_out[0::2, :] = 0
-                            detected_word_sphere_for_aug[0::2, :, re] = 0.5  # half bits unknown
 
-                        # # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
-                        # if num_bits_pilot == 4:
-                        #     # QPSK→16QAM: 2 bits → 4 bits
-                        #     detected_word_sphere_for_aug[1::2,:,re] = 0.5
-                        #     llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
-                        #         H,
-                        #         rx_c[:, :, re].numpy(),
-                        #         noise_var=noise_var,
-                        #         keep_bits=(0, 2),
-                        #         init_expand=conf.sphere_radius  # OR whatever parameter you intended
-                        #     )
-                        #     llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
-                        #     llr_out[0::2,:] = llr_out_red
-                        # elif num_bits_pilot == 6:
-                        #     # 16QAM→64QAM: 4 bits → 6 bits
-                        #     llr_out_16qam, _ = SphereDecoder(H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius)
-                        #
-                        #     # Expand from 4 bits to 6 bits per symbol
-                        #     num_symbols = llr_out_16qam.shape[0] // 4
-                        #     llr_out = np.zeros((num_symbols * 6, n_users))
-                        #
-                        #     for user in range(n_users):
-                        #         for sym in range(num_symbols):
-                        #             # 16QAM indices
-                        #             i16_base = sym * 4
-                        #             # 64QAM indices
-                        #             i64_base = sym * 6
-                        #
-                        #             # Signs - direct copy
-                        #             llr_out[i64_base + 0, user] = llr_out_16qam[i16_base + 0, user]  # sign_I
-                        #             llr_out[i64_base + 3, user] = llr_out_16qam[i16_base + 2, user]  # sign_Q
-                        #
-                        #             # Half bits - no info
-                        #             llr_out[i64_base + 1, user] = 0  # half_I
-                        #             llr_out[i64_base + 4, user] = 0  # half_Q
-                        #
-                        #             # Position bits - inverted magnitude
-                        #             llr_out[i64_base + 2, user] = -llr_out_16qam[i16_base + 1, user]  # pos_I
-
+                        # QPSK→16QAM: 2 bits → 4 bits
+                        detected_word_sphere_for_aug[1::2,:,re] = 0.5
+                        llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
+                            H,
+                            rx_c[:, :, re].numpy(),
+                            noise_var=noise_var,
+                            keep_bits=(0, 2),
+                            init_expand=conf.sphere_radius  # OR whatever parameter you intended
+                        )
+                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
+                        llr_out[0::2,:] = llr_out_red
                     elif num_bits_pilot == 6:
-                        # increase_prime_modulation mode: 16QAM→64QAM (4 bits → 6 bits)
+                        # 16QAM→64QAM: 4 bits → 6 bits
                         # Use Sphere64qamFourbits to calculate bits 0, 2, 3, 5
                         llr_out_4bits, hard_bits_4 = Sphere64qamFourbits(
                             H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
@@ -713,7 +678,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                         detected_word_sphere_for_aug[:, :, re] = hard_out
                     elif num_bits_pilot == 8:
-                        # increase_prime_modulation mode: 16QAM→256QAM (4 bits → 8 bits)
+                        # 16QAM→256QAM: 4 bits → 8 bits
                         # Use Sphere256qamFourbits to calculate bits 0, 3, 4, 7
                         llr_out_4bits, hard_bits_4 = Sphere256qamFourbits(
                             H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
@@ -1139,12 +1104,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         if run_sphere:
                             ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
                     else:
-                        if num_bits_pilot == 6:
-                            indices = relevant_indices(target.shape[0], 1.5)
-                            num_bits_data_cur = 4
-                        elif num_bits_pilot == 4:
+                        if num_bits_pilot == 4:
                             indices = relevant_indices(target.shape[0], 2)
                             num_bits_data_cur = 2
+                        elif num_bits_pilot == 6:
+                            indices = relevant_indices(target.shape[0], 1.5)
+                            num_bits_data_cur = 4
+                        elif num_bits_pilot == 8:
+                            indices = relevant_indices(target.shape[0], 2, is_256qam=True)
+                            num_bits_data_cur = 4
 
                         ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
                         if run_sphere:

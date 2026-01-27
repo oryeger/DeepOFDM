@@ -3,11 +3,11 @@ cur_str: thirddd
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 1
+n_users: 4
 mcs: 20 # [0..4] - QPSK, [5..10] - 16QAM
 mod_pilot: -1
 block_length_factor: 5
-num_res: 1
+num_res: 24
 cfo:  0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
@@ -28,7 +28,7 @@ use_film: False
 scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
-increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
+increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
@@ -52,7 +52,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_SPHERE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

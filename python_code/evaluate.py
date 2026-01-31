@@ -620,7 +620,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     # Broadcast H to all symbols for this RE
                     H_all_res[:, :, re] = H_real.unsqueeze(0).expand(rx_c.shape[0], -1)
 
-                if run_sphere and (num_bits_pilot != 8): # OryEger
+                if run_sphere and (num_bits_pilot != 8):
                     H = H.cpu().numpy()
 
                     if not(conf.increase_prime_modulation) or (conf.which_augment == 'AUGMENT_LMMSE'):
@@ -1113,6 +1113,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         elif num_bits_pilot == 8:
                             indices = relevant_indices(target.shape[0], 2, is_256qam=True)
                             num_bits_data_cur = 4
+                        else:
+                            # QPSK or other modulations: use all indices
+                            indices = np.arange(target.shape[0])
+                            num_bits_data_cur = num_bits_data
 
                         ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
                         if run_sphere:

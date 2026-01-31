@@ -4,7 +4,7 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 1
-mcs: 20 # [0..4] - QPSK, [5..10] - 16QAM
+mcs: 4 # [0..4] - QPSK, [5..10] - 16QAM
 mod_pilot: -1
 block_length_factor: 5
 num_res: 24
@@ -13,7 +13,7 @@ clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
-iterations: 1
+iterations: 3
 pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 batch_size: 32
 shuffle: True
@@ -52,7 +52,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_SPHERE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

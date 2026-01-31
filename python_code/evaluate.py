@@ -535,7 +535,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
-                    if not(conf.increase_prime_modulation) or (num_bits_pilot == 8):
+                    if not(conf.increase_prime_modulation) or (num_bits_pilot == 8) or (conf.which_augment == 'AUGMENT_SPHERE'):
                         LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                    detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
                         LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
@@ -620,10 +620,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     # Broadcast H to all symbols for this RE
                     H_all_res[:, :, re] = H_real.unsqueeze(0).expand(rx_c.shape[0], -1)
 
-                if run_sphere:
+                if run_sphere and (num_bits_pilot != 8): # OryEger
                     H = H.cpu().numpy()
 
-                    if not conf.increase_prime_modulation:
+                    if not(conf.increase_prime_modulation) or (conf.which_augment == 'AUGMENT_LMMSE'):
                         # Standard sphere decoder - all bits
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
                             H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius

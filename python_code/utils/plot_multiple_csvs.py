@@ -7,13 +7,24 @@ from scipy.interpolate import interp1d
 import numpy as np
 from collections import defaultdict
 
-# 🔧 Adjust path
+# 🔧 Configuration
 CSV_DIR = r"C:\Projects\Scratchpad"
 seeds = [123, 17, 41, 58]
+MIN_SNR = -np.inf  # -np.inf Set to a number (e.g., 0) to limit min SNR, or -np.inf to plot all
+MAX_SNR = np.inf  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
 
-# ---- Prepare a single combined figure with two subplots ----
-fig, axes = plt.subplots(1, 2, figsize=(18, 7))
-subplot_index = {1: 1, 0: 0}  # BER=1 → right, BER=0 → left
+# ---- Check if MI files exist ----
+mi_files_exist = len(glob.glob(os.path.join(CSV_DIR, "*_mi.csv"))) > 0
+
+# ---- Prepare figure with 2 or 3 subplots depending on MI files ----
+if mi_files_exist:
+    fig, axes = plt.subplots(1, 3, figsize=(24, 7))
+    # BLER=left(0), MI=middle(1), BER=right(2)
+    subplot_index = {"BER": 2, "BLER": 0, "MI": 1}
+else:
+    fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+    # BLER=left(0), BER=right(1)
+    subplot_index = {"BER": 1, "BLER": 0}
 
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:
@@ -83,21 +94,30 @@ def _safe_interp_x_to_y(x, y, x_target):
     f = interp1d(x_unique, y_unique, fill_value="extrapolate", bounds_error=False)
     return float(np.round(f(x_target), 1))
 
-# ---- MAIN LOOP: plot BER=1 (right) and BER=0 (left) ----
+# ---- MAIN LOOP: plot BLER, MI (if exists), BER ----
 used_seeds_overall = set()
 title_source_file = None  # keep one real file used (for the cleaned title)
 
-for BER in [1, 0]:
-    ax = axes[subplot_index[BER]]
+# Define plot types: BLER, MI (optional), BER
+plot_types = ["BLER", "BER"]
+if mi_files_exist:
+    plot_types = ["BLER", "MI", "BER"]
 
-    if BER:
+for plot_type in plot_types:
+    ax = axes[subplot_index[plot_type]]
+
+    if plot_type == "BER":
         search_pattern = r"SNR=(-?\d+)"
         ber_target = 0.01
         ylabel_cur = "BER"
-    else:
+    elif plot_type == "BLER":
         search_pattern = r"_SNR=(-?\d+)_bler\.csv$"
         ber_target = 0.1
         ylabel_cur = "BLER"
+    else:  # MI
+        search_pattern = r"_SNR=(-?\d+)_mi\.csv$"
+        ber_target = None  # No target threshold for MI
+        ylabel_cur = "MI"
 
     snr_ber_dict = defaultdict(lambda: {
         "ber_1": [], "ber_2": [], "ber_3": [], "ber_deeprx": [],
@@ -110,6 +130,10 @@ for BER in [1, 0]:
         "ber_tdfdcnn_1": [], "ber_tdfdcnn_2": [], "ber_tdfdcnn_3": [],
         # ✅ NEW: JointLLR (support both total_ber_jointllr and total_ber_jointllr_1)
         "ber_jointllr_1": [],
+        # MI columns
+        "mi_1": [], "mi_2": [], "mi_3": [],
+        "mi_lmmse": [], "mi_sphere": [],
+        "mi_jointllr_1": [],
     })
 
     used_seeds_this_panel = set()
@@ -262,17 +286,46 @@ for BER in [1, 0]:
             if "total_ber_sphere" in df.columns:
                 snr_ber_dict[snr]["ber_sphere"].append(_to_float_cell(df["total_ber_sphere"].iloc[0]))
 
+            # ---- MI parsing (for MI files) ----
+            # MI files use the same column names as BER files (total_ber_*),
+            # but we store them in mi_* keys when processing MI files
+            if plot_type == "MI":
+                if "total_ber_1" in df.columns:
+                    snr_ber_dict[snr]["mi_1"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                if "total_ber_2" in df.columns:
+                    snr_ber_dict[snr]["mi_2"].append(_to_float_cell(df["total_ber_2"].iloc[0]))
+                elif "total_ber_1" in df.columns:
+                    snr_ber_dict[snr]["mi_2"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                if "total_ber_3" in df.columns:
+                    snr_ber_dict[snr]["mi_3"].append(_to_float_cell(df["total_ber_3"].iloc[0]))
+                elif "total_ber_1" in df.columns:
+                    snr_ber_dict[snr]["mi_3"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+
+                # MI LMMSE
+                if "total_ber_lmmse" in df.columns:
+                    snr_ber_dict[snr]["mi_lmmse"].append(_to_float_cell(df["total_ber_lmmse"].iloc[0]))
+
+                # MI Sphere
+                if "total_ber_sphere" in df.columns:
+                    snr_ber_dict[snr]["mi_sphere"].append(_to_float_cell(df["total_ber_sphere"].iloc[0]))
+
+                # MI JointLLR
+                mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
+                if mi_joint_col is not None:
+                    snr_ber_dict[snr]["mi_jointllr_1"].append(_to_float_cell(df[mi_joint_col].iloc[0]))
+
     # If nothing was loaded for this panel, skip plotting
     if len(snr_ber_dict) == 0:
         ax.set_xlabel("SNR (dB)")
         ax.set_ylabel(ylabel_cur)
-        ax.set_yscale("log")
+        if plot_type != "MI":
+            ax.set_yscale("log")
         ax.grid(True)
-        ax.set_title(f"No matching files found for {'BER' if BER else 'BLER'}")
+        ax.set_title(f"No matching files found for {plot_type}")
         continue
 
     # ---- Averages ----
-    snrs = sorted(snr_ber_dict.keys())
+    snrs = sorted([s for s in snr_ber_dict.keys() if MIN_SNR <= s <= MAX_SNR])
 
     def avg(key):
         vals = []
@@ -282,61 +335,98 @@ for BER in [1, 0]:
             vals.append(np.mean(arr) if arr.size else np.nan)
         return vals
 
-    ber_1 = avg("ber_1")
-    ber_2 = avg("ber_2")
-    ber_3 = avg("ber_3")
-    ber_jointllr_1 = avg("ber_jointllr_1")  # ✅ NEW
-    ber_lmmse = avg("ber_lmmse")
-    ber_sphere = avg("ber_sphere")
-
     markers = ["o", "*", "x", "D", "+", "s"]
     dashes  = [":", "-.", "--", "-", "-"]
 
-    # ---- Plot ESCNN1/2/3 ----
-    snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, ber_target)
-    ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
-                label=f"ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}")
+    if plot_type == "MI":
+        # ---- MI plotting (linear scale) ----
+        mi_1 = avg("mi_1")
+        mi_2 = avg("mi_2")
+        mi_3 = avg("mi_3")
+        mi_jointllr_1 = avg("mi_jointllr_1")
+        mi_lmmse = avg("mi_lmmse")
+        mi_sphere = avg("mi_sphere")
 
-    snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
-    ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
-                label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
+        # Plot ESCNN1/2/3 MI
+        ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
+        ax.plot(snrs, mi_2, linestyle=dashes[1], marker=markers[1], color="g", label="ESCNN2")
+        ax.plot(snrs, mi_3, linestyle=dashes[2], marker=markers[2], color="g", label="ESCNN3")
 
-    snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
-    ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
-                label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
+        # JointLLR MI
+        mi_joint_arr = np.asarray(mi_jointllr_1, dtype=float)
+        if np.isfinite(mi_joint_arr).any():
+            ax.plot(snrs, mi_jointllr_1, linestyle="-", marker=markers[5], color="b", label="JointLLR1")
 
-    # ✅ NEW: JointLLR curve (only if exists / not all-NaN / not flat single value)
-    joint_arr = np.asarray(ber_jointllr_1, dtype=float)
-    if np.isfinite(joint_arr).any() and (np.unique(joint_arr[np.isfinite(joint_arr)]).shape[0] > 1):
-        snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, ber_target)
-        ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
-                    label=f"JointLLR1 @ {round(100*ber_target)}% = {snr_target_joint}")
-    elif np.isfinite(joint_arr).any():
-        # still plot it (flat) but without target label confusion
-        ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
-                    label=f"JointLLR1")
+        # LMMSE MI
+        mi_lmmse_arr = np.asarray(mi_lmmse, dtype=float)
+        if np.isfinite(mi_lmmse_arr).any():
+            ax.plot(snrs, mi_lmmse, linestyle=dashes[4], marker=markers[4], color="r", label="LMMSE")
 
-    # ---- LMMSE ----
-    snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, ber_target)
-    ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
-                label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
+        # Sphere MI
+        mi_sphere_arr = np.asarray(mi_sphere, dtype=float)
+        if np.isfinite(mi_sphere_arr).any():
+            ax.plot(snrs, mi_sphere, linestyle=dashes[4], marker=markers[4], color="brown", label="Sphere")
 
-    # ---- Sphere ----
-    sphere_arr = np.asarray(ber_sphere, dtype=float)
-    if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
-        snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
-        ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                    label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
-    elif np.isfinite(sphere_arr).any():
-        ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                    label=f"Sphere")
+        # Formatting for MI (linear scale)
+        ax.set_xlabel("SNR (dB)")
+        ax.set_ylabel(ylabel_cur)
+        ax.grid(True)
+        ax.legend()
 
-    # ---- Formatting ----
-    ax.set_xlabel("SNR (dB)")
-    ax.set_ylabel(ylabel_cur)
-    ax.set_yscale("log")
-    ax.grid(True)
-    ax.legend()
+    else:
+        # ---- BER/BLER plotting (log scale) ----
+        ber_1 = avg("ber_1")
+        ber_2 = avg("ber_2")
+        ber_3 = avg("ber_3")
+        ber_jointllr_1 = avg("ber_jointllr_1")
+        ber_lmmse = avg("ber_lmmse")
+        ber_sphere = avg("ber_sphere")
+
+        # ---- Plot ESCNN1/2/3 ----
+        snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, ber_target)
+        ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
+                    label=f"ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}")
+
+        snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
+        ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
+                    label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
+
+        snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
+        ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
+                    label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
+
+        # JointLLR curve (only if exists / not all-NaN / not flat single value)
+        joint_arr = np.asarray(ber_jointllr_1, dtype=float)
+        if np.isfinite(joint_arr).any() and (np.unique(joint_arr[np.isfinite(joint_arr)]).shape[0] > 1):
+            snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, ber_target)
+            ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
+                        label=f"JointLLR1 @ {round(100*ber_target)}% = {snr_target_joint}")
+        elif np.isfinite(joint_arr).any():
+            # still plot it (flat) but without target label confusion
+            ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
+                        label=f"JointLLR1")
+
+        # ---- LMMSE ----
+        snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, ber_target)
+        ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
+                    label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
+
+        # ---- Sphere ----
+        sphere_arr = np.asarray(ber_sphere, dtype=float)
+        if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
+            snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
+            ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
+                        label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
+        elif np.isfinite(sphere_arr).any():
+            ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
+                        label=f"Sphere")
+
+        # ---- Formatting ----
+        ax.set_xlabel("SNR (dB)")
+        ax.set_ylabel(ylabel_cur)
+        ax.set_yscale("log")
+        ax.grid(True)
+        ax.legend()
 
 # ---- Build global title using ONLY seeds that were actually used ----
 used_seeds_sorted = sorted(used_seeds_overall)
@@ -348,7 +438,7 @@ else:
 
 global_title_text = "Averaged across seeds actually used: " + ", ".join(map(str, used_seeds_sorted)) + "\n" + cleaned_name
 
-# ---- Add global title centered above BOTH plots ----
+# ---- Add global title centered above all plots ----
 fig.suptitle(global_title_text, fontsize=12)
 fig.tight_layout(rect=[0, 0, 1, 0.92])
 plt.show()

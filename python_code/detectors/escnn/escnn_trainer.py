@@ -241,3 +241,16 @@ class ESCNNTrainer(Trainer):
         dim2 = conf.num_res
         dim3 = 1
         return HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32).to(DEVICE)
+
+    def transfer_cnn_from(self, source_trainer: 'ESCNNTrainer'):
+        """Transfer CNN parameters from source trainer to this trainer (in-memory).
+
+        Similar to pilot_channel_seed pattern - no file saving required.
+        After transfer, call _online_training with stage="scale_only" to train only scale.
+
+        Args:
+            source_trainer: ESCNNTrainer that was trained on seed_a
+        """
+        for user in range(len(self.detector)):
+            for i in range(len(self.detector[user])):
+                self.detector[user][i].load_cnn_from(source_trainer.detector[user][i])

@@ -526,12 +526,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # Regular CE
                 if conf.pilot_channel_seed > 0:
                     # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
-                    LmmseDemod(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
-                               noise_var, pilot_chunk, re, num_bits_pilot, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[:pilot_size, :, :], H)
-                    LmmseDemod(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
-                               noise_var, pilot_chunk, re, num_bits_data, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_size:, :, :], H)
+                    equalized_pilot, postEqSINR_pilot = LmmseEqualize(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
+                               noise_var, pilot_chunk, re, H)
+                    LmmseDemod(equalized_pilot, postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
+                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                    equalized_data, postEqSINR_data = LmmseEqualize(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
+                               noise_var, pilot_chunk, re, H)
+                    LmmseDemod(equalized_data, postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                 else:
                     equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
                                noise_var, pilot_chunk, re, H)
@@ -798,6 +800,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if conf.override_augment_with_lmmse:
                 probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
 
+            # Default tx_data for BER calculation (may be overwritten when transfer_cnn is enabled)
+            tx_data_for_ber = tx_data
+
             # online training main function
             if escnn_trainer.is_online_training:
 
@@ -832,17 +837,56 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
-                # OryEger
-                # torch.save(rx_data, "rx_data.pt")
-                # rx_data = torch.load("rx_data.pt", map_location="cpu")
-                # state = torch.load("model_weights.pt", map_location="cpu")
-                # escnn_trainer.detector[0][0].load_state_dict(state)
-                # escnn_trainer.detector[0][0].eval()
-                # for i in range(1,rx_data.shape[2]):
-                #     rx_data[0, :, i] = rx_data[0, :, 0]
+                # CNN Transfer Learning: train scale on seed_b while keeping CNN from seed_a
+                if conf.transfer_cnn and conf.pilot_channel_seed > 0:
+                    # Save CNN parameters trained on seed_a
+                    cnn_state_seed_a = {}
+                    for user in range(n_users):
+                        cnn_state_seed_a[user] = {}
+                        for i in range(iterations):
+                            cnn_state_seed_a[user][i] = escnn_trainer.detector[user][i].get_cnn_state_dict()
 
-                detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
-                                                                           probs_for_aug[pilot_chunk:])
+                    # Reinitialize detector (resets scale to ones)
+                    escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+
+                    # Load CNN parameters from seed_a
+                    for user in range(n_users):
+                        for i in range(iterations):
+                            escnn_trainer.detector[user][i].load_cnn_from(cnn_state_seed_a[user][i])
+
+                    # Split data for stage 2 training and inference
+                    # Stage 2 training uses first pilot_chunk samples from data (seed_b)
+                    # Inference uses remaining samples from data (seed_b)
+                    tx_data_train = tx_data[:pilot_size]
+                    tx_data_infer = tx_data[pilot_size:]
+                    rx_data_train = rx_data[:pilot_chunk]
+                    rx_data_infer = rx_data[pilot_chunk:]
+                    probs_for_aug_train = probs_for_aug[pilot_chunk:2*pilot_chunk]
+                    probs_for_aug_infer = probs_for_aug[2*pilot_chunk:]
+
+                    # Train stage 2: only scale, CNN frozen
+                    train_loss_vect_s2, val_loss_vect_s2 = escnn_trainer._online_training(
+                        tx_data_train, rx_data_train, num_bits_pilot,
+                        n_users, iterations, epochs, False,
+                        probs_for_aug_train, stage="scale_only")
+
+                    # Concatenate stage 1 and stage 2 losses for plotting
+                    train_loss_vect = train_loss_vect + train_loss_vect_s2
+                    val_loss_vect = val_loss_vect + val_loss_vect_s2
+
+                    # Inference on remaining data (seed_b)
+                    detected_word_list, llrs_mat_list = escnn_trainer._forward(
+                        rx_data_infer, num_bits_pilot, n_users, iterations,
+                        probs_for_aug_infer)
+
+                    # Use tx_data_infer for BER calculation
+                    tx_data_for_ber = tx_data_infer
+                else:
+                    # Original behavior: inference on all data
+                    detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
+                                                                               probs_for_aug[pilot_chunk:])
+                    # Use full tx_data for BER calculation
+                    tx_data_for_ber = tx_data
 
 
 
@@ -924,16 +968,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
                 # calculate accuracy
-                target = tx_data[:, :rx.shape[1], re]
+                target = tx_data_for_ber[:, :rx.shape[1], re]
                 for iteration in range(iterations):
                     if pilot_data_ratio <= 1:
                         detected_word_cur_re = detected_word_list[iteration][:, :, re, :]
                     else:
                         detected_word_cur_re = detected_word_list[iteration][:, relevant_indices(detected_word_list[iteration].shape[1],pilot_data_ratio), re, :]
                     detected_word_cur_re = detected_word_cur_re.squeeze(-1)
-                    detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
+                    detected_word_cur_re = detected_word_cur_re.reshape(int(tx_data_for_ber.shape[0] / num_bits_data), n_users,
                                                                         num_bits_data).swapaxes(1, 2).reshape(
-                        tx_data.shape[0], n_users)
+                        tx_data_for_ber.shape[0], n_users)
 
                     if pilot_data_ratio == 1.5:
                         detected_word_cur_re[1::2, :] = 1 - detected_word_cur_re[1::2, :]
@@ -1145,7 +1189,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 codec = LDPC5GCodec(k=(ldpc_k + crc_length), n=ldpc_n)
                 crc = CRC5GCodec(crc_length)
                 for iteration in range(iterations):
-                    llr_all_res = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
+                    llr_all_res = np.zeros((n_users, int(tx_data_for_ber.shape[0] * conf.num_res)))
                     llr_all_res_tdfdcnn = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_lmmse = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
                     llr_all_res_sphere = np.zeros((n_users, int(tx_data.shape[0] * conf.num_res)))
@@ -1164,9 +1208,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             llr_cur_re[:, 1::2, :] *= -1
 
                         llr_cur_re = llr_cur_re.squeeze(-1)
-                        llr_cur_re = llr_cur_re.reshape(int(tx_data.shape[0] / num_bits_data), n_users,
+                        llr_cur_re = llr_cur_re.reshape(int(tx_data_for_ber.shape[0] / num_bits_data), n_users,
                                                         num_bits_data).swapaxes(1, 2).reshape(
-                            tx_data.shape[0], n_users)
+                            tx_data_for_ber.shape[0], n_users)
                         llr_all_res[:, re::conf.num_res] = llr_cur_re.swapaxes(0, 1).cpu()
 
                         # TDFDCNN
@@ -1243,6 +1287,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             llr_all_res_deeprx[:, re::conf.num_res] = llr_cur_re_deeprx.swapaxes(0, 1).cpu()
 
                     num_slots = int(np.floor(llr_all_res.shape[1] / ldpc_n))
+                    if num_slots == 0:
+                        print(f"Warning: Not enough data for LDPC decoding (need {ldpc_n} bits, have {llr_all_res.shape[1]}). Skipping BLER calculation.")
+                        break
                     crc_count = 0
                     crc_count_tdfdcnn = 0
                     crc_count_lmmse = 0
@@ -1349,7 +1396,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
             if conf.calc_mi:
                 for iteration in range(iterations):
-                    mi = calc_mi(tx_data.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                    mi = calc_mi(tx_data_for_ber.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
                     total_mi_list[iteration].append(mi)
                 if run_deeprx:
                     mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
@@ -2012,6 +2059,10 @@ if __name__ == '__main__':
                 conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
     assert not (
                 conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
+    assert not (conf.transfer_cnn and conf.pilot_channel_seed > 0 and conf.block_length_factor <= 2), \
+        "Assert: transfer_cnn with pilot_channel_seed requires block_length_factor > 2 for stage 2 training and inference"
+    assert not (conf.transfer_cnn and conf.pilot_channel_seed <= 0), \
+        "Assert: transfer_cnn requires pilot_channel_seed > 0 (need two different channel seeds)"
 
 
     start_time = time.time()

@@ -40,16 +40,17 @@ def ChannelEstimate(rx_ce, s_orig, pilot_chunk, re):
 
 def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
     noise_var = 0
+    length = rx_ce.shape[1]
     for user in range(conf.n_users):
         if not conf.separate_pilots:
-            rx_pilot_ce_cur = rx_ce[user, :pilot_chunk, :, re]
-            s_orig_pilot = s_orig[:pilot_chunk, user, re]
+            rx_pilot_ce_cur = rx_ce[user, :length, :, re]
+            s_orig_pilot = s_orig[:length, user, re]
             LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
             H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
             noise_var = torch.mean(torch.abs(LS_channel - H[:, user])**2)
         else:
-            rx_pilot_ce_cur = rx_ce[user, user:pilot_chunk:conf.n_users, :, re]
-            s_orig_pilot = s_orig[user:pilot_chunk:conf.n_users, user, re]
+            rx_pilot_ce_cur = rx_ce[user, user:length:conf.n_users, :, re]
+            s_orig_pilot = s_orig[user:length:conf.n_users, user, re]
             LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
             H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
             noise_var = torch.mean(torch.abs(LS_channel - H[:, user])**2)

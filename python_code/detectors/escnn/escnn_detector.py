@@ -97,7 +97,7 @@ class ESCNNDetector(nn.Module):
         self.stage = "base"  # default
 
     def set_stage(self, stage: str):
-        assert stage in ["base", "film"]
+        assert stage in ["base", "film", "scale_only"]
         self.stage = stage
 
         # backbone params: convs + scale
@@ -127,6 +127,43 @@ class ESCNNDetector(nn.Module):
                 p.requires_grad = False
             for p in film_params:
                 p.requires_grad = True
+
+        elif stage == "scale_only":
+            # freeze CNN (fc1, fc2, fc3), train only scale
+            for m in [self.fc1, self.fc2, self.fc3]:
+                for p in m.parameters():
+                    p.requires_grad = False
+            if self.scale is not None:
+                self.scale.requires_grad = True
+            for p in film_params:
+                p.requires_grad = False
+
+    def get_cnn_state_dict(self):
+        """Extract only CNN layer parameters (fc1, fc2, fc3), excluding scale."""
+        cnn_state = {}
+        for name, param in self.state_dict().items():
+            if name.startswith(('fc1.', 'fc2.', 'fc3.')):
+                cnn_state[name] = param.clone()
+        return cnn_state
+
+    def load_cnn_from(self, source):
+        """Load CNN parameters from another model or state dict, keeping scale untouched.
+
+        Args:
+            source: ESCNNDetector instance or state dict containing CNN params
+        """
+        if isinstance(source, ESCNNDetector):
+            source_state = source.get_cnn_state_dict()
+        elif isinstance(source, dict):
+            source_state = {k: v.clone() for k, v in source.items()
+                           if k.startswith(('fc1.', 'fc2.', 'fc3.'))}
+        else:
+            raise TypeError("source must be ESCNNDetector or state dict")
+
+        # Load only the CNN parameters
+        current_state = self.state_dict()
+        current_state.update(source_state)
+        self.load_state_dict(current_state)
 
     def forward(self, rx_prob):
         """

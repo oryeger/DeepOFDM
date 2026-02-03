@@ -14,7 +14,7 @@ iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 2
 iterations: 3
-pilot_size: 10   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 batch_size: 32
 shuffle: True
 learning_rate: 5.0e-4 # 5.0e-4
@@ -28,7 +28,7 @@ use_film: False
 scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
-increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
+increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
@@ -40,8 +40,9 @@ delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 spatial_correlation: 'medium' # Options: none, low, medium, medium_a, high, custom
-pilot_channel_seed: -1
+pilot_channel_seed: 42
 channel_seed: 21
+transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 
 run_deeprx: False
 run_deepsic: False
@@ -52,7 +53,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_SPHERE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'NO_AUGMENT' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

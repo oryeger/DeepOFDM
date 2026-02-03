@@ -953,8 +953,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             for re in range(conf.num_res):
                 # Regular CE
                 if pilot_data_ratio <= 1:
-                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
-                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
+                    if not(conf.transfer_cnn):
+                        detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
+                        detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
+                    else:
+                        detected_word_lmmse = detected_word_lmmse_for_aug[int(pilot_size*2):, :, re]
+                        detected_word_sphere = detected_word_sphere_for_aug[int(pilot_size*2):, :, re]
                 else:
                     detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+relevant_indices(detected_word_lmmse_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
                     detected_word_sphere = detected_word_sphere_for_aug[pilot_size+relevant_indices(detected_word_sphere_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]

@@ -348,6 +348,6 @@ def Sphere16qamEvenbits(
     hard_bits_all = hard_3d.transpose(0, 2, 1).reshape(n_sym * kout, n_users)
 
     elapsed = time.perf_counter() - t0
-    # print(f"Sphere16qamEvenbits: {elapsed:.3f}s | {elapsed/max(n_sym,1)*1e3:.2f} ms/sym")
+    print(f"Sphere16qamEvenbits: {elapsed:.3f}s total | {elapsed/max(n_sym,1)*1e3:.2f} ms/sym")
 
     return LLRs_all, hard_bits_all

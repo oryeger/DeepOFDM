@@ -43,7 +43,7 @@ def Sphere64qamFourbits(
     forced_radius_expand=10.0,
     max_nodes_forced=50000,
 
-    debug=False,
+    debug=True,
 ):
     """
     Optimized 64-QAM sphere decoder that outputs LLRs only for bits 0, 2, 3, 5.

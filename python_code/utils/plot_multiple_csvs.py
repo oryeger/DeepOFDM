@@ -18,8 +18,8 @@ from collections import defaultdict
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
 seeds = [123, 17, 41, 58]
-MIN_SNR = -np.inf  # -np.inf Set to a number (e.g., 0) to limit min SNR, or -np.inf to plot all
-MAX_SNR = np.inf  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
+MIN_SNR = 20  # -np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
+MAX_SNR = 35  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
 
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:
@@ -99,44 +99,29 @@ def plot_csvs(filter_pattern=None):
                         E.g. "*TRN=4032*C=No*AUGMENT_LMMSE*0.46*ncPrime_0*s64*.csv"
                         If None, all files in CSV_DIR are used.
     """
-    print(f"[DEBUG] CSV_DIR = {CSV_DIR}")
-    print(f"[DEBUG] CSV_DIR exists = {os.path.isdir(CSV_DIR)}")
-    print(f"[DEBUG] filter_pattern = {filter_pattern}")
+    plot_all_escnn = False  # True: plot ESCNN1/2/3, False: plot only ESCNN1
 
     if filter_pattern is not None:
-        glob_expr = os.path.join(CSV_DIR, filter_pattern)
-        all_files = sorted(glob.glob(glob_expr))
+        all_files = sorted(glob.glob(os.path.join(CSV_DIR, filter_pattern)))
     else:
-        glob_expr = os.path.join(CSV_DIR, "*.csv")
-        all_files = sorted(glob.glob(glob_expr))
+        all_files = sorted(glob.glob(os.path.join(CSV_DIR, "*.csv")))
 
-    print(f"[DEBUG] glob expression = {glob_expr}")
-    print(f"[DEBUG] matched {len(all_files)} files")
-    if all_files:
-        print(f"[DEBUG] first file: {all_files[0]}")
-        print(f"[DEBUG] last file:  {all_files[-1]}")
-    else:
-        print(f"[DEBUG] No files found! Listing CSV_DIR contents:")
-        if os.path.isdir(CSV_DIR):
-            contents = os.listdir(CSV_DIR)
-            print(f"[DEBUG]   {len(contents)} items in directory")
-            for f in contents[:10]:
-                print(f"[DEBUG]   - {f}")
-            if len(contents) > 10:
-                print(f"[DEBUG]   ... and {len(contents) - 10} more")
-        else:
-            print(f"[DEBUG]   Directory does not exist!")
+    print(f"[INFO] Found {len(all_files)} files matching pattern.")
+
+    # ---- Decide whether to show Sphere curves ----
+    pat_upper = (filter_pattern or "").upper()
+    show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper
 
     # ---- Check if MI files exist ----
     mi_files_exist = any(f.endswith("_mi.csv") for f in all_files)
 
     # ---- Prepare figure with 2 or 3 subplots depending on MI files ----
     if mi_files_exist:
-        fig, axes = plt.subplots(1, 3, figsize=(24, 7))
+        fig, axes = plt.subplots(1, 3, figsize=(21, 6.5))
         # BLER=left(0), MI=middle(1), BER=right(2)
         subplot_index = {"BER": 2, "BLER": 0, "MI": 1}
     else:
-        fig, axes = plt.subplots(1, 2, figsize=(18, 7))
+        fig, axes = plt.subplots(1, 2, figsize=(15.6, 6.5))
         # BLER=left(0), BER=right(1)
         subplot_index = {"BER": 1, "BLER": 0}
 
@@ -189,7 +174,6 @@ def plot_csvs(filter_pattern=None):
             seed_files = sorted(f for f in all_files
                                 if f"seed={seed}" in os.path.basename(f)
                                 and "_SNR=" in os.path.basename(f))
-            print(f"[DEBUG] {plot_type}: seed={seed} -> {len(seed_files)} files")
             if not seed_files:
                 continue
 
@@ -393,8 +377,9 @@ def plot_csvs(filter_pattern=None):
 
             # Plot ESCNN1/2/3 MI
             ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
-            ax.plot(snrs, mi_2, linestyle=dashes[1], marker=markers[1], color="g", label="ESCNN2")
-            ax.plot(snrs, mi_3, linestyle=dashes[2], marker=markers[2], color="g", label="ESCNN3")
+            if plot_all_escnn:
+                ax.plot(snrs, mi_2, linestyle=dashes[1], marker=markers[1], color="g", label="ESCNN2")
+                ax.plot(snrs, mi_3, linestyle=dashes[2], marker=markers[2], color="g", label="ESCNN3")
 
             # JointLLR MI
             mi_joint_arr = np.asarray(mi_jointllr_1, dtype=float)
@@ -407,9 +392,10 @@ def plot_csvs(filter_pattern=None):
                 ax.plot(snrs, mi_lmmse, linestyle=dashes[4], marker=markers[4], color="r", label="LMMSE")
 
             # Sphere MI
-            mi_sphere_arr = np.asarray(mi_sphere, dtype=float)
-            if np.isfinite(mi_sphere_arr).any():
-                ax.plot(snrs, mi_sphere, linestyle=dashes[4], marker=markers[4], color="brown", label="Sphere")
+            if show_sphere:
+                mi_sphere_arr = np.asarray(mi_sphere, dtype=float)
+                if np.isfinite(mi_sphere_arr).any():
+                    ax.plot(snrs, mi_sphere, linestyle=dashes[4], marker=markers[4], color="brown", label="Sphere")
 
             # Formatting for MI (linear scale)
             ax.set_xlabel("SNR (dB)")
@@ -431,13 +417,14 @@ def plot_csvs(filter_pattern=None):
             ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
                         label=f"ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}")
 
-            snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
-            ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
-                        label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
+            if plot_all_escnn:
+                snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
+                ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
+                            label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
 
-            snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
-            ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
-                        label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
+                snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
+                ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
+                            label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
 
             # JointLLR curve (only if exists / not all-NaN / not flat single value)
             joint_arr = np.asarray(ber_jointllr_1, dtype=float)
@@ -456,14 +443,15 @@ def plot_csvs(filter_pattern=None):
                         label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
 
             # ---- Sphere ----
-            sphere_arr = np.asarray(ber_sphere, dtype=float)
-            if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
-                snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
-                ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                            label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
-            elif np.isfinite(sphere_arr).any():
-                ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                            label=f"Sphere")
+            if show_sphere:
+                sphere_arr = np.asarray(ber_sphere, dtype=float)
+                if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
+                    snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
+                    ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
+                                label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
+                elif np.isfinite(sphere_arr).any():
+                    ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
+                                label=f"Sphere")
 
             # ---- Formatting ----
             ax.set_xlabel("SNR (dB)")
@@ -488,14 +476,14 @@ def plot_csvs(filter_pattern=None):
 
     # Save to file (works on headless servers), then try to show
     save_path = os.path.join(CSV_DIR, "plot_output.png")
-    fig.savefig(save_path, dpi=150)
+    fig.savefig(save_path, dpi=180)
     print(f"[INFO] Plot saved to: {save_path}")
 
     # Try to copy resized image to clipboard (75% to keep it manageable)
     try:
         from PIL import Image
         img = Image.open(save_path)
-        scale = 0.80
+        scale = 0.70
         new_size = (int(img.width * scale), int(img.height * scale))
         img_resized = img.resize(new_size, Image.LANCZOS)
         resized_path = save_path.replace(".png", "_clipboard.png")
@@ -524,7 +512,5 @@ def plot_csvs(filter_pattern=None):
 
 
 if __name__ == "__main__":
-    print(f"[DEBUG] sys.argv = {sys.argv}")
     pattern = sys.argv[1] if len(sys.argv) > 1 else None
-    print(f"[DEBUG] pattern = {pattern}")
     plot_csvs(pattern)

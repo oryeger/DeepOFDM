@@ -18,8 +18,8 @@ from collections import defaultdict
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
 seeds = [123, 17, 41, 58]
-MIN_SNR = 20  # -np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
-MAX_SNR = 35  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
+MIN_SNR = -np.inf  # -np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
+MAX_SNR = np.inf  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
 
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:

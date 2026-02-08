@@ -1,7 +1,14 @@
 import os
 import sys
+import platform
+import subprocess
 import glob
 import pandas as pd
+import matplotlib as mpl
+mpl.rcParams['toolbar'] = 'none'
+
+import matplotlib
+matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import re
 from scipy.interpolate import interp1d
@@ -92,10 +99,33 @@ def plot_csvs(filter_pattern=None):
                         E.g. "*TRN=4032*C=No*AUGMENT_LMMSE*0.46*ncPrime_0*s64*.csv"
                         If None, all files in CSV_DIR are used.
     """
+    print(f"[DEBUG] CSV_DIR = {CSV_DIR}")
+    print(f"[DEBUG] CSV_DIR exists = {os.path.isdir(CSV_DIR)}")
+    print(f"[DEBUG] filter_pattern = {filter_pattern}")
+
     if filter_pattern is not None:
-        all_files = sorted(glob.glob(os.path.join(CSV_DIR, filter_pattern)))
+        glob_expr = os.path.join(CSV_DIR, filter_pattern)
+        all_files = sorted(glob.glob(glob_expr))
     else:
-        all_files = sorted(glob.glob(os.path.join(CSV_DIR, "*.csv")))
+        glob_expr = os.path.join(CSV_DIR, "*.csv")
+        all_files = sorted(glob.glob(glob_expr))
+
+    print(f"[DEBUG] glob expression = {glob_expr}")
+    print(f"[DEBUG] matched {len(all_files)} files")
+    if all_files:
+        print(f"[DEBUG] first file: {all_files[0]}")
+        print(f"[DEBUG] last file:  {all_files[-1]}")
+    else:
+        print(f"[DEBUG] No files found! Listing CSV_DIR contents:")
+        if os.path.isdir(CSV_DIR):
+            contents = os.listdir(CSV_DIR)
+            print(f"[DEBUG]   {len(contents)} items in directory")
+            for f in contents[:10]:
+                print(f"[DEBUG]   - {f}")
+            if len(contents) > 10:
+                print(f"[DEBUG]   ... and {len(contents) - 10} more")
+        else:
+            print(f"[DEBUG]   Directory does not exist!")
 
     # ---- Check if MI files exist ----
     mi_files_exist = any(f.endswith("_mi.csv") for f in all_files)
@@ -159,6 +189,7 @@ def plot_csvs(filter_pattern=None):
             seed_files = sorted(f for f in all_files
                                 if f"seed={seed}" in os.path.basename(f)
                                 and "_SNR=" in os.path.basename(f))
+            print(f"[DEBUG] {plot_type}: seed={seed} -> {len(seed_files)} files")
             if not seed_files:
                 continue
 
@@ -454,9 +485,46 @@ def plot_csvs(filter_pattern=None):
     # ---- Add global title centered above all plots ----
     fig.suptitle(global_title_text, fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.92])
+
+    # Save to file (works on headless servers), then try to show
+    save_path = os.path.join(CSV_DIR, "plot_output.png")
+    fig.savefig(save_path, dpi=150)
+    print(f"[INFO] Plot saved to: {save_path}")
+
+    # Try to copy resized image to clipboard (75% to keep it manageable)
+    try:
+        from PIL import Image
+        img = Image.open(save_path)
+        scale = 0.80
+        new_size = (int(img.width * scale), int(img.height * scale))
+        img_resized = img.resize(new_size, Image.LANCZOS)
+        resized_path = save_path.replace(".png", "_clipboard.png")
+        img_resized.save(resized_path)
+
+        if platform.system() == "Windows":
+            cmd = (
+                'powershell -command "'
+                'Add-Type -AssemblyName System.Windows.Forms;'
+                f"[System.Windows.Forms.Clipboard]::SetImage("
+                f"[System.Drawing.Image]::FromFile('{resized_path}'))"
+                '"'
+            )
+            subprocess.run(cmd, shell=True, check=True)
+        else:
+            subprocess.run(
+                ["xclip", "-selection", "clipboard", "-t", "image/png", "-i", resized_path],
+                check=True
+            )
+        os.remove(resized_path)
+        print(f"[INFO] Plot copied to clipboard ({int(scale*100)}% size: {new_size[0]}x{new_size[1]}).")
+    except Exception as e:
+        print(f"[INFO] Could not copy to clipboard: {e}")
+
     plt.show()
 
 
 if __name__ == "__main__":
+    print(f"[DEBUG] sys.argv = {sys.argv}")
     pattern = sys.argv[1] if len(sys.argv) > 1 else None
+    print(f"[DEBUG] pattern = {pattern}")
     plot_csvs(pattern)

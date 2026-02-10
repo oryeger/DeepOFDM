@@ -29,7 +29,7 @@ scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
-sphere_64qam_mode: '0235'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
+sphere_64qam_mode: '0134'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 
 use_data_as_pilots: False
 plot_only_last_iteration: False

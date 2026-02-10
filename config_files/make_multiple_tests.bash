@@ -49,6 +49,9 @@ n_users_vals=(4)
 # make_64QAM_16QAM_percentage values
 make_64QAM_16QAM_percentage_vals=(0)
 
+# sphere_64qam_mode values
+sphere_64qam_mode_vals=('0235' '0134' '1245')
+
 # --------------------------------------------
 total_count=0
 all_config_files=()
@@ -130,32 +133,37 @@ for seed in "${seeds[@]}"; do
                                 for batch_size in "${batch_size_vals[@]}"; do
                                   bstag="bs${batch_size}"
 
-                                  for snr in "${snrs[@]}"; do
+                                  for sphere_64qam_mode in "${sphere_64qam_mode_vals[@]}"; do
+                                    sqmtag="sqm${sphere_64qam_mode}"
 
-                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                    for snr in "${snrs[@]}"; do
 
-                                    sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                                        -e "s/^snr:.*/snr: $snr/" \
-                                        -e "s/^cfo:.*/cfo: $cfo/" \
-                                        -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                                        -e "s/^use_film:.*/use_film: $use_film/" \
-                                        -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                                        -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
-                                        -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
-                                        -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                                        -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                        -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
-                                        -e "s/^mcs:.*/mcs: $mcs/" \
-                                        -e "s/^n_users:.*/n_users: $n_users/" \
-                                        -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
-                                        -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
-                                        -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                                        -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
-                                        -e "s/^batch_size:.*/batch_size: $batch_size/" \
-                                        "$input_file" > "$out_file"
+                                      out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${sqmtag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
-                                    all_config_files+=("$out_file")
-                                    ((total_count++))
+                                      sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                          -e "s/^snr:.*/snr: $snr/" \
+                                          -e "s/^cfo:.*/cfo: $cfo/" \
+                                          -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                          -e "s/^use_film:.*/use_film: $use_film/" \
+                                          -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                          -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
+                                          -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
+                                          -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                          -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                          -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                          -e "s/^mcs:.*/mcs: $mcs/" \
+                                          -e "s/^n_users:.*/n_users: $n_users/" \
+                                          -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                          -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
+                                          -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                          -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
+                                          -e "s/^batch_size:.*/batch_size: $batch_size/" \
+                                          -e "s/^sphere_64qam_mode:.*/sphere_64qam_mode: '$sphere_64qam_mode'/" \
+                                          "$input_file" > "$out_file"
+
+                                      all_config_files+=("$out_file")
+                                      ((total_count++))
+                                    done
                                   done
                                 done
                               done

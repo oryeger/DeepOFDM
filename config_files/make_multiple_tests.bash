@@ -11,18 +11,18 @@ base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
 #seeds=(123 17 41 58)
-seeds=(17)
-snrs=($(seq 0 40))
-cfos=(0)
+seeds=(123)
+snrs=($(seq 10 40))
+cfos=(0 0.0375 0.075)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
 
 # increase_prime_modulation sweep
-increase_prime_modulation_vals=(True)
+increase_prime_modulation_vals=(False)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('none')
 
 # NEW: batch_size sweep
 batch_size_vals=(1024)
@@ -30,15 +30,14 @@ batch_size_vals=(1024)
 # FIX: each augment mode must be a separate array element
 which_augment_vals=(
   'AUGMENT_LMMSE'
-  'AUGMENT_SPHERE'
 )
 
 TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(5000 20000)
-mcs_vals=(4 28 30 17)
+pilot_size_vals=(5000)
+mcs_vals=(20 22 24 26)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)

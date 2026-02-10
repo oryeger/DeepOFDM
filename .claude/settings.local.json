@@ -2,7 +2,9 @@
   "permissions": {
     "allow": [
       "WebSearch",
-      "Bash(python -m py_compile:*)"
+      "Bash(python -m py_compile:*)",
+      "Bash(git -C \"C:\\\\Projects\\\\DeepOFDM\" mv \"python_code/detectors/sphere/sphere_64qam_fourbits.py\" \"python_code/detectors/sphere/sphere_64qam_0135.py\")",
+      "Bash(git -C \"C:\\\\Projects\\\\DeepOFDM\" mv \"python_code/detectors/sphere/sphere_64qam_0135.py\" \"python_code/detectors/sphere/sphere_64qam_0235.py\")"
     ]
   }
 }

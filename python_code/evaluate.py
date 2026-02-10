@@ -34,7 +34,9 @@ from scipy.interpolate import interp1d
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
-from python_code.detectors.sphere.sphere_64qam_fourbits import Sphere64qamFourbits
+from python_code.detectors.sphere.sphere_64qam_0235 import Sphere64qam0235
+from python_code.detectors.sphere.sphere_64QAM_0134 import Sphere64qam0134
+from python_code.detectors.sphere.sphere_64QAM_1245 import Sphere64qam1245
 from python_code.detectors.sphere.sphere_256qam_fourbits import Sphere256qamFourbits
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate
 
@@ -645,13 +647,25 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         llr_out[0::2,:] = llr_out_red
                     elif num_bits_pilot == 6:
                         # 16QAM→64QAM: 4 bits → 6 bits
-                        # Use Sphere64qamFourbits to calculate bits 0, 2, 3, 5
-                        llr_out_4bits, hard_bits_4 = Sphere64qamFourbits(
-                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
-                        )
+                        # Select sphere decoder based on sphere_64qam_mode
+                        mode_64 = getattr(conf, 'sphere_64qam_mode', '0235')
+                        if mode_64 == '0134':
+                            llr_out_4bits, hard_bits_4 = Sphere64qam0134(
+                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                            )
+                            keep_bits = [0, 1, 3, 4]
+                        elif mode_64 == '1245':
+                            llr_out_4bits, hard_bits_4 = Sphere64qam1245(
+                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                            )
+                            keep_bits = [1, 2, 4, 5]
+                        else:
+                            llr_out_4bits, hard_bits_4 = Sphere64qam0235(
+                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                            )
+                            keep_bits = [0, 2, 3, 5]
+
                         # Expand from 4 bits to 6 bits per symbol
-                        # fourbits output order: [b0, b2, b3, b5] per symbol
-                        # 64QAM order: [b0, b1, b2, b3, b4, b5] per symbol
                         num_symbols = llr_out_4bits.shape[0] // 4
                         llr_out = np.zeros((num_symbols * 6, n_users))
                         hard_out = np.zeros((num_symbols * 6, n_users))
@@ -659,24 +673,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         for sym in range(num_symbols):
                             i4_base = sym * 4
                             i6_base = sym * 6
-                            # Bit 0: from fourbits[0] (sign_I)
-                            llr_out[i6_base + 0, :] = llr_out_4bits[i4_base + 0, :]
-                            hard_out[i6_base + 0, :] = hard_bits_4[i4_base + 0, :]
-                            # Bit 1: unknown (half_I)
-                            llr_out[i6_base + 1, :] = 0
-                            hard_out[i6_base + 1, :] = 0.5
-                            # Bit 2: from fourbits[1] (pos_I)
-                            llr_out[i6_base + 2, :] = llr_out_4bits[i4_base + 1, :]
-                            hard_out[i6_base + 2, :] =  hard_bits_4[i4_base + 1, :]
-                            # Bit 3: from fourbits[2] (sign_Q)
-                            llr_out[i6_base + 3, :] = llr_out_4bits[i4_base + 2, :]
-                            hard_out[i6_base + 3, :] = hard_bits_4[i4_base + 2, :]
-                            # Bit 4: unknown (half_Q)
-                            llr_out[i6_base + 4, :] = 0
-                            hard_out[i6_base + 4, :] = 0.5
-                            # Bit 5: from fourbits[3] (pos_Q)
-                            llr_out[i6_base + 5, :] = llr_out_4bits[i4_base + 3, :]
-                            hard_out[i6_base + 5, :] =  hard_bits_4[i4_base + 3, :]
+                            # Set all 6 bits to unknown defaults
+                            for b in range(6):
+                                llr_out[i6_base + b, :] = 0
+                                hard_out[i6_base + b, :] = 0.5
+                            # Fill in the 4 decoded bits
+                            for j, bit_idx in enumerate(keep_bits):
+                                llr_out[i6_base + bit_idx, :] = llr_out_4bits[i4_base + j, :]
+                                hard_out[i6_base + bit_idx, :] = hard_bits_4[i4_base + j, :]
 
                         detected_word_sphere_for_aug[:, :, re] = hard_out
                     elif num_bits_pilot == 8:
@@ -1156,7 +1160,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             indices = relevant_indices(target.shape[0], 2)
                             num_bits_data_cur = 2
                         elif num_bits_pilot == 6:
-                            indices = relevant_indices(target.shape[0], 1.5)
+                            mode_64 = getattr(conf, 'sphere_64qam_mode', '0235')
+                            indices = relevant_indices(target.shape[0], 1.5, is_64qam=mode_64)
                             num_bits_data_cur = 4
                         elif num_bits_pilot == 8:
                             indices = relevant_indices(target.shape[0], 2, is_256qam=True)

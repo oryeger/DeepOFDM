@@ -1,4 +1,4 @@
-# sphere_64qam_fourbits.py
+# sphere_64qam_0235.py
 # Optimized soft-output SphereDecoder for 64-QAM that only computes LLRs for bits 0, 2, 3, 5.
 #
 # Key insight: bits 0, 2, 3, 5 map to a 16-QAM-like structure. Bits 1 and 4 are "don't care".
@@ -16,10 +16,8 @@ import numpy as np
 from itertools import product
 import commpy.modulation as mod
 
-from python_code import conf
 
-
-def Sphere64qamFourbits(
+def Sphere64qam0235(
     H,
     y,
     noise_var=1.0,
@@ -43,7 +41,7 @@ def Sphere64qamFourbits(
     forced_radius_expand=10.0,
     max_nodes_forced=50000,
 
-    debug=True,
+    debug=False,
 ):
     """
     Optimized 64-QAM sphere decoder that outputs LLRs only for bits 0, 2, 3, 5.
@@ -491,7 +489,7 @@ def Sphere64qamFourbits(
 
     if debug:
         t_total = time.perf_counter() - t_start_total
-        print(f"[DEBUG] Sphere64qamFourbits total={t_total:.3f}s "
+        print(f"[DEBUG] Sphere64qam0235 total={t_total:.3f}s "
               f"| search={t_search_total:.3f}s "
               f"| forced={n_forced} bruteforce={n_bf} "
               f"| {t_total / max(n_symbols, 1) * 1e3:.2f} ms/sym")

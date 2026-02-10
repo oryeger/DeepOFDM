@@ -44,18 +44,35 @@ def ensure_tensor_iterable(x):
 
 import numpy as np
 
-def relevant_indices(N, pilot_data_ratio, is_256qam=False):
+def relevant_indices(N, pilot_data_ratio, is_256qam=False, is_64qam=None):
     """
     Returns indices of the bits that are explicitly computed.
 
-    Default (is_256qam=False):
+    Default (is_256qam=False, is_64qam=None):
         Original ratio-based behavior (backward compatible).
+
+    64-QAM mode (is_64qam='0235'/'0134'/'1245'):
+        Uses fixed pattern per 6-bit symbol based on which 4 bits are decoded.
 
     256-QAM mode (is_256qam=True):
         Uses fixed pattern per 8-bit symbol:
             [0, 3, 4, 7] + 8*k
         Requires pilot_data_ratio = 2 (8 bits / 4 computed bits).
     """
+
+    if is_64qam is not None:
+        keep_map = {
+            '0235': [0, 2, 3, 5],
+            '0134': [0, 1, 3, 4],
+            '1245': [1, 2, 4, 5],
+        }
+        keep = np.array(keep_map[is_64qam], dtype=int)
+        bps = 6
+        n_syms = int(np.ceil(N / bps))
+        base = (np.arange(n_syms, dtype=int) * bps)[:, None]
+        idx = (base + keep[None, :]).ravel()
+        idx = idx[idx < N]
+        return np.unique(idx)
 
     if not is_256qam:
         # ---- original behavior ----

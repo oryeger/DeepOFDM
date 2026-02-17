@@ -430,7 +430,7 @@ def SphereDecoder(
     hard_bits_all = hard_3d.transpose(0, 2, 1).reshape(n_symbols * kout, n_users)
 
     t_total = time.perf_counter() - t_start_total
-    print(f"SphereDecoder: {t_total:.3f}s total | {t_total/max(n_symbols,1)*1e3:.2f} ms/sym")
+    # print(f"SphereDecoder: {t_total:.3f}s total | {t_total/max(n_symbols,1)*1e3:.2f} ms/sym")
 
     if debug:
         print(f"[DEBUG] SphereDecoderOpt total={t_total:.3f}s "

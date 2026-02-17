@@ -537,79 +537,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     LmmseDemod(equalized_data, postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                 else:
-                    equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig,
-                               noise_var, pilot_chunk, re, H)
-                    if not(conf.increase_prime_modulation) or (num_bits_pilot == 8) or (num_bits_pilot == 2) or (conf.which_augment == 'AUGMENT_SPHERE'):
-                        LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
-                                   detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
-                        LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                                   detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
-                    else:
-                        # increase_prime_modulation mode: QPSK→16QAM or 16QAM→64QAM
-                        if num_bits_pilot == 4:
-                            # QPSK→16QAM: 2 bits → 4 bits
-                            # Bits 0,2 (signs) from QPSK; bits 1,3 (magnitudes) unknown
-                            detected_word_lmmse_for_aug[1::2,:,re] = 0.5
-                            llrs_mat_lmmse_for_aug[:, 1::2, re:re+1, :] = 0
-                            LmmseDemod(equalized, postEqSINR, 2, re, llrs_mat_lmmse_for_aug[:, 0::2, :, :],
-                                       detected_word_lmmse_for_aug[0::2,:,:], 1)
-                        elif num_bits_pilot == 6:
-                            # 16QAM→64QAM: 4 bits → 6 bits
-                            # 64QAM bits: [sign_I, half_I, pos_I, sign_Q, half_Q, pos_Q]
-                            # From 16QAM: [sign_I, mag_I, sign_Q, mag_Q]
-                            # Mapping: 64b0=16b0, 64b1=0, 64b2=-16b1, 64b3=16b2, 64b4=0, 64b5=-16b3
-
-                            # First, get 16QAM LLRs into temporary storage
-                            llrs_16qam = np.zeros((llrs_mat_lmmse_for_aug.shape[0], 4 * n_users, llrs_mat_lmmse_for_aug.shape[2], 1))
-                            det_16qam = np.zeros((detected_word_lmmse_for_aug.shape[0] // 6 * 4, n_users, detected_word_lmmse_for_aug.shape[2]))
-                            LmmseDemod(equalized, postEqSINR, 4, re, llrs_16qam, det_16qam, 1)
-
-                            # Map LLRs and detected words to 64QAM (6 bits per user)
-                            num_symbols = det_16qam.shape[0] // 4
-                            for user in range(n_users):
-                                # 16QAM bit indices for this user (in llrs_16qam)
-                                i16_b0 = user * 4 + 0  # sign_I
-                                i16_b1 = user * 4 + 1  # mag_I
-                                i16_b2 = user * 4 + 2  # sign_Q
-                                i16_b3 = user * 4 + 3  # mag_Q
-
-                                # 64QAM bit indices for this user (in llrs_mat_lmmse_for_aug)
-                                i64_b0 = user * 6 + 0  # sign_I
-                                i64_b1 = user * 6 + 1  # half_I (unknown)
-                                i64_b2 = user * 6 + 2  # pos_I (inverted mag_I)
-                                i64_b3 = user * 6 + 3  # sign_Q
-                                i64_b4 = user * 6 + 4  # half_Q (unknown)
-                                i64_b5 = user * 6 + 5  # pos_Q (inverted mag_Q)
-
-                                # Copy signs directly (LLRs)
-                                llrs_mat_lmmse_for_aug[:, i64_b0, re:re+1, :] = llrs_16qam[:, i16_b0, re:re+1, :]
-                                llrs_mat_lmmse_for_aug[:, i64_b3, re:re+1, :] = llrs_16qam[:, i16_b2, re:re+1, :]
-
-                                # Unknown bits (half selection) - set LLRs to 0
-                                llrs_mat_lmmse_for_aug[:, i64_b1, re:re+1, :] = 0
-                                llrs_mat_lmmse_for_aug[:, i64_b4, re:re+1, :] = 0
-
-                                # Inverted magnitude bits (LLRs)
-                                llrs_mat_lmmse_for_aug[:, i64_b2, re:re+1, :] = -llrs_16qam[:, i16_b1, re:re+1, :]
-                                llrs_mat_lmmse_for_aug[:, i64_b5, re:re+1, :] = -llrs_16qam[:, i16_b3, re:re+1, :]
-
-                            # Map detected words from 16QAM (4 bits) to 64QAM (6 bits)
-                            for sym in range(num_symbols):
-                                i4_base = sym * 4
-                                i6_base = sym * 6
-                                # Bit 0: direct from 16QAM bit 0 (sign_I)
-                                detected_word_lmmse_for_aug[i6_base + 0, :, re] = det_16qam[i4_base + 0, :, re]
-                                # Bit 1: unknown (half_I)
-                                detected_word_lmmse_for_aug[i6_base + 1, :, re] = 0.5
-                                # Bit 2: inverted from 16QAM bit 1 (pos_I)
-                                detected_word_lmmse_for_aug[i6_base + 2, :, re] = 1 - det_16qam[i4_base + 1, :, re]
-                                # Bit 3: direct from 16QAM bit 2 (sign_Q)
-                                detected_word_lmmse_for_aug[i6_base + 3, :, re] = det_16qam[i4_base + 2, :, re]
-                                # Bit 4: unknown (half_Q)
-                                detected_word_lmmse_for_aug[i6_base + 4, :, re] = 0.5
-                                # Bit 5: inverted from 16QAM bit 3 (pos_Q)
-                                detected_word_lmmse_for_aug[i6_base + 5, :, re] = 1 - det_16qam[i4_base + 3, :, re]
-
+                    equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                    LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
+                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                    LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                 # Store H for JointLLR detector (convert complex to real/imag interleaved)
                 if conf.run_jointllr:
                     H_cpu = H.cpu()

@@ -428,14 +428,10 @@ def plot_csvs(filter_pattern=None):
 
             # JointLLR curve (only if exists / not all-NaN / not flat single value)
             joint_arr = np.asarray(ber_jointllr_1, dtype=float)
-            if np.isfinite(joint_arr).any() and (np.unique(joint_arr[np.isfinite(joint_arr)]).shape[0] > 1):
+            if np.isfinite(joint_arr).any() and not np.all(joint_arr[np.isfinite(joint_arr)] == 0):
                 snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, ber_target)
                 ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
                             label=f"JointLLR1 @ {round(100*ber_target)}% = {snr_target_joint}")
-            elif np.isfinite(joint_arr).any():
-                # still plot it (flat) but without target label confusion
-                ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
-                            label=f"JointLLR1")
 
             # ---- LMMSE ----
             snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, ber_target)
@@ -445,13 +441,71 @@ def plot_csvs(filter_pattern=None):
             # ---- Sphere ----
             if show_sphere:
                 sphere_arr = np.asarray(ber_sphere, dtype=float)
-                if np.isfinite(sphere_arr).any() and not (np.unique(sphere_arr[np.isfinite(sphere_arr)]).shape[0] == 1):
+                if np.isfinite(sphere_arr).any() and not np.all(sphere_arr[np.isfinite(sphere_arr)] == 0):
                     snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
                     ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
                                 label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
-                elif np.isfinite(sphere_arr).any():
-                    ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                                label=f"Sphere")
+
+            # ---- DeepSIC ----
+            ber_deepsic_1 = avg("ber_deepsic_1")
+            deepsic_arr = np.asarray(ber_deepsic_1, dtype=float)
+            if np.isfinite(deepsic_arr).any() and not np.all(deepsic_arr[np.isfinite(deepsic_arr)] == 0):
+                snr_target_deepsic = _safe_interp_x_to_y(ber_deepsic_1, snrs, ber_target)
+                ax.semilogy(snrs, ber_deepsic_1, linestyle=dashes[0], marker=markers[0], color="purple",
+                            label=f"DeepSIC1 @ {round(100*ber_target)}% = {snr_target_deepsic}")
+
+            if plot_all_escnn:
+                ber_deepsic_2 = avg("ber_deepsic_2")
+                deepsic2_arr = np.asarray(ber_deepsic_2, dtype=float)
+                if np.isfinite(deepsic2_arr).any() and not np.all(deepsic2_arr[np.isfinite(deepsic2_arr)] == 0):
+                    ax.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color="purple",
+                                label=f"DeepSIC2")
+
+                ber_deepsic_3 = avg("ber_deepsic_3")
+                deepsic3_arr = np.asarray(ber_deepsic_3, dtype=float)
+                if np.isfinite(deepsic3_arr).any() and not np.all(deepsic3_arr[np.isfinite(deepsic3_arr)] == 0):
+                    ax.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color="purple",
+                                label=f"DeepSIC3")
+
+            # ---- DeepRx ----
+            ber_deeprx = avg("ber_deeprx")
+            deeprx_arr = np.asarray(ber_deeprx, dtype=float)
+            if np.isfinite(deeprx_arr).any() and not np.all(deeprx_arr[np.isfinite(deeprx_arr)] == 0):
+                snr_target_deeprx = _safe_interp_x_to_y(ber_deeprx, snrs, ber_target)
+                ax.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan",
+                            label=f"DeepRx @ {round(100*ber_target)}% = {snr_target_deeprx}")
+
+            # ---- MHSA ----
+            ber_mhsa_1 = avg("ber_mhsa_1")
+            mhsa_arr = np.asarray(ber_mhsa_1, dtype=float)
+            if np.isfinite(mhsa_arr).any() and not np.all(mhsa_arr[np.isfinite(mhsa_arr)] == 0):
+                snr_target_mhsa = _safe_interp_x_to_y(ber_mhsa_1, snrs, ber_target)
+                ax.semilogy(snrs, ber_mhsa_1, linestyle=dashes[0], marker=markers[0], color="orange",
+                            label=f"MHSA1 @ {round(100*ber_target)}% = {snr_target_mhsa}")
+
+            # ---- TDFDCNN ----
+            ber_tdfdcnn_1 = avg("ber_tdfdcnn_1")
+            tdfdcnn_arr = np.asarray(ber_tdfdcnn_1, dtype=float)
+            if np.isfinite(tdfdcnn_arr).any() and not np.all(tdfdcnn_arr[np.isfinite(tdfdcnn_arr)] == 0):
+                snr_target_tdfdcnn = _safe_interp_x_to_y(ber_tdfdcnn_1, snrs, ber_target)
+                ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[1], marker=markers[1], color="olive",
+                            label=f"TDFDCNN1 @ {round(100*ber_target)}% = {snr_target_tdfdcnn}")
+
+            # ---- DeepSIC-MB ----
+            ber_deepsicmb_1 = avg("ber_deepsicmb_1")
+            deepsicmb_arr = np.asarray(ber_deepsicmb_1, dtype=float)
+            if np.isfinite(deepsicmb_arr).any() and not np.all(deepsicmb_arr[np.isfinite(deepsicmb_arr)] == 0):
+                snr_target_deepsicmb = _safe_interp_x_to_y(ber_deepsicmb_1, snrs, ber_target)
+                ax.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[2], marker=markers[2], color="magenta",
+                            label=f"DeepSIC-MB1 @ {round(100*ber_target)}% = {snr_target_deepsicmb}")
+
+            # ---- DeepSTAG ----
+            ber_deepstag_1 = avg("ber_deepstag_1")
+            deepstag_arr = np.asarray(ber_deepstag_1, dtype=float)
+            if np.isfinite(deepstag_arr).any() and not np.all(deepstag_arr[np.isfinite(deepstag_arr)] == 0):
+                snr_target_deepstag = _safe_interp_x_to_y(ber_deepstag_1, snrs, ber_target)
+                ax.semilogy(snrs, ber_deepstag_1, linestyle=dashes[3], marker=markers[5], color="teal",
+                            label=f"DeepSTAG1 @ {round(100*ber_target)}% = {snr_target_deepstag}")
 
             # ---- Formatting ----
             ax.set_xlabel("SNR (dB)")

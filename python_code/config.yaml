@@ -1,4 +1,4 @@
-snr: 20
+snr: 30
 cur_str: thirddd
 num_snrs: 1
 n_ants: 8
@@ -29,14 +29,14 @@ scale_input: True
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: True  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
-sphere_64qam_mode: '0134'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
+sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-TDL_model: 'C' # 'None', 'A', 'B', 'C'
+TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
@@ -54,14 +54,14 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_SPHERE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True
 
 run_e2e: False
 iters_e2e: 1
-calc_mi: False
+calc_mi: True
 no_probs: False
 separate_pilots: True
 

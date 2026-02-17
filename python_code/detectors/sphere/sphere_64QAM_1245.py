@@ -463,8 +463,10 @@ def Sphere64qam1245(
     LLRs_all = LLRs_3d.transpose(0, 2, 1).reshape(n_symbols * kout, n_users)
     hard_bits_all = hard_3d.transpose(0, 2, 1).reshape(n_symbols * kout, n_users)
 
+    t_total = time.perf_counter() - t_start_total
+    # print(f"Sphere64qam1245: {t_total:.3f}s total | {t_total/max(n_symbols,1)*1e3:.2f} ms/sym")
+
     if debug:
-        t_total = time.perf_counter() - t_start_total
         print(f"[DEBUG] Sphere64qam1245 total={t_total:.3f}s "
               f"| search={t_search_total:.3f}s "
               f"| forced={n_forced} bruteforce={n_bf} "

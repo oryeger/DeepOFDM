@@ -50,7 +50,7 @@ def SphereDecoder(
     forced_radius_expand=10.0,
     max_nodes_forced=160000,
 
-    debug=True,
+    debug=False,
 ):
     t_start_total = time.perf_counter()
 

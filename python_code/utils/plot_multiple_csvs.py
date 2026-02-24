@@ -90,7 +90,7 @@ def _safe_interp_x_to_y(x, y, x_target):
     return float(np.round(f(x_target), 1))
 
 
-def plot_csvs(filter_pattern=None):
+def plot_csvs(filter_pattern=None, plot_all_iters=False):
     """
     Plot BER/BLER/MI from CSV files in CSV_DIR.
 
@@ -98,8 +98,10 @@ def plot_csvs(filter_pattern=None):
         filter_pattern: Optional glob pattern string to select files.
                         E.g. "*TRN=4032*C=No*AUGMENT_LMMSE*0.46*ncPrime_0*s64*.csv"
                         If None, all files in CSV_DIR are used.
+        plot_all_iters: If True, plot all iterations (ESCNN1/2/3, DeepSIC1/2/3, etc.).
+                        If False (default), plot only the last iteration.
     """
-    plot_all_escnn = False  # True: plot ESCNN1/2/3, False: plot only ESCNN1
+    plot_all_escnn = plot_all_iters
 
     if filter_pattern is not None:
         all_files = sorted(glob.glob(os.path.join(CSV_DIR, filter_pattern)))
@@ -458,14 +460,16 @@ def plot_csvs(filter_pattern=None):
                 ber_deepsic_2 = avg("ber_deepsic_2")
                 deepsic2_arr = np.asarray(ber_deepsic_2, dtype=float)
                 if np.isfinite(deepsic2_arr).any() and not np.all(deepsic2_arr[np.isfinite(deepsic2_arr)] == 0):
+                    snr_target_deepsic2 = _safe_interp_x_to_y(ber_deepsic_2, snrs, ber_target)
                     ax.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color="purple",
-                                label=f"DeepSIC2")
+                                label=f"DeepSIC2 @ {round(100*ber_target)}% = {snr_target_deepsic2}")
 
                 ber_deepsic_3 = avg("ber_deepsic_3")
                 deepsic3_arr = np.asarray(ber_deepsic_3, dtype=float)
                 if np.isfinite(deepsic3_arr).any() and not np.all(deepsic3_arr[np.isfinite(deepsic3_arr)] == 0):
+                    snr_target_deepsic3 = _safe_interp_x_to_y(ber_deepsic_3, snrs, ber_target)
                     ax.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color="purple",
-                                label=f"DeepSIC3")
+                                label=f"DeepSIC3 @ {round(100*ber_target)}% = {snr_target_deepsic3}")
 
             # ---- DeepRx ----
             ber_deeprx = avg("ber_deeprx")
@@ -567,4 +571,5 @@ def plot_csvs(filter_pattern=None):
 
 if __name__ == "__main__":
     pattern = sys.argv[1] if len(sys.argv) > 1 else None
-    plot_csvs(pattern)
+    plot_all_iters = "plot_all_iters" in sys.argv[2:] if len(sys.argv) > 2 else False
+    plot_csvs(pattern, plot_all_iters=plot_all_iters)

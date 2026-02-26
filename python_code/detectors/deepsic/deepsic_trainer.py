@@ -71,7 +71,7 @@ class DeepSICTrainer(Trainer):
 
                 soft_estimation, llrs = single_model(batch_rx)
 
-                loss = self._calculate_loss(soft_estimation, batch_tx)
+                loss = self._calculate_loss(llrs, batch_tx)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -85,8 +85,8 @@ class DeepSICTrainer(Trainer):
             # Calculate validation loss
             with torch.no_grad():
                 rx_val_device = rx_val.to(DEVICE)
-                soft_estimation_val, _ = single_model(rx_val_device)
-                val_loss = self._calculate_loss(soft_estimation_val, tx_val.to(DEVICE))
+                _, llrs_val = single_model(rx_val_device)
+                val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE))
                 val_loss_vect.append(val_loss.item())
 
         return train_loss_vect, val_loss_vect

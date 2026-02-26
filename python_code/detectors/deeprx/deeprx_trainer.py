@@ -66,13 +66,13 @@ class DeepRxTrainer(Trainer):
                 soft_estimation, llrs = single_model(batch_rx)
 
                 if first_half_flag:
-                    soft_cur = soft_estimation[:, 0::2, :]
+                    llrs_cur = llrs[:, 0::2, :]
                     batch_tx_cur = batch_tx[:, 0::2, :]
                 else:
-                    soft_cur = soft_estimation
+                    llrs_cur = llrs
                     batch_tx_cur = batch_tx
 
-                loss = self._calculate_loss(soft_cur, batch_tx_cur)
+                loss = self._calculate_loss(llrs_cur, batch_tx_cur)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -86,8 +86,8 @@ class DeepRxTrainer(Trainer):
             # Calculate validation loss
             with torch.no_grad():
                 rx_val_device = rx_val.to(DEVICE)
-                soft_estimation_val, _ = single_model(rx_val_device)
-                val_loss = self._calculate_loss(soft_estimation_val, tx_val.to(DEVICE))
+                _, llrs_val = single_model(rx_val_device)
+                val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE))
                 val_loss_vect.append(val_loss.item())
 
         return train_loss_vect, val_loss_vect
@@ -169,8 +169,10 @@ class DeepRxTrainer(Trainer):
         next_probs_vec = torch.zeros(rx.shape[0],num_bits*n_users,rx.shape[2],rx.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
+            model[user].eval()
             with torch.no_grad():
                 output, llrs = model[user](rx)
+            model[user].train()
             index_start = user*num_bits
             index_end = (user+1) * num_bits
             next_probs_vec[:, index_start:index_end,:,:] = output

@@ -47,10 +47,18 @@ class DeepRxTrainer(Trainer):
 
         # Create DataLoader for mini-batch training
         # batch_size <= 0 means full-batch (no mini-batching)
-        batch_size = conf.batch_size if hasattr(conf, 'batch_size') else 32
+
+        if conf.deeprx_override:
+            batch_size = -1 # Override configuration
+        else:
+            batch_size = conf.batch_size if hasattr(conf, 'batch_size') else 32
         if batch_size <= 0:
             batch_size = len(rx_train)  # Full batch
-        shuffle = conf.shuffle if hasattr(conf, 'shuffle') else True
+        if conf.deeprx_override:
+            shuffle = False # Override configuration
+        else:
+            shuffle = conf.shuffle if hasattr(conf, 'shuffle') else True
+
         train_dataset = TensorDataset(rx_train, tx_train)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
 
@@ -169,10 +177,12 @@ class DeepRxTrainer(Trainer):
         next_probs_vec = torch.zeros(rx.shape[0],num_bits*n_users,rx.shape[2],rx.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
-            model[user].eval()
+            if conf.deeprx_claude:
+                model[user].eval()
             with torch.no_grad():
                 output, llrs = model[user](rx)
-            model[user].train()
+            if conf.deeprx_claude:
+                model[user].train()
             index_start = user*num_bits
             index_end = (user+1) * num_bits
             next_probs_vec[:, index_start:index_end,:,:] = output

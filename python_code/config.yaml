@@ -54,10 +54,13 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_SPHERE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
+which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True
+
+deeprx_claude: True
+deeprx_override: True
 
 run_e2e: False
 iters_e2e: 1

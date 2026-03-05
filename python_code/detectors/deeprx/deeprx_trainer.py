@@ -177,12 +177,10 @@ class DeepRxTrainer(Trainer):
         next_probs_vec = torch.zeros(rx.shape[0],num_bits*n_users,rx.shape[2],rx.shape[3]).to(DEVICE)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
         for user in range(n_users):
-            if conf.deeprx_claude:
-                model[user].eval()
+            model[user].eval()
             with torch.no_grad():
                 output, llrs = model[user](rx)
-            if conf.deeprx_claude:
-                model[user].train()
+            model[user].train()
             index_start = user*num_bits
             index_end = (user+1) * num_bits
             next_probs_vec[:, index_start:index_end,:,:] = output

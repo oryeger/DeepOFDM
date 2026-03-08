@@ -1750,6 +1750,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_incPrime_' + str(int(conf.increase_prime_modulation))
         title_string = title_string + '_b' + str(conf.batch_size)
         title_string = title_string + '_drxOvr=' + str(int(conf.deeprx_override))
+        title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)

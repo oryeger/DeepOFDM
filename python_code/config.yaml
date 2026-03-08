@@ -26,6 +26,7 @@ sphere_radius: 200
 save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
+escnn_dropout: 0.3  # Dropout rate after each hidden conv layer (0.0 = disabled). Try 0.2-0.4 for 256QAM overfitting
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot

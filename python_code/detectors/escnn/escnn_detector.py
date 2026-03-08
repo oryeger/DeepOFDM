@@ -83,6 +83,11 @@ class ESCNNDetector(nn.Module):
         self.activation2 = nn.ReLU()
         self.activation3 = nn.Sigmoid()
 
+        # --------- dropout (applied after each hidden ReLU) ------
+        dropout_rate = getattr(conf, 'escnn_dropout', 0.0)
+        self.dropout1 = nn.Dropout2d(dropout_rate) if dropout_rate > 0.0 else None
+        self.dropout2 = nn.Dropout2d(dropout_rate) if dropout_rate > 0.0 else None
+
         # --------- FiLM integration (optional) -----------
         # cond_dim = conf.n_ants * 2 * conf.num_res
         cond_dim = conf.n_ants * 2
@@ -198,6 +203,8 @@ class ESCNNDetector(nn.Module):
             out1 = self.film1(out1, cond_vec)
 
         out1 = self.activation1(out1)
+        if self.dropout1 is not None:
+            out1 = self.dropout1(out1)
 
         # Second conv + activation
         out2 = self.fc2(out1)
@@ -207,6 +214,8 @@ class ESCNNDetector(nn.Module):
             out2 = self.film2(out2, cond_vec)
 
         out2 = self.activation2(out2)
+        if self.dropout2 is not None:
+            out2 = self.dropout2(out2)
 
         # Final conv head (LLRs) + sigmoid
         llrs = self.fc3(out2)

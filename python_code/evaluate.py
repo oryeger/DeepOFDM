@@ -42,6 +42,7 @@ from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemo
 
 from datetime import datetime
 from scipy.io import savemat
+import h5py
 
 import argparse
 
@@ -263,6 +264,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         run_deeprx = True
     else:
         run_deeprx = False
+
+    if conf.save_llrs:
+        llr_h5_path = base_dir / f"llrs_tmp_{conf.cur_str}.h5"
+        llr_h5_file = h5py.File(llr_h5_path, "w")
 
     for snr_cur in SNR_range:
         ber_sum = np.zeros(iterations)
@@ -882,6 +887,41 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     detected_word_jointllr_list, llrs_mat_jointllr_list = jointllr_trainer._forward(
                         rx_data, H_data, num_bits_pilot, n_users, iterations, probs_for_aug[pilot_chunk:])
+
+            # Save LLRs to HDF5
+            if conf.save_llrs:
+                grp = llr_h5_file.require_group(f"snr_{snr_cur}/block_{block_ind}")
+
+                def _append_llrs(grp, name, data):
+                    """Write data (numpy float16) into a resizable dataset, appending along axis 0."""
+                    arr = np.asarray(data, dtype=np.float16)
+                    if name not in grp:
+                        grp.create_dataset(name, data=arr,
+                                           maxshape=(None,) + arr.shape[1:],
+                                           compression="gzip", compression_opts=4,
+                                           chunks=True)
+                    else:
+                        ds = grp[name]
+                        old = ds.shape[0]
+                        ds.resize(old + arr.shape[0], axis=0)
+                        ds[old:] = arr
+
+                _append_llrs(grp, "lmmse", llrs_mat_lmmse)
+                if run_sphere:
+                    _append_llrs(grp, "sphere", llrs_mat_sphere)
+                if run_deeprx:
+                    _append_llrs(grp, "deeprx", llrs_mat_deeprx.cpu().numpy())
+                for iteration in range(iterations):
+                    _append_llrs(grp, f"escnn_iter{iteration}", llrs_mat_list[iteration].cpu().numpy())
+                    if conf.run_tdfdcnn:
+                        _append_llrs(grp, f"tdfdcnn_iter{iteration}", llrs_mat_tdfdcnn_list[iteration].cpu().numpy())
+                    if run_deepsic:
+                        _append_llrs(grp, f"deepsic_iter{iteration}", llrs_mat_deepsic_list[iteration].cpu().numpy())
+                    if run_mhsa:
+                        _append_llrs(grp, f"mhsa_iter{iteration}", llrs_mat_mhsa_list[iteration].cpu().numpy())
+                    if conf.run_jointllr:
+                        _append_llrs(grp, f"jointllr_iter{iteration}", llrs_mat_jointllr_list[iteration].cpu().numpy())
+                llr_h5_file.flush()
 
             # CE Based
             rx_data_c = rx[pilot_chunk:].cpu()
@@ -1805,6 +1845,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 title_string_cur = "tdfdcnn" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
                 fig_tdfdcnn.savefig(file_path)
+
+    if conf.save_llrs:
+        llr_h5_file.close()
+        llr_h5_final_path = base_dir / (title_string + "_llrs.h5")
+        os.rename(llr_h5_path, llr_h5_final_path)
+        print(f"LLRs saved to {llr_h5_final_path}")
 
     markers = ['o', '*', 'x', 'D', '+', 'o']
     dashes = [':', '-.', '--', '-', '-', '-']

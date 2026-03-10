@@ -14,6 +14,7 @@ import re
 from scipy.interpolate import interp1d
 import numpy as np
 from collections import defaultdict
+from scipy.io import savemat
 
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
@@ -357,6 +358,11 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         # ---- Averages ----
         snrs = sorted([s for s in snr_ber_dict.keys() if MIN_SNR <= s <= MAX_SNR])
 
+        # Capture BLER data for mat export before it gets overwritten by BER iteration
+        if plot_type == "BLER":
+            bler_snr_ber_dict = snr_ber_dict
+            bler_snrs = snrs
+
         def avg(key):
             vals = []
             for s in snrs:
@@ -567,6 +573,71 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         print(f"[INFO] Could not copy to clipboard: {e}")
 
     plt.show()
+
+    # ---- Save averaged BLER curves to .mat file ----
+    def _avg_mat(key):
+        vals = []
+        for s in bler_snrs:
+            arr = np.asarray(bler_snr_ber_dict[s][key], dtype=float)
+            arr = arr[np.isfinite(arr)]
+            vals.append(np.mean(arr) if arr.size else np.nan)
+        return np.array(vals)
+
+    ber_escnn_arr   = _avg_mat('ber_1')
+    ber_escnn_2_arr = _avg_mat('ber_2')
+    ber_escnn_3_arr = _avg_mat('ber_3')
+    ber_lmmse_arr   = _avg_mat('ber_lmmse')
+    ber_sphere_arr  = _avg_mat('ber_sphere')
+    ber_deeprx_arr  = _avg_mat('ber_deeprx')
+    ber_deepsic_arr = _avg_mat('ber_deepsic_1')
+
+    snrs_arr = np.array(bler_snrs)
+    ber_target_mat = 0.1  # BLER target (10%), matching MATLAB legend "SNR@10%"
+
+    # bler_no_aug = the augmenter's own curve (matches what the MATLAB script expects
+    # per mat file: lmmse.mat -> LMMSE curve, sphere.mat -> Sphere curve, etc.)
+    aug_match = re.search(r"AUGMENT_(LMMSE|SPHERE|DEEPSIC|DEEPRX)", title_source_file or "")
+    aug_type = aug_match.group(1) if aug_match else 'LMMSE'
+    bler_no_aug_map = {
+        'LMMSE':  ber_lmmse_arr,
+        'SPHERE': ber_sphere_arr,
+        'DEEPRX': ber_deeprx_arr,
+        'DEEPSIC': ber_deepsic_arr,
+    }
+    bler_no_aug_arr = bler_no_aug_map.get(aug_type, ber_lmmse_arr)
+
+    def _snr_target(arr):
+        return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), ber_target_mat)
+
+    mat_data = {
+        'snrs':              snrs_arr,
+        'ber_escnn':         ber_escnn_arr,
+        'ber_lmmse':         ber_lmmse_arr,
+        'ber_sphere':        ber_sphere_arr,
+        'ber_deeprx':        ber_deeprx_arr,
+        'ber_deepsic':       ber_deepsic_arr,
+        'ber_mhsa':          _avg_mat('ber_mhsa_1'),
+        'ber_jointllr':      _avg_mat('ber_jointllr_1'),
+        # Legacy names expected by MATLAB scripts
+        'bler_aug':          ber_escnn_arr,
+        'bler_aug_1':        ber_escnn_arr,
+        'bler_aug_2':        ber_escnn_2_arr,
+        'bler_aug_3':        ber_escnn_3_arr,
+        'bler_no_aug':       bler_no_aug_arr,
+        'snr_target_aug':    _snr_target(ber_escnn_arr),
+        'snr_target_aug_1':  _snr_target(ber_escnn_arr),
+        'snr_target_aug_2':  _snr_target(ber_escnn_2_arr),
+        'snr_target_aug_3':  _snr_target(ber_escnn_3_arr),
+        'snr_target_no_aug': _snr_target(bler_no_aug_arr),
+        'titletext':         build_cleaned_title_from_filename(os.path.basename(title_source_file)) if title_source_file else '',
+    }
+
+    mat_output_dir = os.path.join(CSV_DIR, 'mat_files')
+    os.makedirs(mat_output_dir, exist_ok=True)
+    mat_name = aug_type.lower() if aug_match else "results"
+    mat_path = os.path.join(mat_output_dir, mat_name + ".mat")
+    savemat(mat_path, mat_data)
+    print(f"[INFO] Mat file saved to: {mat_path}")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'Completion';
+base_name        = 'Co';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -70,7 +70,7 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
               0.47, 0.67, 0.19;   % DeepRx  - green
               0.49, 0.18, 0.56];  % DeepSIC - purple
 
-alg_names = {'LMMSE', 'RBSD', 'DeepRx', 'DeepSIC'};
+alg_names = {'LMMSE', 'Sphere', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsicsb'};
 
 % Markers per algorithm per code-rate set (2 sets max):

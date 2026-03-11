@@ -109,8 +109,6 @@ xlabel('SNR (dB)');
 ylabel('BLER');
 set(gca, 'YScale', 'log');
 set(gcf, 'Units', 'inches', 'Position', [0 0 5 3.5]);
-set(gca, 'FontSize', 8);
-set(gca, 'GridAlpha', 0.25);
 set(gca, 'LooseInset', get(gca, 'TightInset'));
 
 out_name = fullfile(root_dir, [base_name, extra_text]);

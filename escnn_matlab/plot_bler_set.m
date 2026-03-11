@@ -2,21 +2,22 @@ function [handles, labels] = plot_bler_set( ...
     dir_path, rc_idx, ...
     algs_to_plot, alg_colors, alg_names, alg_files, ...
     markers_no_aug, markers_aug, fillable_algs, ...
-    add_snr_target, plot_aug_iter_2)
+    add_snr_target, plot_aug_iter_2, snr_pad_left_db)
 % PLOT_BLER_SET  Plot one set of BLER curves from a single directory.
 %
-%   rc_idx : 1 or 2, indexes into the marker tables for this code-rate set
+%   rc_idx         : 1 or 2, indexes into marker tables for this code-rate set
+%   snr_pad_left_db: extend SNR axis left by this many dB with BLER=1 padding
 %
 %   Encoding:
 %     Dashed + hollow marker = no aug  (LMMSE/Sphere)
 %     Solid  + filled marker = aug     (LMMSE/Sphere)
-%     Dashed                 = no aug  (DeepRx/DeepSIC, non-fillable markers)
-%     Solid                  = aug     (DeepRx/DeepSIC, non-fillable markers)
+%     Dashed                 = no aug  (DeepRx/DeepSIC)
+%     Solid                  = aug     (DeepRx/DeepSIC)
 
 % Extract code rate label from directory path
 token = regexp(dir_path, '_(0\.\d+)', 'tokens', 'once');
 if ~isempty(token)
-    cr_str = [', r=', token{1}];   % e.g. ' r=0.46'
+    cr_str = [', r=', token{1}];
 else
     cr_str = '';
 end
@@ -39,22 +40,41 @@ for alg = algs_to_plot
         continue;
     end
 
-    alg_name  = alg_names{alg};
-    alg_color = alg_colors(alg,:);
+    alg_name    = alg_names{alg};
+    alg_color   = alg_colors(alg,:);
     is_fillable = ismember(alg, fillable_algs);
+
+    % Build SNR vector with optional left padding of BLER=1 points
+    snrs = S.snrs(:)';
+    if snr_pad_left_db > 0
+        snr_step   = snrs(2) - snrs(1);           % infer step from data
+        snr_start  = snrs(1) - snr_pad_left_db;
+        snrs_pad   = snr_start : snr_step : snrs(1) - snr_step;
+        snrs_plot  = [snrs_pad, snrs];
+    else
+        snrs_plot  = snrs;
+    end
+    n_pad = numel(snrs_plot) - numel(snrs);        % number of padded points
+
+    % Helper: prepend BLER=1 padding to a BLER vector
+    pad_bler = @(b) [ones(1, n_pad), b(:)'];
+
+    % Marker spacing: one marker every ~4 points across full SNR range
+    n_total     = numel(snrs_plot);
+    mk_indices  = 1 : 1 : n_total;
 
     % Legend labels
     lbl_base     = [alg_name, cr_str];
     lbl_base_aug = [alg_name, ' aug', cr_str];
 
-    % Marker shapes for this alg + code rate set
+    % Marker shapes
     mk_no_aug = markers_no_aug{alg, rc_idx};
     mk_aug    = markers_aug{alg, rc_idx};
 
-    % Face colors: hollow for no-aug, filled for aug (fillable algs only)
+    % Fill colors
     if is_fillable
-        face_no_aug = 'none';       % hollow
-        face_aug    = alg_color;    % filled
+        face_no_aug = 'none';
+        face_aug    = alg_color;
     else
         face_no_aug = 'none';
         face_aug    = 'none';
@@ -67,11 +87,13 @@ for alg = algs_to_plot
         lbl_no_aug = lbl_base;
     end
 
-    h1 = semilogy(S.snrs, S.bler_no_aug, ...
+    h1 = semilogy(snrs_plot, pad_bler(S.bler_no_aug), ...
         'Color',           alg_color, ...
         'LineStyle',       '--', ...
         'Marker',          mk_no_aug, ...
+        'MarkerIndices',   mk_indices, ...
         'MarkerFaceColor', face_no_aug, ...
+        'MarkerSize',      5, ...
         'LineWidth',       1.2);
     handles(end+1) = h1; %#ok<AGROW>
     labels{end+1}  = lbl_no_aug; %#ok<AGROW>
@@ -84,11 +106,13 @@ for alg = algs_to_plot
             lbl_aug1 = lbl_base_aug;
         end
 
-        h2 = semilogy(S.snrs, S.bler_aug_1, ...
+        h2 = semilogy(snrs_plot, pad_bler(S.bler_aug_1), ...
             'Color',           alg_color, ...
             'LineStyle',       '-', ...
             'Marker',          mk_aug, ...
+            'MarkerIndices',   mk_indices, ...
             'MarkerFaceColor', face_aug, ...
+            'MarkerSize',      5, ...
             'LineWidth',       1.2);
         handles(end+1) = h2; %#ok<AGROW>
         labels{end+1}  = lbl_aug1; %#ok<AGROW>
@@ -102,11 +126,13 @@ for alg = algs_to_plot
             lbl_aug2 = [lbl_base_aug, ' iter2'];
         end
 
-        h3 = semilogy(S.snrs, S.bler_aug_2, ...
+        h3 = semilogy(snrs_plot, pad_bler(S.bler_aug_2), ...
             'Color',           alg_color, ...
             'LineStyle',       ':', ...
             'Marker',          mk_aug, ...
+            'MarkerIndices',   mk_indices, ...
             'MarkerFaceColor', face_aug, ...
+            'MarkerSize',      5, ...
             'LineWidth',       1.2);
         handles(end+1) = h3; %#ok<AGROW>
         labels{end+1}  = lbl_aug2; %#ok<AGROW>

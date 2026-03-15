@@ -5,11 +5,11 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'twofivesix';
+base_name        = 'Completion';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1 2];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db  = 0;             % extend SNR axis to the left by this many dB (0 = no padding)
@@ -145,9 +145,10 @@ lgd = legend(ax(1), all_handles, all_labels, ...
     'Orientation', 'horizontal', ...
     'NumColumns',  4);
 
-% Position legend below the figure
-lgd.Units    = 'normalized';
-lgd.Position = [0.1, 0.01, 0.8, 0.05];   % [left, bottom, width, height]
+% Position legend centered below the figure
+lgd.Units       = 'normalized';
+lgd.Position(1) = 0.5 - lgd.Position(3)/2;   % center horizontally
+lgd.Position(2) = 0.01;                        % near bottom
 
 % Shrink subplots slightly to make room for legend at bottom
 for d = 1:n_dirs

@@ -5,14 +5,15 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'Completion';
+base_name        = 'twofivesix';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 2];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
-snr_pad_left_db  = 0;             % extend SNR axis to the left by this many dB (0 = no padding)
+snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
+snr_cut_right_pts = 5;            % cut this many SNR points from the right (0 = no cut)
 % ----------------------------
 
 % ---- Auto-detect code rate directories ----
@@ -71,16 +72,15 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
 alg_names = {'LMMSE', 'RBSD', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsicsb'};
 
-%                    rc_idx=1   rc_idx=2
-markers_no_aug = {'^',  'v';    % LMMSE   (fillable, hollow)
-                  's',  'd';    % RBSD    (fillable, hollow)
-                  '*',  '*';    % DeepRx  (non-fillable)
-                  '+',  '+'};  % DeepSIC (non-fillable)
+markers_no_aug = {'^';    % LMMSE   (fillable, hollow)
+                  's';    % RBSD    (fillable, hollow)
+                  '*';    % DeepRx  (non-fillable)
+                  '+'};   % DeepSIC (non-fillable)
 
-markers_aug    = {'^',  'v';    % LMMSE   (fillable, filled)
-                  's',  'd';    % RBSD    (fillable, filled)
-                  'p',  'p';    % DeepRx  (non-fillable)
-                  'x',  'x'};  % DeepSIC (non-fillable)
+markers_aug    = {'^';    % LMMSE   (fillable, filled)
+                  's';    % RBSD    (fillable, filled)
+                  'p';    % DeepRx  (non-fillable)
+                  'x'};   % DeepSIC (non-fillable)
 
 fillable_algs = [1, 2];
 % ----------------------------------
@@ -103,10 +103,10 @@ for d = 1:n_dirs
     hold on; grid on;
 
     [h, lbl] = plot_bler_set( ...
-        dirs{d}, d, ...
+        dirs{d}, ...
         algs_to_plot, alg_colors, alg_names, alg_files, ...
         markers_no_aug, markers_aug, fillable_algs, ...
-        add_snr_target, plot_aug_iter_2, snr_pad_left_db);
+        add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
 
     hold off;
 
@@ -129,14 +129,17 @@ for d = 1:n_dirs
     set(ax(d), 'YScale', 'log');
     xlabel(ax(d), 'SNR (dB)');
 
-    % Only left subplot gets y-label
     if d == 1
         ylabel(ax(d), 'BLER');
+        set(ax(d), 'YAxisLocation', 'left');
     else
-        % Share y-axis with first subplot and hide y tick labels
+        % Share y-axis with first subplot; show tick labels on the left side
         linkaxes([ax(1), ax(d)], 'y');
-        set(ax(d), 'YTickLabel', []);
+        ylabel(ax(d), 'BLER');
     end
+
+    % Show box border and minor ticks on all subplots
+    set(ax(d), 'YMinorTick', 'on', 'Box', 'on');
 end
 
 % ---- Shared legend below the subplots ----

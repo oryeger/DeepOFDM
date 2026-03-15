@@ -1,12 +1,12 @@
 function [handles, labels] = plot_bler_set( ...
-    dir_path, rc_idx, ...
+    dir_path, ...
     algs_to_plot, alg_colors, alg_names, alg_files, ...
     markers_no_aug, markers_aug, fillable_algs, ...
-    add_snr_target, plot_aug_iter_2, snr_pad_left_db)
+    add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts)
 % PLOT_BLER_SET  Plot one set of BLER curves from a single directory.
 %
-%   rc_idx         : 1 or 2, indexes into marker tables for this code-rate set
-%   snr_pad_left_db: extend SNR axis left by this many dB with BLER=1 padding
+%   snr_pad_left_db   : extend SNR axis left by this many dB with BLER=1 padding
+%   snr_cut_right_pts : remove this many points from the right of SNR/BLER vectors
 %
 %   Encoding:
 %     Dashed + hollow marker = no aug  (LMMSE/Sphere)
@@ -46,6 +46,9 @@ for alg = algs_to_plot
 
     % Build SNR vector with optional left padding of BLER=1 points
     snrs = S.snrs(:)';
+    if snr_cut_right_pts > 0
+        snrs = snrs(1 : end - snr_cut_right_pts);
+    end
     if snr_pad_left_db > 0
         snr_step   = snrs(2) - snrs(1);           % infer step from data
         snr_start  = snrs(1) - snr_pad_left_db;
@@ -56,8 +59,14 @@ for alg = algs_to_plot
     end
     n_pad = numel(snrs_plot) - numel(snrs);        % number of padded points
 
-    % Helper: prepend BLER=1 padding to a BLER vector
-    pad_bler = @(b) [ones(1, n_pad), b(:)'];
+    % Helper: trim right, then prepend BLER=1 padding to a BLER vector
+    n_snrs_orig = numel(S.snrs);
+    if snr_cut_right_pts > 0
+        trim_bler = @(b) b(1 : n_snrs_orig - snr_cut_right_pts);
+    else
+        trim_bler = @(b) b(:)';
+    end
+    pad_bler = @(b) [ones(1, n_pad), trim_bler(b)];
 
     % Marker spacing: one marker every ~4 points across full SNR range
     n_total     = numel(snrs_plot);
@@ -68,8 +77,8 @@ for alg = algs_to_plot
     lbl_base_aug = [alg_name, ' aug', cr_str];
 
     % Marker shapes
-    mk_no_aug = markers_no_aug{alg, rc_idx};
-    mk_aug    = markers_aug{alg, rc_idx};
+    mk_no_aug = markers_no_aug{alg};
+    mk_aug    = markers_aug{alg};
 
     % Fill colors
     if is_fillable

@@ -98,12 +98,9 @@ def plot_llr_histograms(data, snr: int,
     if n == 1:
         axes = [axes]
 
-    # Shared x-axis limits (robust to outliers)
-    all_vals = np.concatenate([data[key] for key, _, _ in available])
-    x_min = float(np.percentile(all_vals, 0.5))
-    x_max = float(np.percentile(all_vals, 99.5))
-
     for ax, (key, label, color) in zip(axes, available):
+        x_min = float(np.percentile(data[key], 0.5))
+        x_max = float(np.percentile(data[key], 99.5))
         ax.hist(data[key], bins=bins, range=(x_min, x_max),
                 color=color, edgecolor='black', alpha=0.7)
         ax.set_xlabel('LLR value')

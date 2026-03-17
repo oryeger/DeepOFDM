@@ -12,41 +12,35 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123 17 41 58)
 # snrs=($(seq 21 38))
-snrs=($(seq 5 34))
-cfos=(0 0.15)
+snrs=($(seq 21 40))
+cfos=(0 0.0375)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
-
-# epochs sweep
-epochs_vals=(150)
-
-# NEW: escnn_dropout sweep
-escnn_dropout_vals=(0.0)
 
 # increase_prime_modulation sweep
 increase_prime_modulation_vals=(False)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('none')
 
-# batch_size sweep
+# NEW: batch_size sweep
 batch_size_vals=(1024)
 
-# each augment mode must be a separate array element
+# FIX: each augment mode must be a separate array element
 which_augment_vals=(
   'AUGMENT_LMMSE'
-  'AUGMENT_SPHERE'
-  'AUGMENT_DEEPSIC'
   'AUGMENT_DEEPRX'
+  'AUGMENT_DEEPSIC'
+  'AUGMENT_SPHERE'
 )
 
 TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(5000)
-mcs_vals=(28)
+pilot_size_vals=(10000)
+mcs_vals=(22)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)
@@ -57,6 +51,12 @@ n_users_vals=(4)
 
 # make_64QAM_16QAM_percentage values
 make_64QAM_16QAM_percentage_vals=(0)
+
+# deeprx_claude values
+deeprx_claude_vals=(True)
+
+# deeprx_override values
+deeprx_override_vals=(True)
 
 # --------------------------------------------
 total_count=0
@@ -139,22 +139,15 @@ for seed in "${seeds[@]}"; do
                                 for batch_size in "${batch_size_vals[@]}"; do
                                   bstag="bs${batch_size}"
 
-                                  for epochs in "${epochs_vals[@]}"; do
-                                    etag="ep${epochs}"
+                                  for deeprx_claude in "${deeprx_claude_vals[@]}"; do
+                                    [[ "$deeprx_claude" == True ]] && drxctag="drxC1" || drxctag="drxC0"
 
-                                    # NEW: escnn_dropout loop
-                                    for escnn_dropout in "${escnn_dropout_vals[@]}"; do
-                                      if [[ "$escnn_dropout" == "0.0" ]]; then
-                                        drtag="dr0p0"
-                                      elif [[ "$escnn_dropout" == "0.3" ]]; then
-                                        drtag="dr0p3"
-                                      else
-                                        drtag="dr${escnn_dropout//./p}"
-                                      fi
+                                    for deeprx_override in "${deeprx_override_vals[@]}"; do
+                                      [[ "$deeprx_override" == True ]] && drxotag="drxO1" || drxotag="drxO0"
 
                                       for snr in "${snrs[@]}"; do
 
-                                        out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                        out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${drxctag}_${drxotag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
                                         sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                             -e "s/^snr:.*/snr: $snr/" \
@@ -174,8 +167,8 @@ for seed in "${seeds[@]}"; do
                                             -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
                                             -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
                                             -e "s/^batch_size:.*/batch_size: $batch_size/" \
-                                            -e "s/^epochs:.*/epochs: $epochs/" \
-                                            -e "s/^escnn_dropout:.*/escnn_dropout: $escnn_dropout/" \
+                                            -e "s/^deeprx_claude:.*/deeprx_claude: $deeprx_claude/" \
+                                            -e "s/^deeprx_override:.*/deeprx_override: $deeprx_override/" \
                                             "$input_file" > "$out_file"
 
                                         all_config_files+=("$out_file")
@@ -214,3 +207,6 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+
+
+

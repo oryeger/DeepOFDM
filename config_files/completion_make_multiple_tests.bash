@@ -12,23 +12,23 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123 17 41 58)
 # snrs=($(seq 21 38))
-snrs=($(seq 5 34))
-cfos=(0 0.15)
+snrs=($(seq 15 40))
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
 
-# epochs sweep
+# NEW: epochs sweep
 epochs_vals=(150)
 
 # NEW: escnn_dropout sweep
 escnn_dropout_vals=(0.0)
 
 # increase_prime_modulation sweep
-increase_prime_modulation_vals=(False)
+increase_prime_modulation_vals=(True)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('high')
 
 # batch_size sweep
 batch_size_vals=(1024)
@@ -38,15 +38,14 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
   'AUGMENT_SPHERE'
   'AUGMENT_DEEPSIC'
-  'AUGMENT_DEEPRX'
 )
 
 TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(5000)
-mcs_vals=(28)
+pilot_size_vals=(10000)
+mcs_vals=(11 33 34)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)
@@ -139,48 +138,37 @@ for seed in "${seeds[@]}"; do
                                 for batch_size in "${batch_size_vals[@]}"; do
                                   bstag="bs${batch_size}"
 
+                                  # NEW: epochs loop
                                   for epochs in "${epochs_vals[@]}"; do
                                     etag="ep${epochs}"
 
-                                    # NEW: escnn_dropout loop
-                                    for escnn_dropout in "${escnn_dropout_vals[@]}"; do
-                                      if [[ "$escnn_dropout" == "0.0" ]]; then
-                                        drtag="dr0p0"
-                                      elif [[ "$escnn_dropout" == "0.3" ]]; then
-                                        drtag="dr0p3"
-                                      else
-                                        drtag="dr${escnn_dropout//./p}"
-                                      fi
+                                    for snr in "${snrs[@]}"; do
 
-                                      for snr in "${snrs[@]}"; do
+                                      out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
-                                        out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                      sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                          -e "s/^snr:.*/snr: $snr/" \
+                                          -e "s/^cfo:.*/cfo: $cfo/" \
+                                          -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                          -e "s/^use_film:.*/use_film: $use_film/" \
+                                          -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                          -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
+                                          -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
+                                          -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                          -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                          -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                          -e "s/^mcs:.*/mcs: $mcs/" \
+                                          -e "s/^n_users:.*/n_users: $n_users/" \
+                                          -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                          -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
+                                          -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                          -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
+                                          -e "s/^batch_size:.*/batch_size: $batch_size/" \
+                                          -e "s/^epochs:.*/epochs: $epochs/" \
+                                          "$input_file" > "$out_file"
 
-                                        sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                                            -e "s/^snr:.*/snr: $snr/" \
-                                            -e "s/^cfo:.*/cfo: $cfo/" \
-                                            -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                                            -e "s/^use_film:.*/use_film: $use_film/" \
-                                            -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                                            -e "s/^TDL_model:.*/TDL_model: '$tdl'/" \
-                                            -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
-                                            -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                                            -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                            -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
-                                            -e "s/^mcs:.*/mcs: $mcs/" \
-                                            -e "s/^n_users:.*/n_users: $n_users/" \
-                                            -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
-                                            -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
-                                            -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                                            -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
-                                            -e "s/^batch_size:.*/batch_size: $batch_size/" \
-                                            -e "s/^epochs:.*/epochs: $epochs/" \
-                                            -e "s/^escnn_dropout:.*/escnn_dropout: $escnn_dropout/" \
-                                            "$input_file" > "$out_file"
-
-                                        all_config_files+=("$out_file")
-                                        ((total_count++))
-                                      done
+                                      all_config_files+=("$out_file")
+                                      ((total_count++))
                                     done
                                   done
                                 done

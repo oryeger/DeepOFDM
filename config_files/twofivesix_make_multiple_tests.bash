@@ -12,7 +12,7 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123 17 41 58)
 # snrs=($(seq 21 38))
-snrs=($(seq 5 34))
+snrs=($(seq 10 42))
 cfos=(0 0.15)
 
 clip_percentage_in_tx_vals=(100)
@@ -28,7 +28,7 @@ escnn_dropout_vals=(0.0)
 increase_prime_modulation_vals=(False)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('none')
 
 # batch_size sweep
 batch_size_vals=(1024)
@@ -41,7 +41,7 @@ which_augment_vals=(
   'AUGMENT_DEEPRX'
 )
 
-TDL_model_vals=('C')
+TDL_model_vals=('B')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 

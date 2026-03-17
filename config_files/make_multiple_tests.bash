@@ -12,10 +12,10 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123 17 41 58)
 # snrs=($(seq 21 38))
-snrs=($(seq 5 34))
-cfos=(0 0.15)
+snrs=($(seq 0 30))
+cfos=(0)
 
-clip_percentage_in_tx_vals=(100)
+clip_percentage_in_tx_vals=(0 30)
 use_film_vals=(False)
 
 # epochs sweep
@@ -28,7 +28,7 @@ escnn_dropout_vals=(0.0)
 increase_prime_modulation_vals=(False)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('low')
 
 # batch_size sweep
 batch_size_vals=(1024)
@@ -36,9 +36,6 @@ batch_size_vals=(1024)
 # each augment mode must be a separate array element
 which_augment_vals=(
   'AUGMENT_LMMSE'
-  'AUGMENT_SPHERE'
-  'AUGMENT_DEEPSIC'
-  'AUGMENT_DEEPRX'
 )
 
 TDL_model_vals=('C')
@@ -46,7 +43,7 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(5000)
-mcs_vals=(28)
+mcs_vals=(28 30)
 override_noise_var_vals=(False)
 
 # mod_pilot values (including negative)

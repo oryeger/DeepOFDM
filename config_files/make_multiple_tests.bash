@@ -13,7 +13,7 @@ base_name=$(basename "$input_file" .yaml)
 seeds=(123 17 41 58)
 # snrs=($(seq 21 38))
 snrs=($(seq 0 28))
-cfos=(0)
+cfos=(0.15)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -25,13 +25,13 @@ epochs_vals=(150)
 escnn_dropout_vals=(0.0)
 
 # NEW: learning_rate sweep
-learning_rate_vals=(5.0e-3 5.0e-4)
+learning_rate_vals=(5.0e-3)
 
 # increase_prime_modulation sweep
 increase_prime_modulation_vals=(False)
 
 # spatial_correlation sweep
-spatial_correlation_vals=('medium')
+spatial_correlation_vals=('low')
 
 # batch_size sweep
 batch_size_vals=(-1)

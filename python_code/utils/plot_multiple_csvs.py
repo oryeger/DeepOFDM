@@ -280,8 +280,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     if mi_files_exist:
         plot_types = ["BLER", "MI", "BER"]
 
-    bler_seed_snr_dict = None
     bler_snrs = None
+    bler_avg_curves = None
 
     for plot_type in plot_types:
         ax = axes[subplot_index[plot_type]]
@@ -494,7 +494,6 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             continue
 
         if plot_type == "BLER":
-            bler_seed_snr_dict = seed_snr_dict
             bler_snrs = snrs
 
         def avg(key, use_log_interp):
@@ -544,11 +543,14 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             with np.errstate(invalid="ignore"):
                 mean_curve = np.nanmean(curves, axis=0)
 
-            # Enforce monotone non-increasing on the final averaged curve (BER/BLER only)
+            # Remove isolated non-monotonic spikes from the averaged curve, then interpolate
             if use_log_interp:
-                finite_mask = np.isfinite(mean_curve)
-                if finite_mask.any():
-                    mean_curve[finite_mask] = np.minimum.accumulate(mean_curve[finite_mask])
+                mean_curve, removed_idx = _remove_isolated_nonmonotonic_points(
+                    snrs, mean_curve, max_bad_points=MAX_BAD_POINTS_PER_CURVE
+                )
+                if PRINT_NONMONO_SUMMARY and removed_idx:
+                    print(f"[INFO] Removed non-monotonic points from averaged curve for key '{key}': SNRs={[snrs[i] for i in removed_idx]}")
+                mean_curve, _ = _fill_missing_curve(snrs, mean_curve, use_log_interp=True, max_gap=MAX_INTERP_GAP)
 
             return mean_curve.tolist()
 
@@ -681,6 +683,19 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 ax.semilogy(snrs, ber_deepstag_1, linestyle=dashes[3], marker=markers[5], color="teal",
                             label=f"DeepSTAG1 @ {round(100 * target_y)}% = {snr_target_deepstag}")
 
+            if plot_type == "BLER":
+                bler_avg_curves = {
+                    "ber_1":         ber_1,
+                    "ber_2":         ber_2,
+                    "ber_3":         ber_3,
+                    "ber_lmmse":     ber_lmmse,
+                    "ber_sphere":    ber_sphere,
+                    "ber_deeprx":    ber_deeprx,
+                    "ber_deepsic_1": ber_deepsic_1,
+                    "ber_mhsa_1":    ber_mhsa_1,
+                    "ber_jointllr_1":ber_jointllr_1,
+                }
+
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.set_yscale("log")
@@ -734,39 +749,17 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     plt.show()
 
     # ---- Save averaged BLER curves to .mat file ----
-    if bler_seed_snr_dict is not None and bler_snrs is not None:
-        def _avg_mat(key, use_log_interp=True):
-            curves = []
-            for seed in seeds:
-                y = [bler_seed_snr_dict.get(seed, {}).get(s, {}).get(key, np.nan) for s in bler_snrs]
-                y = np.asarray(y, dtype=float)
+    if bler_avg_curves is not None and bler_snrs is not None:
+        def _a(key):
+            return np.asarray(bler_avg_curves.get(key, [np.nan] * len(bler_snrs)), dtype=float)
 
-                if REMOVE_ISOLATED_NONMONO_POINTS and use_log_interp:
-                    y, _ = _remove_isolated_nonmonotonic_points(
-                        bler_snrs, y, max_bad_points=MAX_BAD_POINTS_PER_CURVE
-                    )
-
-                if INTERPOLATE_MISSING_PER_SEED:
-                    y, _ = _fill_missing_curve(
-                        bler_snrs,
-                        y,
-                        use_log_interp=use_log_interp,
-                        max_gap=MAX_INTERP_GAP
-                    )
-
-                curves.append(y)
-
-            curves = np.asarray(curves, dtype=float)
-            with np.errstate(invalid="ignore"):
-                return np.nanmean(curves, axis=0)
-
-        ber_escnn_arr   = _avg_mat("ber_1")
-        ber_escnn_2_arr = _avg_mat("ber_2")
-        ber_escnn_3_arr = _avg_mat("ber_3")
-        ber_lmmse_arr   = _avg_mat("ber_lmmse")
-        ber_sphere_arr  = _avg_mat("ber_sphere")
-        ber_deeprx_arr  = _avg_mat("ber_deeprx")
-        ber_deepsic_arr = _avg_mat("ber_deepsic_1")
+        ber_escnn_arr   = _a("ber_1")
+        ber_escnn_2_arr = _a("ber_2")
+        ber_escnn_3_arr = _a("ber_3")
+        ber_lmmse_arr   = _a("ber_lmmse")
+        ber_sphere_arr  = _a("ber_sphere")
+        ber_deeprx_arr  = _a("ber_deeprx")
+        ber_deepsic_arr = _a("ber_deepsic_1")
 
         snrs_arr = np.array(bler_snrs)
         ber_target_mat = 0.1
@@ -775,9 +768,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         aug_type = aug_match.group(1) if aug_match else "LMMSE"
 
         bler_no_aug_map = {
-            "LMMSE":  ber_lmmse_arr,
-            "SPHERE": ber_sphere_arr,
-            "DEEPRX": ber_deeprx_arr,
+            "LMMSE":   ber_lmmse_arr,
+            "SPHERE":  ber_sphere_arr,
+            "DEEPRX":  ber_deeprx_arr,
             "DEEPSIC": ber_deepsic_arr,
         }
         bler_no_aug_arr = bler_no_aug_map.get(aug_type, ber_lmmse_arr)
@@ -792,8 +785,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             "ber_sphere":        ber_sphere_arr,
             "ber_deeprx":        ber_deeprx_arr,
             "ber_deepsic":       ber_deepsic_arr,
-            "ber_mhsa":          _avg_mat("ber_mhsa_1"),
-            "ber_jointllr":      _avg_mat("ber_jointllr_1"),
+            "ber_mhsa":          _a("ber_mhsa_1"),
+            "ber_jointllr":      _a("ber_jointllr_1"),
             "bler_aug":          ber_escnn_arr,
             "bler_aug_1":        ber_escnn_arr,
             "bler_aug_2":        ber_escnn_2_arr,

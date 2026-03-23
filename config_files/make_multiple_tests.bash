@@ -25,7 +25,7 @@ epochs_vals=(500)
 escnn_dropout_vals=(0.0)
 
 # NEW: learning_rate sweep
-learning_rate_vals=(1.0e-3)
+learning_rate_vals=(5.0e-4)
 
 # increase_prime_modulation sweep
 increase_prime_modulation_vals=(False)

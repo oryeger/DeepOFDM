@@ -25,7 +25,7 @@ epochs_vals=(500)
 escnn_dropout_vals=(0.0)
 
 # NEW: learning_rate sweep
-learning_rate_vals=(5.0e-4)
+learning_rate_vals=(1.0e-3)
 
 # increase_prime_modulation sweep
 increase_prime_modulation_vals=(False)
@@ -45,7 +45,7 @@ TDL_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
+pilot_size_vals=(10000)
 mcs_vals=(17)
 override_noise_var_vals=(False)
 

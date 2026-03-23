@@ -23,13 +23,15 @@ MIN_SNR = -np.inf
 MAX_SNR = np.inf
 
 # ---- Missing / cleanup handling configuration ----
-INTERPOLATE_MISSING_PER_SEED = True
-MAX_INTERP_GAP = 3                  # Fill only interior gaps of up to this many consecutive missing SNRs
-PRINT_INTERP_SUMMARY = True
+CLEANUP_ENABLED = True              # Master switch: False = plot raw averaged data, no cleanup at all
+
+INTERPOLATE_MISSING_PER_SEED = True  and CLEANUP_ENABLED
+MAX_INTERP_GAP = 3                  if CLEANUP_ENABLED else 0   # Fill only interior gaps of up to this many consecutive missing SNRs
+PRINT_INTERP_SUMMARY = True  and CLEANUP_ENABLED
 USE_FULL_INTEGER_SNR_GRID = False   # False = union of observed SNRs
-REMOVE_ISOLATED_NONMONO_POINTS = True
-MAX_BAD_POINTS_PER_CURVE = 1        # Your requested behavior: just one non-monotonic point
-PRINT_NONMONO_SUMMARY = True
+REMOVE_ISOLATED_NONMONO_POINTS = True  and CLEANUP_ENABLED
+MAX_BAD_POINTS_PER_CURVE = 1        if CLEANUP_ENABLED else 0   # Max non-monotonic points to remove per curve
+PRINT_NONMONO_SUMMARY = True  and CLEANUP_ENABLED
 
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:

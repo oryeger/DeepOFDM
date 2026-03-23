@@ -19,15 +19,23 @@ from scipy.io import savemat
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
 seeds = [123, 17, 41, 58]
-MIN_SNR = -np.inf  # -np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
-MAX_SNR = np.inf  # np.inf Set to a number (e.g., 20) to limit max SNR, or np.inf to plot all
+MIN_SNR = -np.inf
+MAX_SNR = np.inf
+
+# ---- Missing / cleanup handling configuration ----
+INTERPOLATE_MISSING_PER_SEED = True
+MAX_INTERP_GAP = 3                  # Fill only interior gaps of up to this many consecutive missing SNRs
+PRINT_INTERP_SUMMARY = True
+USE_FULL_INTEGER_SNR_GRID = False   # False = union of observed SNRs
+REMOVE_ISOLATED_NONMONO_POINTS = True
+MAX_BAD_POINTS_PER_CURVE = 1        # Your requested behavior: just one non-monotonic point
+PRINT_NONMONO_SUMMARY = True
 
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
     cleaned_name = re.sub(".csv", "", cleaned_name)
     cleaned_name = re.sub("Clip=100%", "", cleaned_name)
-    # Remove any occurrence of _SNR= followed by any number (including negative)
     cleaned_name = re.sub(r"_SNR=-?\d+", "", cleaned_name)
     cleaned_name = re.sub("_scs", "scs", cleaned_name)
     cleaned_name = re.sub("cfo_in_Rx", "cfo", cleaned_name)
@@ -39,6 +47,7 @@ def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = "\n".join([cleaned_name[i:i+80] for i in range(0, len(cleaned_name), 80)])
     return cleaned_name
 
+
 def _to_float_cell(x):
     """
     Robust conversion for cells like:
@@ -46,13 +55,13 @@ def _to_float_cell(x):
     """
     s = str(x)
     s = s.replace("tensor(", "").replace(")", "").strip()
-    # handle "0" / "0.0" / empty
     if s == "" or s.lower() == "nan":
         return np.nan
     try:
         return float(s)
     except Exception:
         return np.nan
+
 
 def _get_first_present(df, candidates):
     """Return the first column name that exists in df.columns, else None."""
@@ -61,10 +70,11 @@ def _get_first_present(df, candidates):
             return c
     return None
 
+
 def _safe_interp_x_to_y(x, y, x_target):
     """
-    Your code does interp1d(ber, snr). That requires x to be monotonic-ish.
-    This helper makes it safer by sorting by x and dropping duplicates.
+    Interpolate y(x) safely after sorting x and dropping duplicates.
+    Used for finding SNR@targetBER, i.e., y=snr and x=ber.
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -75,12 +85,10 @@ def _safe_interp_x_to_y(x, y, x_target):
     if x.size < 2:
         return np.nan
 
-    # Sort by x
     order = np.argsort(x)
     x_sorted = x[order]
     y_sorted = y[order]
 
-    # Drop duplicate x (keep first)
     x_unique, idx = np.unique(x_sorted, return_index=True)
     y_unique = y_sorted[idx]
 
@@ -91,16 +99,158 @@ def _safe_interp_x_to_y(x, y, x_target):
     return float(np.round(f(x_target), 1))
 
 
+def _build_snr_grid(observed_snrs):
+    """
+    Build the SNR grid over which curves will be averaged.
+    Recommended default: union of observed SNRs.
+    """
+    observed_snrs = sorted(set(int(s) for s in observed_snrs if MIN_SNR <= s <= MAX_SNR))
+    if not observed_snrs:
+        return []
+
+    if USE_FULL_INTEGER_SNR_GRID:
+        return list(range(min(observed_snrs), max(observed_snrs) + 1))
+    return observed_snrs
+
+
+def _remove_isolated_nonmonotonic_points(snrs, values, max_bad_points=1):
+    """
+    Remove isolated interior points that violate monotonic non-increasing behavior.
+    Such points are replaced by NaN so they can later be interpolated.
+
+    A point y[i] is flagged if:
+      - y[i-1], y[i], y[i+1] are finite
+      - y[i] > y[i-1]  (increase relative to previous point)
+      - and y[i] > y[i+1] (local bump / spike)
+
+    This is conservative and avoids removing a whole sloped region.
+
+    Parameters
+    ----------
+    snrs : list/array
+        Sorted SNRs
+    values : list/array
+        Curve values with possible NaNs
+    max_bad_points : int
+        Maximum number of suspicious points to remove
+
+    Returns
+    -------
+    cleaned_values : np.ndarray
+    removed_positions : list[int]
+    """
+    y = np.asarray(values, dtype=float).copy()
+    n = len(y)
+    removed_positions = []
+
+    if n < 3:
+        return y, removed_positions
+
+    candidates = []
+    for i in range(1, n - 1):
+        if not (np.isfinite(y[i - 1]) and np.isfinite(y[i]) and np.isfinite(y[i + 1])):
+            continue
+
+        # local upward spike for a non-increasing curve
+        if y[i] > y[i - 1] and y[i] > y[i + 1]:
+            severity = y[i] - max(y[i - 1], y[i + 1])
+            candidates.append((severity, i))
+
+    # remove only the strongest few
+    candidates.sort(reverse=True, key=lambda t: t[0])
+
+    for _, i in candidates[:max_bad_points]:
+        y[i] = np.nan
+        removed_positions.append(i)
+
+    return y, removed_positions
+
+
+def _fill_missing_curve(snrs, values, use_log_interp=True, max_gap=3):
+    """
+    Fill small interior missing gaps in a single seed curve.
+
+    Parameters
+    ----------
+    snrs : list/array of SNRs (must be sorted)
+    values : list/array of y-values, with np.nan for missing points
+    use_log_interp : bool
+        True for BER/BLER-like positive quantities
+        False for MI or linear-scale quantities
+    max_gap : int
+        Maximum consecutive missing points to fill
+
+    Returns
+    -------
+    filled_values : np.ndarray
+    filled_positions : list[int]
+        indices in the array that were interpolated
+    """
+    x = np.asarray(snrs, dtype=float)
+    y = np.asarray(values, dtype=float).copy()
+
+    n = len(y)
+    filled_positions = []
+
+    if n == 0:
+        return y, filled_positions
+
+    finite = np.isfinite(y)
+    if finite.sum() < 2:
+        return y, filled_positions
+
+    i = 0
+    while i < n:
+        if np.isfinite(y[i]):
+            i += 1
+            continue
+
+        start = i
+        while i < n and not np.isfinite(y[i]):
+            i += 1
+        end = i - 1
+
+        gap_len = end - start + 1
+        left = start - 1
+        right = end + 1
+
+        # Only fill interior gaps bracketed by finite points
+        if left < 0 or right >= n:
+            continue
+        if not np.isfinite(y[left]) or not np.isfinite(y[right]):
+            continue
+        if gap_len > max_gap:
+            continue
+
+        x_left, x_right = x[left], x[right]
+        y_left, y_right = y[left], y[right]
+
+        if use_log_interp:
+            if y_left <= 0 or y_right <= 0:
+                continue
+            ly_left = np.log10(y_left)
+            ly_right = np.log10(y_right)
+
+            for k in range(start, end + 1):
+                alpha = (x[k] - x_left) / (x_right - x_left)
+                y[k] = 10 ** ((1 - alpha) * ly_left + alpha * ly_right)
+                filled_positions.append(k)
+        else:
+            for k in range(start, end + 1):
+                alpha = (x[k] - x_left) / (x_right - x_left)
+                y[k] = (1 - alpha) * y_left + alpha * y_right
+                filled_positions.append(k)
+
+    return y, filled_positions
+
+
 def plot_csvs(filter_pattern=None, plot_all_iters=False):
     """
     Plot BER/BLER/MI from CSV files in CSV_DIR.
 
     Args:
         filter_pattern: Optional glob pattern string to select files.
-                        E.g. "*TRN=4032*C=No*AUGMENT_LMMSE*0.46*ncPrime_0*s64*.csv"
-                        If None, all files in CSV_DIR are used.
-        plot_all_iters: If True, plot all iterations (ESCNN1/2/3, DeepSIC1/2/3, etc.).
-                        If False (default), plot only the last iteration.
+        plot_all_iters: If True, plot all iterations (ESCNN1/2/3 etc.).
     """
     plot_all_escnn = plot_all_iters
 
@@ -111,72 +261,57 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
     print(f"[INFO] Found {len(all_files)} files matching pattern.")
 
-    # ---- Decide whether to show Sphere curves ----
     pat_upper = (filter_pattern or "").upper()
     show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper
 
-    # ---- Check if MI files exist ----
     mi_files_exist = any(f.endswith("_mi.csv") for f in all_files)
 
-    # ---- Prepare figure with 2 or 3 subplots depending on MI files ----
     if mi_files_exist:
         fig, axes = plt.subplots(1, 3, figsize=(21, 6.5))
-        # BLER=left(0), MI=middle(1), BER=right(2)
         subplot_index = {"BER": 2, "BLER": 0, "MI": 1}
     else:
         fig, axes = plt.subplots(1, 2, figsize=(15.6, 6.5))
-        # BLER=left(0), BER=right(1)
         subplot_index = {"BER": 1, "BLER": 0}
 
-    # ---- MAIN LOOP: plot BLER, MI (if exists), BER ----
     used_seeds_overall = set()
-    title_source_file = None  # keep one real file used (for the cleaned title)
+    title_source_file = None
 
-    # Define plot types: BLER, MI (optional), BER
     plot_types = ["BLER", "BER"]
     if mi_files_exist:
         plot_types = ["BLER", "MI", "BER"]
+
+    bler_seed_snr_dict = None
+    bler_snrs = None
 
     for plot_type in plot_types:
         ax = axes[subplot_index[plot_type]]
 
         if plot_type == "BER":
             search_pattern = r"SNR=(-?\d+)"
-            ber_target = 0.01
+            target_y = 0.01
             ylabel_cur = "BER"
+            use_log_interp_for_missing = True
         elif plot_type == "BLER":
             search_pattern = r"_SNR=(-?\d+)_bler\.csv$"
-            ber_target = 0.1
+            target_y = 0.1
             ylabel_cur = "BLER"
+            use_log_interp_for_missing = True
         else:  # MI
             search_pattern = r"_SNR=(-?\d+)_mi\.csv$"
-            ber_target = None  # No target threshold for MI
+            target_y = None
             ylabel_cur = "MI"
+            use_log_interp_for_missing = False
 
-        snr_ber_dict = defaultdict(lambda: {
-            "ber_1": [], "ber_2": [], "ber_3": [], "ber_deeprx": [],
-            "ber_deepsic_1": [], "ber_deepsic_2": [], "ber_deepsic_3": [],
-            "ber_e2e_1": [], "ber_e2e_2": [], "ber_e2e_3": [],
-            "ber_deepsicmb_1": [], "ber_deepsicmb_2": [], "ber_deepsicmb_3": [],
-            "ber_deepstag_1": [], "ber_deepstag_2": [], "ber_deepstag_3": [],
-            "ber_lmmse": [], "ber_sphere": [],
-            "ber_mhsa_1": [], "ber_mhsa_2": [], "ber_mhsa_3": [],
-            "ber_tdfdcnn_1": [], "ber_tdfdcnn_2": [], "ber_tdfdcnn_3": [],
-            # ✅ NEW: JointLLR (support both total_ber_jointllr and total_ber_jointllr_1)
-            "ber_jointllr_1": [],
-            # MI columns
-            "mi_1": [], "mi_2": [], "mi_3": [],
-            "mi_lmmse": [], "mi_sphere": [],
-            "mi_jointllr_1": [],
-        })
+        # Store values per seed per SNR per key
+        seed_snr_dict = defaultdict(lambda: defaultdict(dict))
+        observed_snrs = set()
 
-        used_seeds_this_panel = set()
-
-        # ---- Load CSVs for each seed ----
         for seed in seeds:
-            seed_files = sorted(f for f in all_files
-                                if f"seed={seed}" in os.path.basename(f)
-                                and "_SNR=" in os.path.basename(f))
+            seed_files = sorted(
+                f for f in all_files
+                if f"seed={seed}" in os.path.basename(f)
+                and "_SNR=" in os.path.basename(f)
+            )
             if not seed_files:
                 continue
 
@@ -186,7 +321,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             for file in seed_files:
                 match = re.search(search_pattern, file)
                 if match:
-                    snr = match.group(1)
+                    snr = int(match.group(1))
                     if snr not in seen_snr:
                         seen_snr.add(snr)
                         unique_files.append(file)
@@ -194,8 +329,6 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             if not unique_files:
                 continue
 
-            # If we got here, this seed is actually used (has at least one matching file)
-            used_seeds_this_panel.add(seed)
             used_seeds_overall.add(seed)
             if title_source_file is None:
                 title_source_file = unique_files[0]
@@ -204,149 +337,154 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 match = re.search(search_pattern, file)
                 if not match:
                     continue
-                snr = int(match.group(1))
 
+                snr = int(match.group(1))
+                if not (MIN_SNR <= snr <= MAX_SNR):
+                    continue
+
+                observed_snrs.add(snr)
                 df = pd.read_csv(file)
 
-                # ------------ BER parsing (same as your script) ------------
-                snr_ber_dict[snr]["ber_1"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                # ---- ESCNN ----
+                if "total_ber_1" in df.columns:
+                    seed_snr_dict[seed][snr]["ber_1"] = _to_float_cell(df["total_ber_1"].iloc[0])
 
                 if "total_ber_2" in df.columns:
-                    snr_ber_dict[snr]["ber_2"].append(_to_float_cell(df["total_ber_2"].iloc[0]))
-                else:
-                    snr_ber_dict[snr]["ber_2"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_2"] = _to_float_cell(df["total_ber_2"].iloc[0])
+                elif "total_ber_1" in df.columns:
+                    seed_snr_dict[seed][snr]["ber_2"] = _to_float_cell(df["total_ber_1"].iloc[0])
 
                 if "total_ber_3" in df.columns:
-                    snr_ber_dict[snr]["ber_3"].append(_to_float_cell(df["total_ber_3"].iloc[0]))
-                else:
-                    snr_ber_dict[snr]["ber_3"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_3"] = _to_float_cell(df["total_ber_3"].iloc[0])
+                elif "total_ber_1" in df.columns:
+                    seed_snr_dict[seed][snr]["ber_3"] = _to_float_cell(df["total_ber_1"].iloc[0])
 
-                # ✅ NEW: JointLLR parsing
+                # ---- JointLLR ----
                 joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                 if joint_col is not None:
-                    snr_ber_dict[snr]["ber_jointllr_1"].append(_to_float_cell(df[joint_col].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_jointllr_1"] = _to_float_cell(df[joint_col].iloc[0])
 
-                # MHSA parsing
+                # ---- MHSA ----
                 if any(col.startswith("total_ber_mhsa") for col in df.columns):
                     if "total_ber_mhsa" in df.columns and not any(col.startswith("total_ber_mhsa_") for col in df.columns):
                         val = _to_float_cell(df["total_ber_mhsa"].iloc[0])
                         for key in ["ber_mhsa_1", "ber_mhsa_2", "ber_mhsa_3"]:
-                            snr_ber_dict[snr][key].append(val)
+                            seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_mhsa_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_mhsa_{k}"].append(_to_float_cell(df[colname].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _to_float_cell(df[colname].iloc[0])
                             elif "total_ber_mhsa" in df.columns:
-                                snr_ber_dict[snr][f"ber_mhsa_{k}"].append(_to_float_cell(df["total_ber_mhsa"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _to_float_cell(df["total_ber_mhsa"].iloc[0])
 
-                # TDFDCNN parsing (tfdfcnn)
+                # ---- TDFDCNN (tfdfcnn) ----
                 if any(col.startswith("total_ber_tfdfcnn") for col in df.columns):
                     if "total_ber_tfdfcnn" in df.columns and not any(col.startswith("total_ber_tfdfcnn_") for col in df.columns):
                         val = _to_float_cell(df["total_ber_tfdfcnn"].iloc[0])
                         for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
-                            snr_ber_dict[snr][key].append(val)
+                            seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_tfdfcnn_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df[colname].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df[colname].iloc[0])
                             elif "total_ber_tdfdcnn" in df.columns:
-                                snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df["total_ber_tfdfcnn"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df["total_ber_tfdfcnn"].iloc[0])
 
-                # TDFDCNN parsing (tdfdcnn)
+                # ---- TDFDCNN (tdfdcnn) ----
                 if any(col.startswith("total_ber_tdfdcnn") for col in df.columns):
                     if "total_ber_tdfdcnn" in df.columns and not any(col.startswith("total_ber_tdfdcnn_") for col in df.columns):
                         val = _to_float_cell(df["total_ber_tdfdcnn"].iloc[0])
                         for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
-                            snr_ber_dict[snr][key].append(val)
+                            seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_tdfdcnn_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df[colname].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df[colname].iloc[0])
                             elif "total_ber_tdfdcnn" in df.columns:
-                                snr_ber_dict[snr][f"ber_tdfdcnn_{k}"].append(_to_float_cell(df["total_ber_tdfdcnn"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df["total_ber_tdfdcnn"].iloc[0])
 
-                # DeepSIC
+                # ---- DeepSIC ----
                 if any(col.startswith("total_ber_deepsic") for col in df.columns):
                     if "total_ber_deepsic" in df.columns:
                         for k in [1, 2, 3]:
-                            snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df["total_ber_deepsic"].iloc[0]))
+                            seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df["total_ber_deepsic"].iloc[0])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepsic_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df[colname].iloc[0]))
-                            else:
-                                snr_ber_dict[snr][f"ber_deepsic_{k}"].append(_to_float_cell(df["total_ber_deepsic_1"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df[colname].iloc[0])
+                            elif "total_ber_deepsic_1" in df.columns:
+                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df["total_ber_deepsic_1"].iloc[0])
 
-                # DeepSIC-MB
+                # ---- DeepSIC-MB ----
                 if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
                     if "total_ber_deepsicmb" in df.columns:
                         for k in [1, 2, 3]:
-                            snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df["total_ber_deepsicmb"].iloc[0]))
+                            seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df["total_ber_deepsicmb"].iloc[0])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepsicmb_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df[colname].iloc[0]))
-                            else:
-                                snr_ber_dict[snr][f"ber_deepsicmb_{k}"].append(_to_float_cell(df["total_ber_deepsicmb_1"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df[colname].iloc[0])
+                            elif "total_ber_deepsicmb_1" in df.columns:
+                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df["total_ber_deepsicmb_1"].iloc[0])
 
-                # DeepSTAG
+                # ---- DeepSTAG ----
                 if any(col.startswith("total_ber_deepstag") for col in df.columns):
                     if "total_ber_deepstag" in df.columns:
                         for k in [1, 2, 3]:
-                            snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df["total_ber_deepstag"].iloc[0]))
+                            seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df["total_ber_deepstag"].iloc[0])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepstag_{k}"
                             if colname in df.columns:
-                                snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df[colname].iloc[0]))
-                            else:
-                                snr_ber_dict[snr][f"ber_deepstag_{k}"].append(_to_float_cell(df["total_ber_deepstag_1"].iloc[0]))
+                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df[colname].iloc[0])
+                            elif "total_ber_deepstag_1" in df.columns:
+                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df["total_ber_deepstag_1"].iloc[0])
 
-                # DeepRx
+                # ---- DeepRx ----
                 if "total_ber_deeprx" in df.columns:
-                    snr_ber_dict[snr]["ber_deeprx"].append(_to_float_cell(df["total_ber_deeprx"].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_deeprx"] = _to_float_cell(df["total_ber_deeprx"].iloc[0])
 
-                # LMMSE
+                # ---- LMMSE ----
                 if "total_ber_lmmse" in df.columns:
-                    snr_ber_dict[snr]["ber_lmmse"].append(_to_float_cell(df["total_ber_lmmse"].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_lmmse"] = _to_float_cell(df["total_ber_lmmse"].iloc[0])
 
-                # Sphere
+                # ---- Sphere ----
                 if "total_ber_sphere" in df.columns:
-                    snr_ber_dict[snr]["ber_sphere"].append(_to_float_cell(df["total_ber_sphere"].iloc[0]))
+                    seed_snr_dict[seed][snr]["ber_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
 
-                # ---- MI parsing (for MI files) ----
+                # ---- MI parsing ----
                 if plot_type == "MI":
                     if "total_ber_1" in df.columns:
-                        snr_ber_dict[snr]["mi_1"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_1"] = _to_float_cell(df["total_ber_1"].iloc[0])
+
                     if "total_ber_2" in df.columns:
-                        snr_ber_dict[snr]["mi_2"].append(_to_float_cell(df["total_ber_2"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_2"] = _to_float_cell(df["total_ber_2"].iloc[0])
                     elif "total_ber_1" in df.columns:
-                        snr_ber_dict[snr]["mi_2"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_2"] = _to_float_cell(df["total_ber_1"].iloc[0])
+
                     if "total_ber_3" in df.columns:
-                        snr_ber_dict[snr]["mi_3"].append(_to_float_cell(df["total_ber_3"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_3"] = _to_float_cell(df["total_ber_3"].iloc[0])
                     elif "total_ber_1" in df.columns:
-                        snr_ber_dict[snr]["mi_3"].append(_to_float_cell(df["total_ber_1"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_3"] = _to_float_cell(df["total_ber_1"].iloc[0])
 
-                    # MI LMMSE
                     if "total_ber_lmmse" in df.columns:
-                        snr_ber_dict[snr]["mi_lmmse"].append(_to_float_cell(df["total_ber_lmmse"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_lmmse"] = _to_float_cell(df["total_ber_lmmse"].iloc[0])
 
-                    # MI Sphere
                     if "total_ber_sphere" in df.columns:
-                        snr_ber_dict[snr]["mi_sphere"].append(_to_float_cell(df["total_ber_sphere"].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
 
-                    # MI JointLLR
                     mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                     if mi_joint_col is not None:
-                        snr_ber_dict[snr]["mi_jointllr_1"].append(_to_float_cell(df[mi_joint_col].iloc[0]))
+                        seed_snr_dict[seed][snr]["mi_jointllr_1"] = _to_float_cell(df[mi_joint_col].iloc[0])
 
-        # If nothing was loaded for this panel, skip plotting
-        if len(snr_ber_dict) == 0:
+        snrs = _build_snr_grid(observed_snrs)
+
+        if len(snrs) == 0:
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             if plot_type != "MI":
@@ -355,176 +493,200 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             ax.set_title(f"No matching files found for {plot_type}")
             continue
 
-        # ---- Averages ----
-        snrs = sorted([s for s in snr_ber_dict.keys() if MIN_SNR <= s <= MAX_SNR])
-
-        # Capture BLER data for mat export before it gets overwritten by BER iteration
         if plot_type == "BLER":
-            bler_snr_ber_dict = snr_ber_dict
+            bler_seed_snr_dict = seed_snr_dict
             bler_snrs = snrs
 
-        def avg(key):
-            vals = []
-            for s in snrs:
-                arr = np.asarray(snr_ber_dict[s][key], dtype=float)
-                arr = arr[np.isfinite(arr)]
-                vals.append(np.mean(arr) if arr.size else np.nan)
-            return vals
+        def avg(key, use_log_interp):
+            curves = []
+            interp_report = []
+            nonmono_report = []
+
+            for seed in seeds:
+                y = []
+                for s in snrs:
+                    y.append(seed_snr_dict.get(seed, {}).get(s, {}).get(key, np.nan))
+
+                y = np.asarray(y, dtype=float)
+
+                # Step 1: remove isolated non-monotonic points
+                if REMOVE_ISOLATED_NONMONO_POINTS and use_log_interp:
+                    y_cleaned, removed_idx = _remove_isolated_nonmonotonic_points(
+                        snrs, y, max_bad_points=MAX_BAD_POINTS_PER_CURVE
+                    )
+                    if PRINT_NONMONO_SUMMARY and removed_idx:
+                        nonmono_report.append((seed, [snrs[i] for i in removed_idx]))
+                    y = y_cleaned
+
+                # Step 2: interpolate the resulting missing points
+                if INTERPOLATE_MISSING_PER_SEED:
+                    y_filled, filled_idx = _fill_missing_curve(
+                        snrs,
+                        y,
+                        use_log_interp=use_log_interp,
+                        max_gap=MAX_INTERP_GAP
+                    )
+                    if PRINT_INTERP_SUMMARY and filled_idx:
+                        interp_report.append((seed, [snrs[i] for i in filled_idx]))
+                    y = y_filled
+
+                curves.append(y)
+
+            if PRINT_NONMONO_SUMMARY and nonmono_report:
+                pretty = ", ".join([f"seed {seed}: {pts}" for seed, pts in nonmono_report])
+                print(f"[INFO] Removed non-monotonic points for key '{key}' in panel '{plot_type}': {pretty}")
+
+            if PRINT_INTERP_SUMMARY and interp_report:
+                pretty = ", ".join([f"seed {seed}: {pts}" for seed, pts in interp_report])
+                print(f"[INFO] Interpolated missing points for key '{key}' in panel '{plot_type}': {pretty}")
+
+            curves = np.asarray(curves, dtype=float)
+            with np.errstate(invalid="ignore"):
+                mean_curve = np.nanmean(curves, axis=0)
+
+            # Enforce monotone non-increasing on the final averaged curve (BER/BLER only)
+            if use_log_interp:
+                finite_mask = np.isfinite(mean_curve)
+                if finite_mask.any():
+                    mean_curve[finite_mask] = np.minimum.accumulate(mean_curve[finite_mask])
+
+            return mean_curve.tolist()
 
         markers = ["o", "*", "x", "D", "+", "s"]
-        dashes  = [":", "-.", "--", "-", "-"]
+        dashes = [":", "-.", "--", "-", "-"]
 
         if plot_type == "MI":
-            # ---- MI plotting (linear scale) ----
-            mi_1 = avg("mi_1")
-            mi_2 = avg("mi_2")
-            mi_3 = avg("mi_3")
-            mi_jointllr_1 = avg("mi_jointllr_1")
-            mi_lmmse = avg("mi_lmmse")
-            mi_sphere = avg("mi_sphere")
+            mi_1 = avg("mi_1", use_log_interp=False)
+            mi_2 = avg("mi_2", use_log_interp=False)
+            mi_3 = avg("mi_3", use_log_interp=False)
+            mi_jointllr_1 = avg("mi_jointllr_1", use_log_interp=False)
+            mi_lmmse = avg("mi_lmmse", use_log_interp=False)
+            mi_sphere = avg("mi_sphere", use_log_interp=False)
 
-            # Plot ESCNN1/2/3 MI
             ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
             if plot_all_escnn:
                 ax.plot(snrs, mi_2, linestyle=dashes[1], marker=markers[1], color="g", label="ESCNN2")
                 ax.plot(snrs, mi_3, linestyle=dashes[2], marker=markers[2], color="g", label="ESCNN3")
 
-            # JointLLR MI
             mi_joint_arr = np.asarray(mi_jointllr_1, dtype=float)
             if np.isfinite(mi_joint_arr).any():
                 ax.plot(snrs, mi_jointllr_1, linestyle="-", marker=markers[5], color="b", label="JointLLR1")
 
-            # LMMSE MI
             mi_lmmse_arr = np.asarray(mi_lmmse, dtype=float)
             if np.isfinite(mi_lmmse_arr).any():
                 ax.plot(snrs, mi_lmmse, linestyle=dashes[4], marker=markers[4], color="r", label="LMMSE")
 
-            # Sphere MI
             if show_sphere:
                 mi_sphere_arr = np.asarray(mi_sphere, dtype=float)
                 if np.isfinite(mi_sphere_arr).any():
                     ax.plot(snrs, mi_sphere, linestyle=dashes[4], marker=markers[4], color="brown", label="Sphere")
 
-            # Formatting for MI (linear scale)
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.grid(True)
             ax.legend()
 
         else:
-            # ---- BER/BLER plotting (log scale) ----
-            ber_1 = avg("ber_1")
-            ber_2 = avg("ber_2")
-            ber_3 = avg("ber_3")
-            ber_jointllr_1 = avg("ber_jointllr_1")
-            ber_lmmse = avg("ber_lmmse")
-            ber_sphere = avg("ber_sphere")
+            ber_1 = avg("ber_1", use_log_interp=use_log_interp_for_missing)
+            ber_2 = avg("ber_2", use_log_interp=use_log_interp_for_missing)
+            ber_3 = avg("ber_3", use_log_interp=use_log_interp_for_missing)
+            ber_jointllr_1 = avg("ber_jointllr_1", use_log_interp=use_log_interp_for_missing)
+            ber_lmmse = avg("ber_lmmse", use_log_interp=use_log_interp_for_missing)
+            ber_sphere = avg("ber_sphere", use_log_interp=use_log_interp_for_missing)
 
-            # ---- Plot ESCNN1/2/3 ----
-            snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, ber_target)
+            snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, target_y)
             ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
-                        label=f"ESCNN1 @ {round(100*ber_target)}% = {snr_target_1}")
+                        label=f"ESCNN1 @ {round(100 * target_y)}% = {snr_target_1}")
 
             if plot_all_escnn:
-                snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, ber_target)
+                snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, target_y)
                 ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
-                            label=f"ESCNN2 @ {round(100*ber_target)}% = {snr_target_2}")
+                            label=f"ESCNN2 @ {round(100 * target_y)}% = {snr_target_2}")
 
-                snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, ber_target)
+                snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, target_y)
                 ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
-                            label=f"ESCNN3 @ {round(100*ber_target)}% = {snr_target_3}")
+                            label=f"ESCNN3 @ {round(100 * target_y)}% = {snr_target_3}")
 
-            # JointLLR curve (only if exists / not all-NaN / not flat single value)
             joint_arr = np.asarray(ber_jointllr_1, dtype=float)
             if np.isfinite(joint_arr).any() and not np.all(joint_arr[np.isfinite(joint_arr)] == 0):
-                snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, ber_target)
+                snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, target_y)
                 ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
-                            label=f"JointLLR1 @ {round(100*ber_target)}% = {snr_target_joint}")
+                            label=f"JointLLR1 @ {round(100 * target_y)}% = {snr_target_joint}")
 
-            # ---- LMMSE ----
-            snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, ber_target)
+            snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, target_y)
             ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
-                        label=f"LMMSE @ {round(100*ber_target)}% = {snr_target_lmmse}")
+                        label=f"LMMSE @ {round(100 * target_y)}% = {snr_target_lmmse}")
 
-            # ---- Sphere ----
             if show_sphere:
                 sphere_arr = np.asarray(ber_sphere, dtype=float)
                 if np.isfinite(sphere_arr).any() and not np.all(sphere_arr[np.isfinite(sphere_arr)] == 0):
-                    snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, ber_target)
+                    snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, target_y)
                     ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                                label=f"Sphere @ {round(100*ber_target)}% = {snr_target_sphere}")
+                                label=f"Sphere @ {round(100 * target_y)}% = {snr_target_sphere}")
 
-            # ---- DeepSIC ----
-            ber_deepsic_1 = avg("ber_deepsic_1")
+            ber_deepsic_1 = avg("ber_deepsic_1", use_log_interp=use_log_interp_for_missing)
             deepsic_arr = np.asarray(ber_deepsic_1, dtype=float)
             if np.isfinite(deepsic_arr).any() and not np.all(deepsic_arr[np.isfinite(deepsic_arr)] == 0):
-                snr_target_deepsic = _safe_interp_x_to_y(ber_deepsic_1, snrs, ber_target)
+                snr_target_deepsic = _safe_interp_x_to_y(ber_deepsic_1, snrs, target_y)
                 ax.semilogy(snrs, ber_deepsic_1, linestyle=dashes[0], marker=markers[0], color="purple",
-                            label=f"DeepSIC1 @ {round(100*ber_target)}% = {snr_target_deepsic}")
+                            label=f"DeepSIC1 @ {round(100 * target_y)}% = {snr_target_deepsic}")
 
             if plot_all_escnn:
-                ber_deepsic_2 = avg("ber_deepsic_2")
+                ber_deepsic_2 = avg("ber_deepsic_2", use_log_interp=use_log_interp_for_missing)
                 deepsic2_arr = np.asarray(ber_deepsic_2, dtype=float)
                 if np.isfinite(deepsic2_arr).any() and not np.all(deepsic2_arr[np.isfinite(deepsic2_arr)] == 0):
-                    snr_target_deepsic2 = _safe_interp_x_to_y(ber_deepsic_2, snrs, ber_target)
+                    snr_target_deepsic2 = _safe_interp_x_to_y(ber_deepsic_2, snrs, target_y)
                     ax.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color="purple",
-                                label=f"DeepSIC2 @ {round(100*ber_target)}% = {snr_target_deepsic2}")
+                                label=f"DeepSIC2 @ {round(100 * target_y)}% = {snr_target_deepsic2}")
 
-                ber_deepsic_3 = avg("ber_deepsic_3")
+                ber_deepsic_3 = avg("ber_deepsic_3", use_log_interp=use_log_interp_for_missing)
                 deepsic3_arr = np.asarray(ber_deepsic_3, dtype=float)
                 if np.isfinite(deepsic3_arr).any() and not np.all(deepsic3_arr[np.isfinite(deepsic3_arr)] == 0):
-                    snr_target_deepsic3 = _safe_interp_x_to_y(ber_deepsic_3, snrs, ber_target)
+                    snr_target_deepsic3 = _safe_interp_x_to_y(ber_deepsic_3, snrs, target_y)
                     ax.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color="purple",
-                                label=f"DeepSIC3 @ {round(100*ber_target)}% = {snr_target_deepsic3}")
+                                label=f"DeepSIC3 @ {round(100 * target_y)}% = {snr_target_deepsic3}")
 
-            # ---- DeepRx ----
-            ber_deeprx = avg("ber_deeprx")
+            ber_deeprx = avg("ber_deeprx", use_log_interp=use_log_interp_for_missing)
             deeprx_arr = np.asarray(ber_deeprx, dtype=float)
             if np.isfinite(deeprx_arr).any() and not np.all(deeprx_arr[np.isfinite(deeprx_arr)] == 0):
-                snr_target_deeprx = _safe_interp_x_to_y(ber_deeprx, snrs, ber_target)
+                snr_target_deeprx = _safe_interp_x_to_y(ber_deeprx, snrs, target_y)
                 ax.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan",
-                            label=f"DeepRx @ {round(100*ber_target)}% = {snr_target_deeprx}")
+                            label=f"DeepRx @ {round(100 * target_y)}% = {snr_target_deeprx}")
 
-            # ---- MHSA ----
-            ber_mhsa_1 = avg("ber_mhsa_1")
+            ber_mhsa_1 = avg("ber_mhsa_1", use_log_interp=use_log_interp_for_missing)
             mhsa_arr = np.asarray(ber_mhsa_1, dtype=float)
             if np.isfinite(mhsa_arr).any() and not np.all(mhsa_arr[np.isfinite(mhsa_arr)] == 0):
-                snr_target_mhsa = _safe_interp_x_to_y(ber_mhsa_1, snrs, ber_target)
+                snr_target_mhsa = _safe_interp_x_to_y(ber_mhsa_1, snrs, target_y)
                 ax.semilogy(snrs, ber_mhsa_1, linestyle=dashes[0], marker=markers[0], color="orange",
-                            label=f"MHSA1 @ {round(100*ber_target)}% = {snr_target_mhsa}")
+                            label=f"MHSA1 @ {round(100 * target_y)}% = {snr_target_mhsa}")
 
-            # ---- TDFDCNN ----
-            ber_tdfdcnn_1 = avg("ber_tdfdcnn_1")
+            ber_tdfdcnn_1 = avg("ber_tdfdcnn_1", use_log_interp=use_log_interp_for_missing)
             tdfdcnn_arr = np.asarray(ber_tdfdcnn_1, dtype=float)
             if np.isfinite(tdfdcnn_arr).any() and not np.all(tdfdcnn_arr[np.isfinite(tdfdcnn_arr)] == 0):
-                snr_target_tdfdcnn = _safe_interp_x_to_y(ber_tdfdcnn_1, snrs, ber_target)
+                snr_target_tdfdcnn = _safe_interp_x_to_y(ber_tdfdcnn_1, snrs, target_y)
                 ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[1], marker=markers[1], color="olive",
-                            label=f"TDFDCNN1 @ {round(100*ber_target)}% = {snr_target_tdfdcnn}")
+                            label=f"TDFDCNN1 @ {round(100 * target_y)}% = {snr_target_tdfdcnn}")
 
-            # ---- DeepSIC-MB ----
-            ber_deepsicmb_1 = avg("ber_deepsicmb_1")
+            ber_deepsicmb_1 = avg("ber_deepsicmb_1", use_log_interp=use_log_interp_for_missing)
             deepsicmb_arr = np.asarray(ber_deepsicmb_1, dtype=float)
             if np.isfinite(deepsicmb_arr).any() and not np.all(deepsicmb_arr[np.isfinite(deepsicmb_arr)] == 0):
-                snr_target_deepsicmb = _safe_interp_x_to_y(ber_deepsicmb_1, snrs, ber_target)
+                snr_target_deepsicmb = _safe_interp_x_to_y(ber_deepsicmb_1, snrs, target_y)
                 ax.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[2], marker=markers[2], color="magenta",
-                            label=f"DeepSIC-MB1 @ {round(100*ber_target)}% = {snr_target_deepsicmb}")
+                            label=f"DeepSIC-MB1 @ {round(100 * target_y)}% = {snr_target_deepsicmb}")
 
-            # ---- DeepSTAG ----
-            ber_deepstag_1 = avg("ber_deepstag_1")
+            ber_deepstag_1 = avg("ber_deepstag_1", use_log_interp=use_log_interp_for_missing)
             deepstag_arr = np.asarray(ber_deepstag_1, dtype=float)
             if np.isfinite(deepstag_arr).any() and not np.all(deepstag_arr[np.isfinite(deepstag_arr)] == 0):
-                snr_target_deepstag = _safe_interp_x_to_y(ber_deepstag_1, snrs, ber_target)
+                snr_target_deepstag = _safe_interp_x_to_y(ber_deepstag_1, snrs, target_y)
                 ax.semilogy(snrs, ber_deepstag_1, linestyle=dashes[3], marker=markers[5], color="teal",
-                            label=f"DeepSTAG1 @ {round(100*ber_target)}% = {snr_target_deepstag}")
+                            label=f"DeepSTAG1 @ {round(100 * target_y)}% = {snr_target_deepstag}")
 
-            # ---- Formatting ----
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.set_yscale("log")
             ax.grid(True)
             ax.legend()
 
-    # ---- Build global title using ONLY seeds that were actually used ----
     used_seeds_sorted = sorted(used_seeds_overall)
     if title_source_file is not None:
         original_name = os.path.basename(title_source_file)
@@ -534,16 +696,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
     global_title_text = "Averaged across seeds actually used: " + ", ".join(map(str, used_seeds_sorted)) + "\n" + cleaned_name
 
-    # ---- Add global title centered above all plots ----
     fig.suptitle(global_title_text, fontsize=12)
     fig.tight_layout(rect=[0, 0, 1, 0.92])
 
-    # Save to file (works on headless servers), then try to show
     save_path = os.path.join(CSV_DIR, "plot_output.png")
     fig.savefig(save_path, dpi=180)
     print(f"[INFO] Plot saved to: {save_path}")
 
-    # Try to copy resized image to clipboard (75% to keep it manageable)
     try:
         from PIL import Image
         img = Image.open(save_path)
@@ -575,69 +734,85 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     plt.show()
 
     # ---- Save averaged BLER curves to .mat file ----
-    def _avg_mat(key):
-        vals = []
-        for s in bler_snrs:
-            arr = np.asarray(bler_snr_ber_dict[s][key], dtype=float)
-            arr = arr[np.isfinite(arr)]
-            vals.append(np.mean(arr) if arr.size else np.nan)
-        return np.array(vals)
+    if bler_seed_snr_dict is not None and bler_snrs is not None:
+        def _avg_mat(key, use_log_interp=True):
+            curves = []
+            for seed in seeds:
+                y = [bler_seed_snr_dict.get(seed, {}).get(s, {}).get(key, np.nan) for s in bler_snrs]
+                y = np.asarray(y, dtype=float)
 
-    ber_escnn_arr   = _avg_mat('ber_1')
-    ber_escnn_2_arr = _avg_mat('ber_2')
-    ber_escnn_3_arr = _avg_mat('ber_3')
-    ber_lmmse_arr   = _avg_mat('ber_lmmse')
-    ber_sphere_arr  = _avg_mat('ber_sphere')
-    ber_deeprx_arr  = _avg_mat('ber_deeprx')
-    ber_deepsic_arr = _avg_mat('ber_deepsic_1')
+                if REMOVE_ISOLATED_NONMONO_POINTS and use_log_interp:
+                    y, _ = _remove_isolated_nonmonotonic_points(
+                        bler_snrs, y, max_bad_points=MAX_BAD_POINTS_PER_CURVE
+                    )
 
-    snrs_arr = np.array(bler_snrs)
-    ber_target_mat = 0.1  # BLER target (10%), matching MATLAB legend "SNR@10%"
+                if INTERPOLATE_MISSING_PER_SEED:
+                    y, _ = _fill_missing_curve(
+                        bler_snrs,
+                        y,
+                        use_log_interp=use_log_interp,
+                        max_gap=MAX_INTERP_GAP
+                    )
 
-    # bler_no_aug = the augmenter's own curve (matches what the MATLAB script expects
-    # per mat file: lmmse.mat -> LMMSE curve, sphere.mat -> Sphere curve, etc.)
-    aug_match = re.search(r"AUGMENT_(LMMSE|SPHERE|DEEPSIC|DEEPRX)", title_source_file or "")
-    aug_type = aug_match.group(1) if aug_match else 'LMMSE'
-    bler_no_aug_map = {
-        'LMMSE':  ber_lmmse_arr,
-        'SPHERE': ber_sphere_arr,
-        'DEEPRX': ber_deeprx_arr,
-        'DEEPSIC': ber_deepsic_arr,
-    }
-    bler_no_aug_arr = bler_no_aug_map.get(aug_type, ber_lmmse_arr)
+                curves.append(y)
 
-    def _snr_target(arr):
-        return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), ber_target_mat)
+            curves = np.asarray(curves, dtype=float)
+            with np.errstate(invalid="ignore"):
+                return np.nanmean(curves, axis=0)
 
-    mat_data = {
-        'snrs':              snrs_arr,
-        'ber_escnn':         ber_escnn_arr,
-        'ber_lmmse':         ber_lmmse_arr,
-        'ber_sphere':        ber_sphere_arr,
-        'ber_deeprx':        ber_deeprx_arr,
-        'ber_deepsic':       ber_deepsic_arr,
-        'ber_mhsa':          _avg_mat('ber_mhsa_1'),
-        'ber_jointllr':      _avg_mat('ber_jointllr_1'),
-        # Legacy names expected by MATLAB scripts
-        'bler_aug':          ber_escnn_arr,
-        'bler_aug_1':        ber_escnn_arr,
-        'bler_aug_2':        ber_escnn_2_arr,
-        'bler_aug_3':        ber_escnn_3_arr,
-        'bler_no_aug':       bler_no_aug_arr,
-        'snr_target_aug':    _snr_target(ber_escnn_arr),
-        'snr_target_aug_1':  _snr_target(ber_escnn_arr),
-        'snr_target_aug_2':  _snr_target(ber_escnn_2_arr),
-        'snr_target_aug_3':  _snr_target(ber_escnn_3_arr),
-        'snr_target_no_aug': _snr_target(bler_no_aug_arr),
-        'titletext':         build_cleaned_title_from_filename(os.path.basename(title_source_file)) if title_source_file else '',
-    }
+        ber_escnn_arr   = _avg_mat("ber_1")
+        ber_escnn_2_arr = _avg_mat("ber_2")
+        ber_escnn_3_arr = _avg_mat("ber_3")
+        ber_lmmse_arr   = _avg_mat("ber_lmmse")
+        ber_sphere_arr  = _avg_mat("ber_sphere")
+        ber_deeprx_arr  = _avg_mat("ber_deeprx")
+        ber_deepsic_arr = _avg_mat("ber_deepsic_1")
 
-    mat_output_dir = os.path.join(CSV_DIR, 'mat_files')
-    os.makedirs(mat_output_dir, exist_ok=True)
-    mat_name = aug_type.lower() if aug_match else "results"
-    mat_path = os.path.join(mat_output_dir, mat_name + ".mat")
-    savemat(mat_path, mat_data)
-    print(f"[INFO] Mat file saved to: {mat_path}")
+        snrs_arr = np.array(bler_snrs)
+        ber_target_mat = 0.1
+
+        aug_match = re.search(r"AUGMENT_(LMMSE|SPHERE|DEEPSIC|DEEPRX)", title_source_file or "")
+        aug_type = aug_match.group(1) if aug_match else "LMMSE"
+
+        bler_no_aug_map = {
+            "LMMSE":  ber_lmmse_arr,
+            "SPHERE": ber_sphere_arr,
+            "DEEPRX": ber_deeprx_arr,
+            "DEEPSIC": ber_deepsic_arr,
+        }
+        bler_no_aug_arr = bler_no_aug_map.get(aug_type, ber_lmmse_arr)
+
+        def _snr_target(arr):
+            return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), ber_target_mat)
+
+        mat_data = {
+            "snrs":              snrs_arr,
+            "ber_escnn":         ber_escnn_arr,
+            "ber_lmmse":         ber_lmmse_arr,
+            "ber_sphere":        ber_sphere_arr,
+            "ber_deeprx":        ber_deeprx_arr,
+            "ber_deepsic":       ber_deepsic_arr,
+            "ber_mhsa":          _avg_mat("ber_mhsa_1"),
+            "ber_jointllr":      _avg_mat("ber_jointllr_1"),
+            "bler_aug":          ber_escnn_arr,
+            "bler_aug_1":        ber_escnn_arr,
+            "bler_aug_2":        ber_escnn_2_arr,
+            "bler_aug_3":        ber_escnn_3_arr,
+            "bler_no_aug":       bler_no_aug_arr,
+            "snr_target_aug":    _snr_target(ber_escnn_arr),
+            "snr_target_aug_1":  _snr_target(ber_escnn_arr),
+            "snr_target_aug_2":  _snr_target(ber_escnn_2_arr),
+            "snr_target_aug_3":  _snr_target(ber_escnn_3_arr),
+            "snr_target_no_aug": _snr_target(bler_no_aug_arr),
+            "titletext":         build_cleaned_title_from_filename(os.path.basename(title_source_file)) if title_source_file else "",
+        }
+
+        mat_output_dir = os.path.join(CSV_DIR, "mat_files")
+        os.makedirs(mat_output_dir, exist_ok=True)
+        mat_name = aug_type.lower() if aug_match else "results"
+        mat_path = os.path.join(mat_output_dir, mat_name + ".mat")
+        savemat(mat_path, mat_data)
+        print(f"[INFO] Mat file saved to: {mat_path}")
 
 
 if __name__ == "__main__":

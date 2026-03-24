@@ -23,7 +23,7 @@ MIN_SNR = -np.inf
 MAX_SNR = np.inf
 
 # ---- Missing / cleanup handling configuration ----
-CLEANUP_ENABLED = True              # Master switch: False = plot raw averaged data, no cleanup at all
+CLEANUP_ENABLED = False              # Master switch: False = plot raw averaged data, no cleanup at all
 
 INTERPOLATE_MISSING_PER_SEED = True  and CLEANUP_ENABLED
 MAX_INTERP_GAP = 3                  if CLEANUP_ENABLED else 0   # Fill only interior gaps of up to this many consecutive missing SNRs

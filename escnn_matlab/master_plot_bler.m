@@ -9,7 +9,7 @@ base_name        = 'CLIP';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 2 3];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
@@ -72,17 +72,17 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
 alg_names = {'LMMSE', 'SPHERE', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsic'};
 
-markers_no_aug = {'^';    % LMMSE   (fillable, hollow)
-                  's';    % RBSD    (fillable, hollow)
-                  '*';    % DeepRx  (non-fillable)
-                  '+'};   % DeepSIC (non-fillable)
+markers_no_aug = {'^';    % LMMSE   (hollow)
+                  's';    % RBSD    (hollow)
+                  'o';    % DeepRx  (hollow)
+                  'd'};   % DeepSIC (hollow)
 
-markers_aug    = {'^';    % LMMSE   (fillable, filled)
-                  's';    % RBSD    (fillable, filled)
-                  'p';    % DeepRx  (non-fillable)
-                  'x'};   % DeepSIC (non-fillable)
+markers_aug    = {'^';    % LMMSE   (filled)
+                  's';    % RBSD    (filled)
+                  'o';    % DeepRx  (filled)
+                  'd'};   % DeepSIC (filled)
 
-fillable_algs = [1, 2];
+fillable_algs = [1:4];
 % ----------------------------------
 
 % ---- Create figure ----

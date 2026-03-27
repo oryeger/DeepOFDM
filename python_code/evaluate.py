@@ -533,16 +533,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # Regular CE
                 if conf.pilot_channel_seed > 0:
                     # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
-                    equalized_pilot, postEqSINR_pilot = LmmseEqualize(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
+                    equalized_pilot, postEqSINR_pilot, _ = LmmseEqualize(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
                                noise_var, pilot_chunk, re, H)
                     LmmseDemod(equalized_pilot, postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
-                    equalized_data, postEqSINR_data = LmmseEqualize(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
+                    equalized_data, postEqSINR_data, noise_var = LmmseEqualize(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
                                noise_var, pilot_chunk, re, H)
                     LmmseDemod(equalized_data, postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                 else:
-                    equalized, postEqSINR = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                    equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
                     LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
                                detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
                     LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
@@ -1745,7 +1745,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         # title_string = title_string + '_scale_' + str(conf.scale_input)
         # title_string = title_string + '_FILM_' + str(conf.use_film)
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
-        # title_string = title_string + '_ONV_' + str(conf.override_noise_var)
+        title_string = title_string + '_ONV_' + str(conf.override_noise_var)
         title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
         title_string = title_string + '_incPrime_' + str(int(conf.increase_prime_modulation))
         title_string = title_string + '_b' + str(conf.batch_size)

@@ -69,7 +69,7 @@ def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
 
     postEqSINR = bias / (1 - bias)
 
-    return equalized, postEqSINR
+    return equalized, postEqSINR, noise_var
 
 def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, pilot_data_ratio):
     llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0], dtype=np.float32)

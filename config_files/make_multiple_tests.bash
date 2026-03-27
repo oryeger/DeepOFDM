@@ -50,7 +50,7 @@ pilot_size_vals=(20000)
 mcs_vals=(28)
 override_noise_var_vals=(False)
 
-# mod_pilot values (including  negative)
+# mod_pilot values (including negative)
 mod_pilot_vals=(-1)
 
 # n_users values

@@ -19,7 +19,6 @@ plot_only_last_iteration: False
 plot_channel: False
 
 TDL_model: 'A' # 'None', 'A', 'B', 'C'
-delay_spread: 30e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 

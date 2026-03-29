@@ -21,6 +21,8 @@ class Config:
             self.config_name = os.path.splitext(os.path.basename(config_path))[0]
         for k, v in config.items():
             setattr(self, k, v)
+        tdl = getattr(self, 'TDL_model', 'N')
+        self.delay_spread = {'A': 30e-9, 'B': 100e-9}.get(tdl[0], 300e-9)
 
     def set_value(self, field: Any, value: Any):
         setattr(self, field, value)

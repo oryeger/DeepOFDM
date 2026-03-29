@@ -12,13 +12,12 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123 17 41 58)
 snrs=($(seq 5 30))
-cfos=(0)
+cfos=(0 0.075)
 
-clip_percentage_in_tx_vals=(35)
+clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
 
-# ✅ NEW: shuffle sweep
-shuffle_vals=(False True)
+shuffle_vals=(True)
 
 # epochs sweep
 epochs_vals=(500)
@@ -35,17 +34,17 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
 )
 
-TDL_model_vals=('C')
+TDL_model_vals=('B')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
+pilot_size_vals=(10000 20000)
 mcs_vals=(17)
 override_noise_var_vals=(False)
 
-mod_pilot_vals=(-1)
-n_users_vals=(2)
-make_64QAM_16QAM_percentage_vals=(0)
+mod_pilot_vals=(64)
+n_users_vals=(4)
+make_64QAM_16QAM_percentage_vals=(0 50)
 
 # --------------------------------------------
 total_count=0

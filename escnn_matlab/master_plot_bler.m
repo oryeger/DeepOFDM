@@ -183,10 +183,10 @@ else
     lgd.Position(1) = 0.5 - lgd.Position(3)/2;   % center horizontally
     lgd.Position(2) = 0.01;                        % near bottom
 
-    % Shrink subplots slightly to make room for legend at bottom
+    % Shrink subplots to make room for legend + xlabel at bottom
     for d = 1:n_dirs
         pos = ax(d).Position;
-        ax(d).Position = [pos(1), pos(2)+0.08, pos(3), pos(4)-0.08];
+        ax(d).Position = [pos(1), pos(2)+0.14, pos(3), pos(4)-0.14];
     end
 end
 % ylim(ax(1), [0.0002, 1])

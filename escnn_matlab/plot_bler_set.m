@@ -108,6 +108,9 @@ for alg = algs_to_plot
     labels{end+1}  = lbl_no_aug; %#ok<AGROW>
 
     % --- Aug iteration 1 curve (solid, filled) ---
+    if ~isfield(S, 'bler_aug_1') && isfield(S, 'bler_aug')
+        S.bler_aug_1 = S.bler_aug;
+    end
     if isfield(S, 'bler_aug_1')
         if add_snr_target && isfield(S, 'snr_target_aug_1')
             lbl_aug1 = [lbl_base_aug, ', SNR@10%=', num2str(S.snr_target_aug_1)];

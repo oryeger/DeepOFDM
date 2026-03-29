@@ -1,5 +1,5 @@
 snr: 40
-cur_str: try_cfo
+cur_str: n_override
 num_snrs: 1
 n_ants: 8
 snr_step: 1

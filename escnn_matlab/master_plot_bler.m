@@ -9,7 +9,7 @@ base_name        = 'CLIP';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)

@@ -345,7 +345,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                     continue
 
                 observed_snrs.add(snr)
-                df = pd.read_csv(file)
+                safe_file = "\\\\?\\" + os.path.abspath(file) if platform.system() == "Windows" else file
+                df = pd.read_csv(safe_file)
 
                 # ---- ESCNN ----
                 if "total_ber_1" in df.columns:

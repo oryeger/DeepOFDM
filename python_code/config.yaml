@@ -41,7 +41,7 @@ TDL_model: 'N' # 'None', 'A', 'B', 'C'
 delay_spread: 300e-9 # in Seconds
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-  spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
+spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
 pilot_channel_seed: -1
 channel_seed: 17
 transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b

@@ -130,7 +130,7 @@ class TDLChannel:
 
         # Create TDL channel with optional spatial correlation
         tdl_params = {
-            'model': conf.TDL_model,
+            'model': conf.channel_model,
             'delay_spread': float(conf.delay_spread),
             'carrier_frequency': float(conf.carrier_frequency),
             'num_tx_ant': y_in.shape[0],
@@ -158,19 +158,23 @@ class TDLChannel:
         if tf.size(external_channel) == 0:
             cir = tdl(conv_size, num_time_samples+l_tot-1, bandwidth)
             h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
+            if conf.plot_channel:
+                colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']
+                n_rx_ant = h_time.shape[2]
+                for ant in range(n_rx_ant):
+                    h_ant = abs(h_time[0, 0, ant, 0, 0, 0, :])
+                    plt.plot(np.abs(h_ant), linestyle='-', color=colors[ant % len(colors)],
+                             label=f'Ant {ant}, peak@ {np.argmax(h_ant)}')
+                plt.title('TDL-'+conf.channel_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
+                plt.xlabel('time (samples)', fontsize=10)
+                plt.ylabel('h', fontsize=10)
+                plt.legend(fontsize=7)
+                plt.grid()
+                plt.show()
         else:
             h_time = external_channel
 
         h_cur = abs(h_time[0, 0, 0, 0, 0, 0, :])
-        if conf.plot_channel:
-            plt.plot(np.abs(h_cur), linestyle='-', color='b', label='h_time, peak@ '+str(np.argmax(h_cur)))
-            plt.title('TDL-'+conf.TDL_model+', delay spread='+str(int(round(float(conf.delay_spread)*1e9)))+' nsec', fontsize=10)
-            plt.xlabel('time (samples)', fontsize=10)
-            plt.ylabel('h', fontsize=10)
-            plt.legend()
-            plt.grid()
-            plt.show()
-
         channel_time = ApplyTimeChannel(num_time_samples, l_tot=l_tot, add_awgn=True)
         y_tf = tf.convert_to_tensor(y_in)
         TA = np.argmax(h_cur)

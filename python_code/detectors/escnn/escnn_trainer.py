@@ -3,6 +3,7 @@ from typing import List
 
 import torch
 from torch import nn
+from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
 from python_code import DEVICE, conf
@@ -23,6 +24,13 @@ class ESCNNTrainer(Trainer):
 
     def __str__(self):
         return 'ESCNN'
+
+    def _deep_learning_setup(self, single_model):
+        weight_decay = float(getattr(conf, 'escnn_weight_decay', 0.0))
+        self.optimizer = Adam(filter(lambda p: p.requires_grad, single_model.parameters()),
+                              lr=self.lr, weight_decay=weight_decay)
+        from torch.nn import BCEWithLogitsLoss
+        self.criterion = BCEWithLogitsLoss().to(DEVICE)
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
@@ -45,8 +53,15 @@ class ESCNNTrainer(Trainer):
         # Reshape tx to match the expected format
         tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
 
+        # Shuffle samples before train/val split to decorrelate from augmenter's own split
+        if getattr(conf, 'shuffle_augment_priors', False):
+            perm = torch.randperm(rx_prob.shape[0])
+            rx_prob = rx_prob[perm]
+            tx_reshaped = tx_reshaped[perm]
+
         # Split into train and validation sets
-        train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
+        train_pct = getattr(conf, 'escnn_train_percentage', TRAIN_PERCENTAGE)
+        train_samples = int(rx_prob.shape[0] * train_pct / 100)
         rx_prob_train = rx_prob[:train_samples]
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]

@@ -16,6 +16,7 @@ from python_code.coding.mcs_table import get_mcs
 H_COEF = 0.8
 
 from python_code.channel.sionna.TLD_channel import TDLChannel
+from python_code.channel.sionna.environment_channel import EnvironmentChannel
 
 
 class SEDChannel:
@@ -135,7 +136,10 @@ class SEDChannel:
             st_full = apply_iq_mismatch(st_full, iqmm_gain, iqmm_phase)
 
         if tdl_channel and td_in_rx:
-            st_out, chan_out = TDLChannel.conv_cir(st_full,1,0, NUM_SLOTS, external_chan, seed)
+            if conf.channel_model[0] in ('A', 'B', 'C'):
+                st_out, chan_out = TDLChannel.conv_cir(st_full, 1, 0, NUM_SLOTS, external_chan, seed)
+            else:
+                st_out, chan_out = EnvironmentChannel.conv_cir(st_full, 1, 0, NUM_SLOTS, external_chan, seed)
             st_full = st_out
         else:
             chan_out = tf.zeros([0], dtype=tf.float32)
@@ -235,7 +239,7 @@ class SEDChannel:
         else:
             y_ce = np.zeros_like(y, dtype=complex)
 
-        if conf.TDL_model[0] == 'N':
+        if conf.channel_model[0] == 'N':
 
             for re_index in range(num_res):
                     conv = SEDChannel._compute_channel_signal_convolution(h[:,:,re_index], s[:,:,re_index])

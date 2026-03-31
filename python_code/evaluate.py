@@ -19,6 +19,8 @@ from typing import List
 import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
+import matplotlib
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
@@ -164,6 +166,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
     num_res = conf.num_res
 
+    if conf.plot_channel:
+        conf.set_value('separate_pilots', False)
 
     if conf.mcs > -1:
         qm, code_rate = get_mcs(conf.mcs)
@@ -192,10 +196,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         mod_text = [str(mod_data) + 'QAM']
         mod_text = mod_text[0]
 
-    if conf.TDL_model[0] == 'N':
+    if conf.channel_model[0] == 'N':
         chan_text = 'Flat'
+    elif conf.channel_model[0] in ('A', 'B', 'C'):
+        chan_text = 'TDL-' + conf.channel_model + '-' + str(int(round(float(conf.delay_spread) * 1e9)))
     else:
-        chan_text = 'TDL-' + conf.TDL_model + '-' + str(int(round(float(conf.delay_spread) * 1e9)))
+        chan_text = conf.channel_model
 
     now = datetime.now()
     formatted_date = now.strftime("%Y_%m_%d_%H_%M_")
@@ -393,37 +399,32 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     rx_ce[:, i, :, :] = rx_ce[:, i, :, :] * cfo_comp_vect[i]
 
             if conf.plot_channel:
-                symbols_to_plot = [0, 4, 8, 12]
+                colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']
+                rx_np = rx.detach().cpu().numpy()             # [symbols, n_ants, REs]
+                symbols_to_plot = [0, 1, 2, 3]
                 fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
-                rx_np = rx.detach().cpu().numpy()
-                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[0], 0, :])), '-o', color='g',
-                             label='Symbol ' + str(symbols_to_plot[0]))
-                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[1], 0, :])), '-o', color='r',
-                             label='Symbol ' + str(symbols_to_plot[1]))
-                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[2], 0, :])), '-o', color='k',
-                             label='Symbol ' + str(symbols_to_plot[2]))
-                axes[0].plot(20 * np.log10(np.abs(rx_np[symbols_to_plot[3], 0, :])), '-o', color='b',
-                             label='Symbol ' + str(symbols_to_plot[3]))
+                # Divide out user 0's transmitted symbols to recover clean H per RE
+                rx_ce_np = rx_ce[0].detach().cpu().numpy()   # [symbols, n_ants, REs]
+                s_orig_np = s_orig.detach().cpu().numpy()     # [symbols, users, REs]
+                s0 = s_orig_np[:, 0, :]                      # [symbols, REs]
+                h_np = rx_ce_np / s0[:, np.newaxis, :]       # [symbols, n_ants, REs]
+                n_ants_plot = h_np.shape[1]
+                for ant in range(n_ants_plot):
+                    axes[0].plot(20 * np.log10(np.abs(h_np[0, ant, :])), '-',
+                                 color=colors[ant % len(colors)], label=f'Ant {ant}')
                 axes[0].set_xlabel('Subcarrier')
                 axes[0].set_ylabel('Amp (dB)')
-                axes[0].set_title('TDL-' + conf.TDL_model + ', delay spread=' + str(
-                    int(round(float(conf.delay_spread) * 1e9))) + ' nsec', fontsize=10)
-                axes[0].legend()
+                axes[0].set_title(chan_text, fontsize=10)
+                axes[0].legend(fontsize=7)
                 axes[0].grid()
 
-                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[0], 0, :])), '-', color='g',
-                             label='Symbol ' + str(symbols_to_plot[0]))
-                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[1], 0, :])), '-', color='r',
-                             label='Symbol ' + str(symbols_to_plot[1]))
-                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[2], 0, :])), '-', color='k',
-                             label='Symbol ' + str(symbols_to_plot[2]))
-                axes[1].plot(20 * np.unwrap(np.angle(rx_np[symbols_to_plot[3], 0, :])), '-', color='b',
-                             label='Symbol ' + str(symbols_to_plot[3]))
+                for ant in range(n_ants_plot):
+                    axes[1].plot(20 * np.unwrap(np.angle(h_np[0, ant, :])), '-',
+                                 color=colors[ant % len(colors)], label=f'Ant {ant}')
                 axes[1].set_xlabel('Subcarrier')
                 axes[1].set_ylabel('Phase (Rad)')
-                axes[1].set_title('TDL-' + conf.TDL_model + ', delay spread=' + str(
-                    int(round(float(conf.delay_spread) * 1e9))) + ' nsec', fontsize=10)
-                axes[1].legend()
+                axes[1].set_title(chan_text, fontsize=10)
+                axes[1].legend(fontsize=7)
                 axes[1].grid()
                 fig.tight_layout()
                 plt.show()
@@ -440,9 +441,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                              label=f'Symbol {symbols_to_plot[3]}')
                 axes[0].set_xlabel('Subcarrier')
                 axes[0].set_ylabel('Real Part')
-                axes[0].set_title(
-                    f'TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
-                    fontsize=10)
+                axes[0].set_title(chan_text, fontsize=10)
                 axes[0].legend()
                 axes[0].grid()
 
@@ -457,9 +456,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                              label=f'Symbol {symbols_to_plot[3]}')
                 axes[1].set_xlabel('Subcarrier')
                 axes[1].set_ylabel('Imaginary Part')
-                axes[1].set_title(
-                    f'TDL-{conf.TDL_model}, delay spread={int(round(float(conf.delay_spread) * 1e9))} nsec',
-                    fontsize=10)
+                axes[1].set_title(chan_text, fontsize=10)
                 axes[1].legend()
                 axes[1].grid()
 
@@ -1654,9 +1651,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         # print('\n'+title_string)
         title_string = (chan_text + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
             conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
-                        cfo_str + ', Epo=' + str(epochs) + ', #iter=' + str(
+                        cfo_str + ', Epo=' + str(epochs) + ', it=' + str(
                     iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
-                    conf.clip_percentage_in_tx) + '%')
+                    conf.clip_percentage_in_tx))
 
         # plot BER per RE for first iteration:
         if conf.ber_on_one_user >= 0:
@@ -1732,11 +1729,19 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string.replace("\n", "")
         title_string = title_string.replace(",", "")
         title_string = title_string.replace(" ", "_")
+        title_string = title_string.replace("_scs", "")
+        title_string = title_string.replace("AUGMENT_LMMSE", "LMMSE")
+        title_string = title_string.replace("AUGMENT_SPHERE", "SPHERE")
+        title_string = title_string.replace("AUGMENT_DEEPSIC", "DEEPSIC")
+        title_string = title_string.replace("AUGMENT_DEEPRX", "DEEPRX")
+        title_string = title_string.replace("NO_AUGMENT", "NOAUG")
+        title_string = title_string.replace("ONV_False", "ONV_0")
+        title_string = title_string.replace("ONV_True", "ONV_1")
         # Add spatial correlation indicator
         corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
         corr_level = getattr(conf, 'spatial_correlation', 'none')
         title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
-        title_string = title_string + '_n_ants=' + str(conf.n_ants)
+        title_string = title_string + '_#ant=' + str(conf.n_ants)
         # title_string = title_string + '_FFT_size=' + str(FFT_size)
         # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)
         title_string = title_string + '_' + conf.which_augment
@@ -1751,6 +1756,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_b' + str(conf.batch_size)
         title_string = title_string + '_drxOvr=' + str(int(conf.deeprx_override))
         title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
+        title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
+        title_string = title_string + '_shAug=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
         title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_seed=' + str(conf.channel_seed)

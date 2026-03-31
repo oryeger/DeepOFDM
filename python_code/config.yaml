@@ -1,4 +1,4 @@
-snr: 30
+snr: 100
 cur_str: thirdd
 num_snrs: 1
 n_ants: 8
@@ -7,7 +7,7 @@ n_users: 4
 mcs: 5 # [0..4] - QPSK, [5..10] - 16QAM
 mod_pilot: -1
 block_length_factor: 5
-num_res: 2
+num_res: 64
 cfo:  0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
@@ -17,6 +17,8 @@ iterations: 1
 pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 batch_size: 32
 shuffle: True
+shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
+escnn_train_percentage: 50  # Train/val split percentage for ESCNN (e.g. 70 = 70% train, 30% val)
 learning_rate: 5.0e-4 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
@@ -26,7 +28,8 @@ sphere_radius: 200
 save_loss_plot_snr: [15]
 use_film: False
 scale_input: True
-escnn_dropout: 0.3  # Dropout rate after each hidden conv layer (0.0 = disabled). Try 0.2-0.4 for 256QAM overfitting
+escnn_dropout: 0.0
+escnn_weight_decay: 1e-3  # Dropout rate after each hidden conv layer (0.0 = disabled). Try 0.2-0.4 for 256QAM overfitting
 override_noise_var: False
 make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
@@ -34,13 +37,21 @@ sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
-plot_channel: False
+plot_channel: True
 plot_genie: False
 
-TDL_model: 'N' # 'None', 'A', 'B', 'C'
+channel_model: 'RMa' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = 3GPP environment
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
+# Environment channel settings (used when channel_model is UMa, UMi, or RMa)
+env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
+env_bs_height: 25.0           # BS antenna height [m]
+env_ut_height: 1.5            # UT height [m]
+env_distance: 100.0           # BS-UT distance [m]
+env_indoor: False             # UE indoor state
+env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
+env_enable_shadow_fading: False  # apply shadow fading
 pilot_channel_seed: -1
 channel_seed: 17
 transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b

@@ -150,8 +150,6 @@ class MIMOChannel:
             # assert not (True), "constant tx symbol"
 
 
-        s_orig = np.copy(s)
-
         if not self.cfo_and_iqmm_in_rx:
             cfo_tx = conf.cfo
             iqmm_gain = conf.iqmm_gain
@@ -161,16 +159,12 @@ class MIMOChannel:
             iqmm_gain = 0
             iqmm_phase = 0
 
-        # OryEger - one tone
+        # When plotting channel: use constant envelope (ones) across all subcarriers
+        # so that rx / s_orig gives a clean channel estimate with no data interference
         if conf.plot_channel:
-            s_temp = s.copy()
-            s = np.zeros_like(s_temp)
-            index = 4
-            s[0, :, index] = s_temp[0, :, index]
-            index = 12
-            s[0, :, index] = s_temp[0, :, index]
-            index = 20
-            s[0, :, index] = s_temp[0, :, index]
+            s = np.ones_like(s)
+
+        s_orig = np.copy(s)
 
         if (cfo_tx!=0) or (iqmm_gain!=0) or (iqmm_phase!=0) or (self.clip_percentage_in_tx<100) or conf.run_tdcnn:
             empty_tf_tensor = tf.zeros([0], dtype=tf.float32)

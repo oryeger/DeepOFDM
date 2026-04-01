@@ -20,7 +20,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
@@ -1751,16 +1751,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         # title_string = title_string + '_FILM_' + str(conf.use_film)
         title_string = title_string + '_PDR_' + str(pilot_data_ratio)
         title_string = title_string + '_ONV_' + str(conf.override_noise_var)
-        title_string = title_string + '_64Q16perc_' + str(conf.make_64QAM_16QAM_percentage)
-        title_string = title_string + '_incPrime_' + str(int(conf.increase_prime_modulation))
+        title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
+        title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
         title_string = title_string + '_b' + str(conf.batch_size)
         title_string = title_string + '_drxOvr=' + str(int(conf.deeprx_override))
         title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
         title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
-        title_string = title_string + '_shAug=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
+        title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
+        title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
+        title_string = title_string + '_trp=' + str(getattr(conf, 'escnn_train_percentage', 50))
         title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
         title_string = title_string + '_' + conf.cur_str
-        title_string = title_string + '_seed=' + str(conf.channel_seed)
+        title_string = title_string + '_s=' + str(conf.channel_seed)
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

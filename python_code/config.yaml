@@ -54,8 +54,8 @@ env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
 env_enable_shadow_fading: False  # apply shadow fading
 pilot_channel_seed: -1
 channel_seed: 17
-transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 
+transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 run_deeprx: False
 run_deepsic: False
 run_deepsicmb: False

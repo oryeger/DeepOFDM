@@ -18,7 +18,8 @@ pilot_size: 100   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_
 batch_size: 32
 shuffle: True
 shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
-escnn_train_percentage: 50  # Train/val split percentage for ESCNN (e.g. 70 = 70% train, 30% val)
+shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
+escnn_train_percentage: 80  # Train/val split percentage for ESCNN (e.g. 70 = 70% train, 30% val)
 learning_rate: 5.0e-4 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3

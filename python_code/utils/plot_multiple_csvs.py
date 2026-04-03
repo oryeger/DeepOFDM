@@ -41,7 +41,7 @@ def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = re.sub(r"_SNR=-?\d+", "", cleaned_name)
     cleaned_name = re.sub("_scs", "scs", cleaned_name)
     cleaned_name = re.sub("cfo_in_Rx", "cfo", cleaned_name)
-    cleaned_name = re.sub(r"seed=\d+", "", cleaned_name)
+    cleaned_name = re.sub(r"seed=\d+|_s=\d+", "", cleaned_name)
     cleaned_name = re.sub("_", ", ", cleaned_name)
     cleaned_name = re.sub("twostage, ", "", cleaned_name)
     cleaned_name = re.sub(", , , three, layers=123", ", three layes", cleaned_name)
@@ -311,7 +311,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         for seed in seeds:
             seed_files = sorted(
                 f for f in all_files
-                if f"seed={seed}" in os.path.basename(f)
+                if (f"seed={seed}" in os.path.basename(f) or f"_s={seed}_" in os.path.basename(f))
                 and "_SNR=" in os.path.basename(f)
             )
             if not seed_files:

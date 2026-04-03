@@ -55,7 +55,9 @@ class ESCNNTrainer(Trainer):
 
         # Shuffle samples before train/val split to decorrelate from augmenter's own split
         if getattr(conf, 'shuffle_augment_priors', False):
-            perm = torch.randperm(rx_prob.shape[0])
+            aug_seed = getattr(conf, 'shuffle_augment_seed', -1)
+            generator = torch.Generator().manual_seed(aug_seed) if aug_seed >= 0 else None
+            perm = torch.randperm(rx_prob.shape[0], generator=generator)
             rx_prob = rx_prob[perm]
             tx_reshaped = tx_reshaped[perm]
 

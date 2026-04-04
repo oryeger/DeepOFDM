@@ -53,6 +53,12 @@ class ESCNNTrainer(Trainer):
         # Reshape tx to match the expected format
         tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
 
+        # Restrict to primary detector's validation portion only
+        if getattr(conf, 'escnn_use_primary_val_only', False):
+            primary_train_samples = rx_prob.shape[0] // 2
+            rx_prob = rx_prob[primary_train_samples:]
+            tx_reshaped = tx_reshaped[primary_train_samples:]
+
         # Shuffle samples before train/val split to decorrelate from augmenter's own split
         if getattr(conf, 'shuffle_augment_priors', False):
             aug_seed = getattr(conf, 'shuffle_augment_seed', -1)
@@ -62,8 +68,7 @@ class ESCNNTrainer(Trainer):
             tx_reshaped = tx_reshaped[perm]
 
         # Split into train and validation sets
-        train_pct = getattr(conf, 'escnn_train_percentage', TRAIN_PERCENTAGE)
-        train_samples = int(rx_prob.shape[0] * train_pct / 100)
+        train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
         rx_prob_train = rx_prob[:train_samples]
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]

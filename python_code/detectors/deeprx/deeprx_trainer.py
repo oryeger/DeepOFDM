@@ -39,7 +39,8 @@ class DeepRxTrainer(Trainer):
         tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
 
         # Split into train and validation sets
-        train_samples = int(rx.shape[0] * TRAIN_PERCENTAGE / 100)
+        split_pct = 50 if getattr(conf, 'escnn_use_primary_val_only', False) else TRAIN_PERCENTAGE
+        train_samples = int(rx.shape[0] * split_pct / 100)
         rx_train = rx[:train_samples]
         rx_val = rx[train_samples:]
         tx_train = tx_reshaped[:train_samples]

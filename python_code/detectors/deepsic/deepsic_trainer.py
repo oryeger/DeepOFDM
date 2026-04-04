@@ -45,7 +45,8 @@ class DeepSICTrainer(Trainer):
             tx_reshaped = tx.reshape(int(tx.numel() // num_bits), num_bits)
 
         # Split into train and validation sets
-        train_samples = int(y_total.shape[0] * TRAIN_PERCENTAGE / 100)
+        split_pct = 50 if getattr(conf, 'escnn_use_primary_val_only', False) else TRAIN_PERCENTAGE
+        train_samples = int(y_total.shape[0] * split_pct / 100)
         rx_train = y_total[:train_samples]
         rx_val = y_total[train_samples:]
         tx_train = tx_reshaped[:train_samples]

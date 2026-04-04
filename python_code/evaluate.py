@@ -1759,7 +1759,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
         title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
         title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
-        title_string = title_string + '_trp=' + str(getattr(conf, 'escnn_train_percentage', 50))
+        title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
+        title_string = title_string + '_bf=' + str(conf.block_length_factor)
         title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_s=' + str(conf.channel_seed)

@@ -19,7 +19,7 @@ batch_size: 32
 shuffle: True
 shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
-escnn_train_percentage: 80  # Train/val split percentage for ESCNN (e.g. 70 = 70% train, 30% val)
+escnn_use_primary_val_only: True  # If True, ESCNN trains only on primary detector's validation portion
 learning_rate: 5.0e-4 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3

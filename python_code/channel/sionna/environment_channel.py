@@ -118,6 +118,9 @@ class EnvironmentChannel:
         if tf.size(external_channel) == 0:
             cir = channel(num_time_samples + l_tot - 1, bandwidth)
             h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
+            # Re-normalize so mean power per (rx_ant, tx_ant) element = 1, matching TDL behavior
+            mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
+            h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
             if conf.plot_channel:
                 # h_time: [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, num_time_steps, l_tot]
                 colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']

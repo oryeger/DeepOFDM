@@ -41,7 +41,7 @@ plot_only_last_iteration: False
 plot_channel: True
 plot_genie: False
 
-channel_model: 'RMa' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = 3GPP environment
+channel_model: 'C' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = 3GPP environment
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom

@@ -463,6 +463,23 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 fig.tight_layout()
                 plt.show()
 
+                # === Signal diagnostics (frequency domain, after channel) ===
+                rx_power = np.mean(np.abs(rx_np) ** 2)
+                rx_std   = np.std(np.abs(rx_np))
+                rx_mean  = np.mean(np.abs(rx_np))
+                rx_power_db = 10 * np.log10(rx_power + 1e-12)
+                print(f"[plot_channel] RX signal stats (freq domain, all symbols & ants & REs):")
+                print(f"  channel_model = {conf.channel_model}")
+                print(f"  SNR config    = {conf.snr} dB")
+                print(f"  mean |rx|     = {rx_mean:.4f}")
+                print(f"  std  |rx|     = {rx_std:.4f}")
+                print(f"  power |rx|^2  = {rx_power:.4f}  ({rx_power_db:.2f} dB)")
+                per_ant_powers = [np.mean(np.abs(rx_np[:, ant, :]) ** 2) for ant in range(rx_np.shape[1])]
+                for ant, p in enumerate(per_ant_powers):
+                    print(f"  Ant {ant}: power = {p:.4f}  ({10*np.log10(p+1e-12):.2f} dB)")
+                avg_ant_power = np.mean(per_ant_powers)
+                print(f"  Avg across ants: power = {avg_ant_power:.4f}  ({10*np.log10(avg_ant_power+1e-12):.2f} dB)")
+
             # Time domain processing:
             if conf.run_tdcnn:
                 s_t_matrix = torch.zeros((NUM_SLOTS, 2 * conf.n_ants, FFT_size, NUM_SYMB_PER_SLOT), dtype=torch.float32)

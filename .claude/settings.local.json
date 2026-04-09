@@ -8,7 +8,8 @@
       "Bash(python3:*)",
       "Bash(python:*)",
       "Bash(ls c:ProjectsDeepOFDM/.venv/Lib/site-packages/*.pth)",
-      "Bash(where python:*)"
+      "Bash(where python:*)",
+      "Bash(pdflatex --version)"
     ]
   }
 }

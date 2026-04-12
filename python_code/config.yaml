@@ -56,7 +56,7 @@ env_enable_shadow_fading: False  # apply shadow fading
 # QuaDRiGa channel settings (used when channel_model is UMa, UMi, or RMa)
 quadriga_mat_path: '../QuadrigaChannels'  # relative to project root; use absolute path to override
 pilot_channel_seed: -1
-channel_seed: 17
+channel_seed: 123
 
 transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 run_deeprx: False

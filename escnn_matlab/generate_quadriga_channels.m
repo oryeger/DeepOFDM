@@ -20,8 +20,8 @@
 %     - new seeds are needed
 %
 % Output per scenario+seed:
-%   coeff  - [n_rx_ant, n_users, n_paths]  complex double, combined CIR coefficients
-%   delay  - [n_users, n_paths]            double, path delays in seconds
+%   coeff  - [n_rx_ant, n_users, n_paths]  complex double, per-cluster CIR coefficients
+%   delay  - [n_users, n_paths]            double, excess path delays in seconds (τ_min subtracted)
 
 clear; close all;
 
@@ -120,6 +120,7 @@ for seed_idx = 1 : numel(seeds_to_gen)
     s = qd_simulation_parameters;
     s.center_frequency = carrier_freq;
     s.show_progress_bars = 0;
+    s.use_3GPP_baseline = 1;  % Use statistical 3GPP delay model (not scatterer geometry)
 
     %% Set up layout: BS = 1 TX, UEs = n_users RX (downlink convention)
     % Channel reciprocity means H is the same for uplink detection.
@@ -155,11 +156,12 @@ for seed_idx = 1 : numel(seeds_to_gen)
     %% Generate channels
     channels = l.get_channels();   % [n_rx=n_users, n_tx=1]
 
-    %% Stack CIR across all UEs
-    % channels(u,1).coeff : [n_ue_ant=1, n_bs_ant=n_ants, n_paths_u, n_snap]
-    % channels(u,1).delay : [1, n_paths_u, n_snap]
+    %% Extract per-cluster CIR for each UE
+    % channels(u,1).coeff : [n_ue_ant=1, n_bs_ant=n_ants, n_clusters, n_snap=1]
+    % channels(u,1).delay : [1, n_clusters, n_snap=1]
     %
-    % We extract [n_bs_ant, n_paths] per UE → coeff_all [n_ants, n_users, n_paths]
+    % With use_3GPP_baseline=1, delays come from the 3GPP statistical model
+    % (random exponential, same as Sionna), not from scatterer geometry.
     coeff_all = zeros(n_ants, n_users, n_paths, 'like', 1+1i);
     delay_all = zeros(n_users, n_paths);
 
@@ -176,13 +178,17 @@ for seed_idx = 1 : numel(seeds_to_gen)
         c_sorted = squeeze(c_u(1, :, :, 1));   % [n_ants, p_u]
         c_sorted = c_sorted(:, sort_idx);
 
+        % Subtract minimum delay so paths start near τ=0 (excess delay only)
+        d_min = d_sorted(1);
+        d_sorted = d_sorted - d_min;
+
         coeff_all(:, u, 1:p_use) = c_sorted(:, 1:p_use);
         delay_all(u, 1:p_use)    = d_sorted(1:p_use);
     end
 
     %% Save
     coeff = coeff_all;   % [n_rx_ant, n_users, n_paths]  complex
-    delay = delay_all;   % [n_users, n_paths]             seconds
+    delay = delay_all;   % [n_users, n_paths]             seconds (excess delay)
     save(out_file, 'coeff', 'delay', 'n_ants', 'n_users', 'n_paths', ...
          'carrier_freq', 'sc_type', 'scenario', 'seed', '-v7');
 

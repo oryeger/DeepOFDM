@@ -39,9 +39,9 @@ class QuadrigaChannel:
 
     Expected .mat file variables (saved by the MATLAB generator):
         coeff  - complex double [n_rx_ant, n_users, n_paths]
-                 Combined channel coefficients for all UEs.
+                 Per-cluster channel coefficients for all UEs.
         delay  - double [n_users, n_paths]
-                 Per-UE path delays in seconds.
+                 Per-UE excess path delays in seconds (minimum delay subtracted).
     """
 
     @staticmethod
@@ -71,7 +71,7 @@ class QuadrigaChannel:
 
             data = loadmat(mat_file)
             # coeff: [n_rx_ant, n_users, n_paths]
-            # delay: [n_users, n_paths] in seconds
+            # delay: [n_users, n_paths] in seconds (excess delay, τ_min already subtracted)
             coeff = data['coeff'].astype(np.complex64)
             delay = data['delay'].astype(np.float32)
 
@@ -99,9 +99,11 @@ class QuadrigaChannel:
             a_tf = tf.constant(a, dtype=tf.complex64)
             tau_tf = tf.constant(tau, dtype=tf.float32)
 
+            # Convert sparse (coeff, delay) to discrete-time channel via sinc interpolation.
             # normalize=True: Sionna normalises per (rx_ant, tx_ant) pair.
-            # Re-normalize so mean power = 1, matching TDL/Sionna behaviour.
             h_time = cir_to_time_channel(bandwidth, a_tf, tau_tf, l_min, l_max, normalize=True)
+
+            # Re-normalize so mean power = 1, matching TDL/Sionna behaviour.
             mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
             h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
 

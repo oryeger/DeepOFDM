@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import tensorflow as tf
+import matplotlib.pyplot as plt
 from scipy.io import loadmat
 from typing import Tuple
 
@@ -87,12 +88,13 @@ class QuadrigaChannel:
             )
 
             # Format for Sionna cir_to_time_channel:
-            #   a:   [batch, num_rx, num_rx_ant, num_tx, num_tx_ant, num_paths, num_time_steps]
-            #        [1,     1,      n_rx_ant,   1,      n_users,    n_paths,   1             ]
-            #   tau: [batch, num_rx, num_tx,    num_paths]
-            #        [1,     1,      n_users,   n_paths  ]
-            a = coeff[np.newaxis, np.newaxis, :, np.newaxis, :, :, np.newaxis]   # [1,1,n_rx,1,n_ue,n_p,1]
-            tau = delay[np.newaxis, np.newaxis, :, :]                            # [1,1,n_ue,n_p]
+            #   a:   [batch, num_rx, num_rx_ant, num_tx,   num_tx_ant, num_paths, num_time_steps]
+            #        [1,     1,      n_ants,     n_users,  1,          n_paths,   1             ]
+            #   tau: [batch, num_rx, num_tx,     num_paths]
+            #        [1,     1,      n_users,    n_paths  ]
+            # Each user is a separate TX with 1 antenna — num_tx=n_users, num_tx_ant=1
+            a = coeff[np.newaxis, np.newaxis, :, :, np.newaxis, :, np.newaxis]   # [1,1,n_ants,n_users,1,n_paths,1]
+            tau = delay[np.newaxis, np.newaxis, :, :]                            # [1,1,n_users,n_paths]
 
             a_tf = tf.constant(a, dtype=tf.complex64)
             tau_tf = tf.constant(tau, dtype=tf.float32)
@@ -102,6 +104,20 @@ class QuadrigaChannel:
             h_time = cir_to_time_channel(bandwidth, a_tf, tau_tf, l_min, l_max, normalize=True)
             mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
             h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
+
+            if conf.plot_channel:
+                colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']
+                n_rx_ant = h_time.shape[2]
+                for ant in range(n_rx_ant):
+                    h_ant = abs(h_time[0, 0, ant, 0, 0, 0, :])
+                    plt.plot(np.abs(h_ant), linestyle='-', color=colors[ant % len(colors)],
+                             label=f'Ant {ant}, peak@ {np.argmax(h_ant)}')
+                plt.title(f'QuaDRiGa {conf.channel_model}', fontsize=10)
+                plt.xlabel('time (samples)', fontsize=10)
+                plt.ylabel('|h|', fontsize=10)
+                plt.legend(fontsize=7)
+                plt.grid()
+                plt.show()
         else:
             h_time = external_channel
 

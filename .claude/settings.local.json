@@ -9,7 +9,9 @@
       "Bash(python:*)",
       "Bash(ls c:ProjectsDeepOFDM/.venv/Lib/site-packages/*.pth)",
       "Bash(where python:*)",
-      "Bash(pdflatex --version)"
+      "Bash(pdflatex --version)",
+      "Bash(git submodule:*)",
+      "Bash(echo \"exit: $?\")"
     ]
   }
 }

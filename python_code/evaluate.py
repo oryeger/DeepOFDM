@@ -20,7 +20,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib
-matplotlib.use('Agg')
+# matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
@@ -67,6 +67,7 @@ import numpy as np
 
 def entropy_with_bin_width(data, bin_width):
     """Estimate entropy using histogram binning with a specified bin width."""
+    data = np.clip(data, -50.0, 50.0)  # LLRs beyond ±50 are effectively ±inf
     min_x, max_x = np.min(data), np.max(data)
     bins = np.arange(min_x, max_x + bin_width, bin_width)  # Define bin edges
     hist, _ = np.histogram(data, bins=bins, density=True)  # Compute histogram

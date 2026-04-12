@@ -65,33 +65,33 @@ class EnvironmentChannel:
             carrier_frequency=float(conf.carrier_frequency))
 
         # Build channel model
-        model_name = conf.channel_model  # 'UMa', 'UMi', or 'RMa'
+        model_name = conf.channel_model  # 'SUMa', 'SUMi', or 'SRMa'
         o2i = getattr(conf, 'env_o2i_model', 'low')
         enable_pl = getattr(conf, 'env_enable_pathloss', False)
         enable_sf = getattr(conf, 'env_enable_shadow_fading', False)
 
-        if model_name == 'UMa':
+        if model_name == 'SUMa':
             channel = UMa(carrier_frequency=float(conf.carrier_frequency),
                           o2i_model=o2i,
                           ut_array=ut_array, bs_array=bs_array,
                           direction='uplink',
                           enable_pathloss=enable_pl,
                           enable_shadow_fading=enable_sf)
-        elif model_name == 'UMi':
+        elif model_name == 'SUMi':
             channel = UMi(carrier_frequency=float(conf.carrier_frequency),
                           o2i_model=o2i,
                           ut_array=ut_array, bs_array=bs_array,
                           direction='uplink',
                           enable_pathloss=enable_pl,
                           enable_shadow_fading=enable_sf)
-        elif model_name == 'RMa':
+        elif model_name == 'SRMa':
             channel = RMa(carrier_frequency=float(conf.carrier_frequency),
                           ut_array=ut_array, bs_array=bs_array,
                           direction='uplink',
                           enable_pathloss=enable_pl,
                           enable_shadow_fading=enable_sf)
         else:
-            raise ValueError(f"Unknown environment channel model: {model_name}. Use 'UMa', 'UMi', or 'RMa'.")
+            raise ValueError(f"Unknown environment channel model: {model_name}. Use 'SUMa', 'SUMi', or 'SRMa'.")
 
         # Network topology: 1 batch, 1 BS, 1 UT, static
         bs_height = float(getattr(conf, 'env_bs_height', 25.0))

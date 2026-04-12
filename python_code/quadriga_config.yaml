@@ -1,0 +1,10 @@
+# QuaDRiGa generation settings — read by escnn_matlab/generate_quadriga_channels.m only.
+# Run generate_quadriga_channels.m to pre-generate UMa/UMi/RMa channel files before evaluation.
+# QuaDRiGa scenario strings are hardcoded in the MATLAB script (UMa/UMi/RMa → 3GPP_38.901_*).
+quadriga_bs_height: 25.0               # BS height [m]
+quadriga_distance_range: [50, 500]     # [min, max] BS-UE distance [m]
+quadriga_ue_height_range: [1.5, 1.8]  # [min, max] UE height [m]
+quadriga_ue_spread_angle: 120          # Angular spread of UE positions [deg]
+quadriga_indoor_probability: 0.0       # Fraction of indoor UEs
+quadriga_num_paths: 12                 # Number of channel paths per UE
+quadriga_channel_beta: 0.0001          # Large-scale fading coefficient (channelBeta)

@@ -1,4 +1,4 @@
-snr: 100
+snr: 30
 cur_str: thirdd
 num_snrs: 1
 n_ants: 8
@@ -41,18 +41,20 @@ plot_only_last_iteration: False
 plot_channel: True
 plot_genie: False
 
-channel_model: 'C' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = 3GPP environment
+channel_model: 'UMa' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = QuaDRiGa (MATLAB pre-generated), 'SUMa'/'SUMi'/'SRMa' = Sionna
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
-# Environment channel settings (used when channel_model is UMa, UMi, or RMa)
-env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
+# Sionna environment channel settings (used when channel_model is SUMa, SUMi, or SRMa)
+env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (SUMa/SUMi only)
 env_bs_height: 25.0           # BS antenna height [m]
 env_ut_height: 1.5            # UT height [m]
 env_distance: 100.0           # BS-UT distance [m]
 env_indoor: False             # UE indoor state
 env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
 env_enable_shadow_fading: False  # apply shadow fading
+# QuaDRiGa channel settings (used when channel_model is UMa, UMi, or RMa)
+quadriga_mat_path: '../QuadrigaChannels'  # relative to project root; use absolute path to override
 pilot_channel_seed: -1
 channel_seed: 17
 

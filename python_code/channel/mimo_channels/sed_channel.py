@@ -17,6 +17,7 @@ H_COEF = 0.8
 
 from python_code.channel.sionna.TLD_channel import TDLChannel
 from python_code.channel.sionna.environment_channel import EnvironmentChannel
+from python_code.channel.Quadriga.quadriga_channel import QuadrigaChannel
 
 
 class SEDChannel:
@@ -138,6 +139,8 @@ class SEDChannel:
         if tdl_channel and td_in_rx:
             if conf.channel_model[0] in ('A', 'B', 'C'):
                 st_out, chan_out = TDLChannel.conv_cir(st_full, 1, 0, NUM_SLOTS, external_chan, seed)
+            elif conf.channel_model in ('UMa', 'UMi', 'RMa'):
+                st_out, chan_out = QuadrigaChannel.conv_cir(st_full, 1, 0, NUM_SLOTS, external_chan, seed)
             else:
                 st_out, chan_out = EnvironmentChannel.conv_cir(st_full, 1, 0, NUM_SLOTS, external_chan, seed)
             st_full = st_out

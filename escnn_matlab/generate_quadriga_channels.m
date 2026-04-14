@@ -156,6 +156,16 @@ for seed_idx = 1 : numel(seeds_to_gen)
     %% Generate channels
     channels = l.get_channels();   % [n_rx=n_users, n_tx=1]
 
+    %% Collapse per-antenna delays back to per-cluster format.
+    % The merge() step inside l.get_channels() sets individual_delays=true,
+    % which expands delay from [n_clusters, n_snap] to
+    % [n_rx_ant, n_tx_ant, n_clusters, n_snap] by replicating each cluster's
+    % delay for every antenna pair.  This must be collapsed before extraction
+    % so that squeeze(delay) yields a vector, not a matrix.
+    for u = 1 : n_users
+        channels(u, 1).individual_delays = false;
+    end
+
     %% Debug: print raw channel info for user 1
     ch_dbg = channels(1, 1);
     fprintf('   DEBUG: coeff size = [%s], delay size = [%s]\n', ...
@@ -165,25 +175,30 @@ for seed_idx = 1 : numel(seeds_to_gen)
     fprintf('   DEBUG: Distinct delays = %d\n', numel(unique(round(d_raw * 1e12))));
 
     %% Extract per-cluster CIR for each UE
-    % channels(u,1).coeff : [n_ue_ant=1, n_bs_ant=n_ants, n_clusters, n_snap=1]
-    % channels(u,1).delay : [1, n_clusters, n_snap=1]
+    % After collapsing individual_delays:
+    %   channels(u,1).coeff : [n_ue_ant=1, n_bs_ant=n_ants, n_clusters, n_snap=1]
+    %   channels(u,1).delay : [n_clusters, n_snap=1]
     %
     % With use_3GPP_baseline=1, delays come from the 3GPP statistical model
     % (random exponential, same as Sionna), not from scatterer geometry.
-    coeff_all = zeros(n_ants, n_users, n_paths, 'like', 1+1i);
-    delay_all = zeros(n_users, n_paths);
+
+    % Determine actual cluster count from the first channel
+    n_clusters_actual = size(channels(1,1).coeff, 3);
+    n_save = max(n_paths, n_clusters_actual);   % save all clusters
+    coeff_all = zeros(n_ants, n_users, n_save, 'like', 1+1i);
+    delay_all = zeros(n_users, n_save);
 
     for u = 1 : n_users
         ch_u    = channels(u, 1);
-        c_u     = ch_u.coeff;    % [1, n_ants, p_u, 1]
-        d_u     = ch_u.delay;    % [1, p_u, 1]
+        c_u     = ch_u.coeff;    % [1, n_ants, n_cl, 1]
+        d_u     = ch_u.delay;    % [n_cl, 1]
 
-        p_u = size(c_u, 3);
-        p_use = min(p_u, n_paths);
+        p_u = size(c_u, 3);     % actual number of clusters
+        p_use = min(p_u, n_save);
 
         % Sort paths by delay (ascending)
         [d_sorted, sort_idx] = sort(squeeze(d_u));
-        c_sorted = squeeze(c_u(1, :, :, 1));   % [n_ants, p_u]
+        c_sorted = squeeze(c_u(1, :, :, 1));   % [n_ants, n_cl]
         c_sorted = c_sorted(:, sort_idx);
 
         % Subtract minimum delay so paths start near τ=0 (excess delay only)
@@ -194,10 +209,13 @@ for seed_idx = 1 : numel(seeds_to_gen)
         delay_all(u, 1:p_use)    = d_sorted(1:p_use);
     end
 
+    fprintf('   Clusters from QuaDRiGa: %d, saving: %d\n', n_clusters_actual, n_save);
+
     %% Save
-    coeff = coeff_all;   % [n_rx_ant, n_users, n_paths]  complex
-    delay = delay_all;   % [n_users, n_paths]             seconds (excess delay)
-    save(out_file, 'coeff', 'delay', 'n_ants', 'n_users', 'n_paths', ...
+    coeff = coeff_all;   % [n_rx_ant, n_users, n_save]  complex
+    delay = delay_all;   % [n_users, n_save]             seconds (excess delay)
+    n_paths_saved = n_save;
+    save(out_file, 'coeff', 'delay', 'n_ants', 'n_users', 'n_paths_saved', ...
          'carrier_freq', 'sc_type', 'scenario', 'seed', '-v7');
 
     fprintf('   Saved: coeff [%dx%dx%d], delay [%dx%d]\n', ...

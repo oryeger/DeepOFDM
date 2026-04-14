@@ -420,7 +420,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 axes[0].grid()
 
                 for ant in range(n_ants_plot):
-                    axes[1].plot(20 * np.unwrap(np.angle(h_np[0, ant, :])), '-',
+                    axes[1].plot(np.unwrap(np.angle(h_np[0, ant, :])), '-',
                                  color=colors[ant % len(colors)], label=f'Ant {ant}')
                 axes[1].set_xlabel('Subcarrier')
                 axes[1].set_ylabel('Phase (Rad)')

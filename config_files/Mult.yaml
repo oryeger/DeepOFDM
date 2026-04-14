@@ -1,5 +1,5 @@
 snr: 40
-cur_str: prime_val
+cur_str: envnorm
 num_snrs: 1
 n_ants: 8
 snr_step: 1

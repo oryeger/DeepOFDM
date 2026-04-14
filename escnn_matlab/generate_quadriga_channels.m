@@ -156,6 +156,14 @@ for seed_idx = 1 : numel(seeds_to_gen)
     %% Generate channels
     channels = l.get_channels();   % [n_rx=n_users, n_tx=1]
 
+    %% Debug: print raw channel info for user 1
+    ch_dbg = channels(1, 1);
+    fprintf('   DEBUG: coeff size = [%s], delay size = [%s]\n', ...
+        num2str(size(ch_dbg.coeff)), num2str(size(ch_dbg.delay)));
+    d_raw = squeeze(ch_dbg.delay);
+    fprintf('   DEBUG: User 1 raw delays (ns) = %s\n', num2str(d_raw(:)' * 1e9, '%.1f '));
+    fprintf('   DEBUG: Distinct delays = %d\n', numel(unique(round(d_raw * 1e12))));
+
     %% Extract per-cluster CIR for each UE
     % channels(u,1).coeff : [n_ue_ant=1, n_bs_ant=n_ants, n_clusters, n_snap=1]
     % channels(u,1).delay : [1, n_clusters, n_snap=1]

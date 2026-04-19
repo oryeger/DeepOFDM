@@ -284,6 +284,10 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
     bler_snrs = None
     bler_avg_curves = None
+    ber_snrs = None
+    ber_avg_curves = None
+    mi_snrs = None
+    mi_avg_curves = None
 
     for plot_type in plot_types:
         ax = axes[subplot_index[plot_type]]
@@ -498,6 +502,10 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
         if plot_type == "BLER":
             bler_snrs = snrs
+        elif plot_type == "BER":
+            ber_snrs = snrs
+        else:  # MI
+            mi_snrs = snrs
 
         def avg(key, use_log_interp):
             curves = []
@@ -567,6 +575,15 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             mi_jointllr_1 = avg("mi_jointllr_1", use_log_interp=False)
             mi_lmmse = avg("mi_lmmse", use_log_interp=False)
             mi_sphere = avg("mi_sphere", use_log_interp=False)
+
+            mi_avg_curves = {
+                "mi_1":          mi_1,
+                "mi_2":          mi_2,
+                "mi_3":          mi_3,
+                "mi_lmmse":      mi_lmmse,
+                "mi_sphere":     mi_sphere,
+                "mi_jointllr_1": mi_jointllr_1,
+            }
 
             ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
             if plot_all_escnn:
@@ -698,6 +715,18 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                     "ber_mhsa_1":    ber_mhsa_1,
                     "ber_jointllr_1":ber_jointllr_1,
                 }
+            elif plot_type == "BER":
+                ber_avg_curves = {
+                    "ber_1":         ber_1,
+                    "ber_2":         ber_2,
+                    "ber_3":         ber_3,
+                    "ber_lmmse":     ber_lmmse,
+                    "ber_sphere":    ber_sphere,
+                    "ber_deeprx":    ber_deeprx,
+                    "ber_deepsic_1": ber_deepsic_1,
+                    "ber_mhsa_1":    ber_mhsa_1,
+                    "ber_jointllr_1":ber_jointllr_1,
+                }
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
@@ -751,54 +780,128 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
     plt.show()
 
-    # ---- Save averaged BLER curves to .mat file ----
+    # ---- Save averaged BLER/BER/MI curves to .mat file ----
     if bler_avg_curves is not None and bler_snrs is not None:
-        def _a(key):
+        def _a_bler(key):
             return np.asarray(bler_avg_curves.get(key, [np.nan] * len(bler_snrs)), dtype=float)
 
-        ber_escnn_arr   = _a("ber_1")
-        ber_escnn_2_arr = _a("ber_2")
-        ber_escnn_3_arr = _a("ber_3")
-        ber_lmmse_arr   = _a("ber_lmmse")
-        ber_sphere_arr  = _a("ber_sphere")
-        ber_deeprx_arr  = _a("ber_deeprx")
-        ber_deepsic_arr = _a("ber_deepsic_1")
+        def _a_ber(key):
+            if ber_avg_curves is None:
+                return np.full(len(bler_snrs), np.nan)
+            src_len = len(ber_snrs) if ber_snrs is not None else len(bler_snrs)
+            return np.asarray(ber_avg_curves.get(key, [np.nan] * src_len), dtype=float)
+
+        def _a_mi(key):
+            if mi_avg_curves is None:
+                return np.full(len(bler_snrs), np.nan)
+            src_len = len(mi_snrs) if mi_snrs is not None else len(bler_snrs)
+            return np.asarray(mi_avg_curves.get(key, [np.nan] * src_len), dtype=float)
+
+        # BLER arrays (pulled from BLER iteration)
+        bler_escnn_arr   = _a_bler("ber_1")
+        bler_escnn_2_arr = _a_bler("ber_2")
+        bler_escnn_3_arr = _a_bler("ber_3")
+        bler_lmmse_arr   = _a_bler("ber_lmmse")
+        bler_sphere_arr  = _a_bler("ber_sphere")
+        bler_deeprx_arr  = _a_bler("ber_deeprx")
+        bler_deepsic_arr = _a_bler("ber_deepsic_1")
+        bler_mhsa_arr    = _a_bler("ber_mhsa_1")
+        bler_jointllr_arr= _a_bler("ber_jointllr_1")
+
+        # Real BER arrays (pulled from BER iteration)
+        ber_escnn_arr    = _a_ber("ber_1")
+        ber_escnn_2_arr  = _a_ber("ber_2")
+        ber_escnn_3_arr  = _a_ber("ber_3")
+        ber_lmmse_arr    = _a_ber("ber_lmmse")
+        ber_sphere_arr   = _a_ber("ber_sphere")
+        ber_deeprx_arr   = _a_ber("ber_deeprx")
+        ber_deepsic_arr  = _a_ber("ber_deepsic_1")
+        ber_mhsa_arr     = _a_ber("ber_mhsa_1")
+        ber_jointllr_arr = _a_ber("ber_jointllr_1")
+
+        # MI arrays (pulled from MI iteration)
+        mi_escnn_arr     = _a_mi("mi_1")
+        mi_escnn_2_arr   = _a_mi("mi_2")
+        mi_escnn_3_arr   = _a_mi("mi_3")
+        mi_lmmse_arr     = _a_mi("mi_lmmse")
+        mi_sphere_arr    = _a_mi("mi_sphere")
+        mi_jointllr_arr  = _a_mi("mi_jointllr_1")
 
         snrs_arr = np.array(bler_snrs)
-        ber_target_mat = 0.1
+        ber_snrs_arr = np.array(ber_snrs) if ber_snrs is not None else snrs_arr
+        mi_snrs_arr  = np.array(mi_snrs)  if mi_snrs  is not None else snrs_arr
+        bler_target_mat = 0.1
 
         aug_match = re.search(r"AUGMENT_(LMMSE|SPHERE|DEEPSIC|DEEPRX)", title_source_file or "")
         aug_type = aug_match.group(1) if aug_match else "LMMSE"
 
         bler_no_aug_map = {
-            "LMMSE":   ber_lmmse_arr,
-            "SPHERE":  ber_sphere_arr,
-            "DEEPRX":  ber_deeprx_arr,
-            "DEEPSIC": ber_deepsic_arr,
+            "LMMSE":   bler_lmmse_arr,
+            "SPHERE":  bler_sphere_arr,
+            "DEEPRX":  bler_deeprx_arr,
+            "DEEPSIC": bler_deepsic_arr,
         }
-        bler_no_aug_arr = bler_no_aug_map.get(aug_type, ber_lmmse_arr)
+        bler_no_aug_arr = bler_no_aug_map.get(aug_type, bler_lmmse_arr)
+
+        mi_no_aug_map = {
+            "LMMSE":  mi_lmmse_arr,
+            "SPHERE": mi_sphere_arr,
+        }
+        mi_no_aug_arr = mi_no_aug_map.get(aug_type, mi_lmmse_arr)
 
         def _snr_target(arr):
-            return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), ber_target_mat)
+            return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), bler_target_mat)
 
         mat_data = {
             "snrs":              snrs_arr,
+            "ber_snrs":          ber_snrs_arr,
+            "mi_snrs":           mi_snrs_arr,
+
+            # Real BER curves
             "ber_escnn":         ber_escnn_arr,
+            "ber_escnn_2":       ber_escnn_2_arr,
+            "ber_escnn_3":       ber_escnn_3_arr,
             "ber_lmmse":         ber_lmmse_arr,
             "ber_sphere":        ber_sphere_arr,
             "ber_deeprx":        ber_deeprx_arr,
             "ber_deepsic":       ber_deepsic_arr,
-            "ber_mhsa":          _a("ber_mhsa_1"),
-            "ber_jointllr":      _a("ber_jointllr_1"),
-            "bler_aug":          ber_escnn_arr,
-            "bler_aug_1":        ber_escnn_arr,
-            "bler_aug_2":        ber_escnn_2_arr,
-            "bler_aug_3":        ber_escnn_3_arr,
+            "ber_mhsa":          ber_mhsa_arr,
+            "ber_jointllr":      ber_jointllr_arr,
+
+            # BLER curves
+            "bler_escnn":        bler_escnn_arr,
+            "bler_escnn_2":      bler_escnn_2_arr,
+            "bler_escnn_3":      bler_escnn_3_arr,
+            "bler_lmmse":        bler_lmmse_arr,
+            "bler_sphere":       bler_sphere_arr,
+            "bler_deeprx":       bler_deeprx_arr,
+            "bler_deepsic":      bler_deepsic_arr,
+            "bler_mhsa":         bler_mhsa_arr,
+            "bler_jointllr":     bler_jointllr_arr,
+            "bler_aug":          bler_escnn_arr,
+            "bler_aug_1":        bler_escnn_arr,
+            "bler_aug_2":        bler_escnn_2_arr,
+            "bler_aug_3":        bler_escnn_3_arr,
             "bler_no_aug":       bler_no_aug_arr,
-            "snr_target_aug":    _snr_target(ber_escnn_arr),
-            "snr_target_aug_1":  _snr_target(ber_escnn_arr),
-            "snr_target_aug_2":  _snr_target(ber_escnn_2_arr),
-            "snr_target_aug_3":  _snr_target(ber_escnn_3_arr),
+
+            # MI curves
+            "mi_escnn":          mi_escnn_arr,
+            "mi_escnn_2":        mi_escnn_2_arr,
+            "mi_escnn_3":        mi_escnn_3_arr,
+            "mi_lmmse":          mi_lmmse_arr,
+            "mi_sphere":         mi_sphere_arr,
+            "mi_jointllr":       mi_jointllr_arr,
+            "mi_aug":            mi_escnn_arr,
+            "mi_aug_1":          mi_escnn_arr,
+            "mi_aug_2":          mi_escnn_2_arr,
+            "mi_aug_3":          mi_escnn_3_arr,
+            "mi_no_aug":         mi_no_aug_arr,
+
+            # SNR targets (BLER @ 10%)
+            "snr_target_aug":    _snr_target(bler_escnn_arr),
+            "snr_target_aug_1":  _snr_target(bler_escnn_arr),
+            "snr_target_aug_2":  _snr_target(bler_escnn_2_arr),
+            "snr_target_aug_3":  _snr_target(bler_escnn_3_arr),
             "snr_target_no_aug": _snr_target(bler_no_aug_arr),
             "titletext":         build_cleaned_title_from_filename(os.path.basename(title_source_file)) if title_source_file else "",
         }

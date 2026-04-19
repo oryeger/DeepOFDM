@@ -1,16 +1,15 @@
 % =========================================================
-% master_plot_bler.m  –  configure here, then run
+% master_plot_mi.m  -  configure here, then run
 % =========================================================
 
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'CLEAN_MED';
+base_name        = 'CFO_MI';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
-add_snr_target   = false;         % append SNR@10% to legend labels
+algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=SPHERE  (DeepRx/DeepSIC have no MI)
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
@@ -65,7 +64,7 @@ end
 
 % ---- Shared style definitions ----
 alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
-              0.85, 0.33, 0.10;   % RBSD    - vermillion
+              0.85, 0.33, 0.10;   % SPHERE  - vermillion
               0.47, 0.67, 0.19;   % DeepRx  - green
               0.49, 0.18, 0.56];  % DeepSIC - purple
 
@@ -73,12 +72,12 @@ alg_names = {'LMMSE', 'SPHERE', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsic'};
 
 markers_no_aug = {'^';    % LMMSE   (hollow)
-                  's';    % RBSD    (hollow)
+                  's';    % SPHERE  (hollow)
                   'o';    % DeepRx  (hollow)
                   'd'};   % DeepSIC (hollow)
 
 markers_aug    = {'^';    % LMMSE   (filled)
-                  's';    % RBSD    (filled)
+                  's';    % SPHERE  (filled)
                   'o';    % DeepRx  (filled)
                   'd'};   % DeepSIC (filled)
 
@@ -96,11 +95,11 @@ if n_dirs == 1
     ax(1) = axes; %#ok<LAXES>
     hold on; grid on;
 
-    [all_handles, all_labels] = plot_bler_set( ...
+    [all_handles, all_labels] = plot_mi_set( ...
         dirs{1}, ...
         algs_to_plot, alg_colors, alg_names, alg_files, ...
         markers_no_aug, markers_aug, fillable_algs, ...
-        add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+        plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
 
     hold off;
 
@@ -110,13 +109,13 @@ if n_dirs == 1
         title(ax(1), ['r = ', tok{1}]);
     end
 
-    set(ax(1), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
+    set(ax(1), 'YMinorTick', 'on', 'Box', 'on');
     xlabel(ax(1), 'SNR (dB)');
-    ylabel(ax(1), 'BLER');
+    ylabel(ax(1), 'MI');
 
     % Internal legend, best location, vertical layout
     legend(ax(1), all_handles, all_labels, ...
-        'Location',    'southwest', ...
+        'Location',    'southeast', ...
         'Interpreter', 'none', ...
         'NumColumns',  1);
 
@@ -135,18 +134,17 @@ else
         ax(d) = subplot(1, n_dirs, d);
         hold on; grid on;
 
-        [h, lbl] = plot_bler_set( ...
+        [h, lbl] = plot_mi_set( ...
             dirs{d}, ...
             algs_to_plot, alg_colors, alg_names, alg_files, ...
             markers_no_aug, markers_aug, fillable_algs, ...
-            add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+            plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
 
         hold off;
 
         % Collect legend handles only from first subplot, strip code rate suffix
         if d == 1
             all_handles = h;
-            % Remove ', r=X.XX' from labels since subplot title shows code rate
             all_labels  = regexprep(lbl, ',?\s*r=0\.\d+', '');
         end
 
@@ -159,15 +157,14 @@ else
         end
         title(ax(d), subplot_title);
 
-        set(ax(d), 'YScale', 'log');
         xlabel(ax(d), 'SNR (dB)');
 
         if d == 1
-            ylabel(ax(d), 'BLER');
+            ylabel(ax(d), 'MI');
             set(ax(d), 'YAxisLocation', 'left');
         else
             linkaxes([ax(1), ax(d)], 'y');
-            ylabel(ax(d), 'BLER');
+            ylabel(ax(d), 'MI');
         end
 
         set(ax(d), 'YMinorTick', 'on', 'Box', 'on');
@@ -180,18 +177,16 @@ else
         'NumColumns',  4);
 
     lgd.Units       = 'normalized';
-    lgd.Position(1) = 0.5 - lgd.Position(3)/2;   % center horizontally
-    lgd.Position(2) = 0.01;                        % near bottom
+    lgd.Position(1) = 0.5 - lgd.Position(3)/2;
+    lgd.Position(2) = 0.01;
 
-    % Shrink subplots to make room for legend + xlabel at bottom
     for d = 1:n_dirs
         pos = ax(d).Position;
         ax(d).Position = [pos(1), pos(2)+0.14, pos(3), pos(4)-0.14];
     end
 end
-% ylim(ax(1), [0.0002, 1])
 
 % ---- Export ----
-out_name = fullfile(root_dir, [base_name, extra_text]);
+out_name = fullfile(root_dir, [base_name, extra_text, '_mi']);
 print(fig, [out_name, '.eps'], '-depsc', '-painters');
 savefig([out_name, '.fig']);

@@ -117,8 +117,10 @@ class EnvironmentChannel:
 
         if tf.size(external_channel) == 0:
             cir = channel(num_time_samples + l_tot - 1, bandwidth)
-            h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
-            # Re-normalize so mean power per (rx_ant, tx_ant) element = 1, matching TDL behavior
+            # normalize=False: keep per-user / per-antenna power structure (path loss, XPR, shadowing).
+            # A single global scaling below sets the overall mean power to 1 so SNR calibration still works.
+            h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=False)
+            # Global re-normalization: mean power across all (user, ant, tap) = 1.
             mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
             h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
             if conf.plot_channel:

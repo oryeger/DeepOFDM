@@ -100,10 +100,11 @@ class QuadrigaChannel:
             tau_tf = tf.constant(tau, dtype=tf.float32)
 
             # Convert sparse (coeff, delay) to discrete-time channel via sinc interpolation.
-            # normalize=True: Sionna normalises per (rx_ant, tx_ant) pair.
-            h_time = cir_to_time_channel(bandwidth, a_tf, tau_tf, l_min, l_max, normalize=True)
+            # normalize=False: keep per-user / per-antenna power structure (path loss, XPR, shadowing).
+            # A single global scaling below sets the overall mean power to 1 so SNR calibration still works.
+            h_time = cir_to_time_channel(bandwidth, a_tf, tau_tf, l_min, l_max, normalize=False)
 
-            # Re-normalize so mean power = 1, matching TDL/Sionna behaviour.
+            # Global re-normalization: mean power across all (user, ant, tap) = 1.
             mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
             h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
 

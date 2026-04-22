@@ -239,6 +239,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_mi_deeprx = []
     total_mi_lmmse = []
     total_mi_sphere = []
+    total_mi_deepsic_list = [[] for _ in range(iterations)]
     Final_SNR = conf.snr + conf.num_snrs - 1
 
     if mod_data == 2:
@@ -1399,6 +1400,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     total_mi_deeprx.append(mi_deeprx)
                 else:
                     mi_deeprx = 0
+                if run_deepsic:
+                    for iteration in range(iterations):
+                        mi_deepsic = calc_mi(tx_data.cpu(), llrs_mat_deepsic_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                        total_mi_deepsic_list[iteration].append(mi_deepsic)
                 for iteration in range(iters_e2e_disp):
                     if conf.run_e2e:
                         mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_e2e_list[iteration].cpu(), num_bits_data, n_users, num_res)
@@ -1800,6 +1805,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 data_mi["total_ber_sphere"] = total_mi_sphere
             if run_deeprx:
                 data_mi["total_ber_deeprx"] = total_mi_deeprx
+            if run_deepsic:
+                for i in range(conf.iterations):
+                    data_mi[f"total_ber_deepsic_{i + 1}"] = total_mi_deepsic_list[i]
             for i in range(conf.iterations):
                 data_mi[f"total_ber_{i + 1}"] = total_mi_list[i]
             if conf.run_e2e:

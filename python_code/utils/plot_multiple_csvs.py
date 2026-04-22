@@ -18,7 +18,7 @@ from scipy.io import savemat
 
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
-seeds = [123, 17, 41, 58]
+seeds = [123, 17, 41, 58, 1011, 1809, 3008, 1806, 912, 1505, 1807, 1109]
 MIN_SNR = -np.inf
 MAX_SNR = np.inf
 
@@ -485,6 +485,14 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                     if "total_ber_sphere" in df.columns:
                         seed_snr_dict[seed][snr]["mi_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
 
+                    if "total_ber_deeprx" in df.columns:
+                        seed_snr_dict[seed][snr]["mi_deeprx"] = _to_float_cell(df["total_ber_deeprx"].iloc[0])
+
+                    for k in [1, 2, 3]:
+                        colname = f"total_ber_deepsic_{k}"
+                        if colname in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _to_float_cell(df[colname].iloc[0])
+
                     mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                     if mi_joint_col is not None:
                         seed_snr_dict[seed][snr]["mi_jointllr_1"] = _to_float_cell(df[mi_joint_col].iloc[0])
@@ -575,14 +583,18 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             mi_jointllr_1 = avg("mi_jointllr_1", use_log_interp=False)
             mi_lmmse = avg("mi_lmmse", use_log_interp=False)
             mi_sphere = avg("mi_sphere", use_log_interp=False)
+            mi_deeprx = avg("mi_deeprx", use_log_interp=False)
+            mi_deepsic_1 = avg("mi_deepsic_1", use_log_interp=False)
 
             mi_avg_curves = {
-                "mi_1":          mi_1,
-                "mi_2":          mi_2,
-                "mi_3":          mi_3,
-                "mi_lmmse":      mi_lmmse,
-                "mi_sphere":     mi_sphere,
-                "mi_jointllr_1": mi_jointllr_1,
+                "mi_1":           mi_1,
+                "mi_2":           mi_2,
+                "mi_3":           mi_3,
+                "mi_lmmse":       mi_lmmse,
+                "mi_sphere":      mi_sphere,
+                "mi_deeprx":      mi_deeprx,
+                "mi_deepsic_1":   mi_deepsic_1,
+                "mi_jointllr_1":  mi_jointllr_1,
             }
 
             ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
@@ -825,6 +837,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         mi_escnn_3_arr   = _a_mi("mi_3")
         mi_lmmse_arr     = _a_mi("mi_lmmse")
         mi_sphere_arr    = _a_mi("mi_sphere")
+        mi_deeprx_arr    = _a_mi("mi_deeprx")
+        mi_deepsic_arr   = _a_mi("mi_deepsic_1")
         mi_jointllr_arr  = _a_mi("mi_jointllr_1")
 
         snrs_arr = np.array(bler_snrs)
@@ -841,13 +855,25 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             "DEEPRX":  bler_deeprx_arr,
             "DEEPSIC": bler_deepsic_arr,
         }
-        bler_no_aug_arr = bler_no_aug_map.get(aug_type, bler_lmmse_arr)
+        if aug_type not in bler_no_aug_map:
+            raise ValueError(
+                f"plot_multiple_csvs: unknown aug_type {aug_type!r} for BLER no-aug; "
+                f"supported: {sorted(bler_no_aug_map)}. Refusing to silently fall back."
+            )
+        bler_no_aug_arr = bler_no_aug_map[aug_type]
 
         mi_no_aug_map = {
-            "LMMSE":  mi_lmmse_arr,
-            "SPHERE": mi_sphere_arr,
+            "LMMSE":   mi_lmmse_arr,
+            "SPHERE":  mi_sphere_arr,
+            "DEEPRX":  mi_deeprx_arr,
+            "DEEPSIC": mi_deepsic_arr,
         }
-        mi_no_aug_arr = mi_no_aug_map.get(aug_type, mi_lmmse_arr)
+        if aug_type not in mi_no_aug_map:
+            raise ValueError(
+                f"plot_multiple_csvs: unknown aug_type {aug_type!r} for MI no-aug; "
+                f"supported: {sorted(mi_no_aug_map)}. Refusing to silently fall back."
+            )
+        mi_no_aug_arr = mi_no_aug_map[aug_type]
 
         def _snr_target(arr):
             return _safe_interp_x_to_y(arr.tolist(), snrs_arr.tolist(), bler_target_mat)
@@ -890,6 +916,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             "mi_escnn_3":        mi_escnn_3_arr,
             "mi_lmmse":          mi_lmmse_arr,
             "mi_sphere":         mi_sphere_arr,
+            "mi_deeprx":         mi_deeprx_arr,
+            "mi_deepsic":        mi_deepsic_arr,
             "mi_jointllr":       mi_jointllr_arr,
             "mi_aug":            mi_escnn_arr,
             "mi_aug_1":          mi_escnn_arr,

@@ -5,7 +5,7 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'CFO_MI';
+base_name        = 'CLEAN_LOW';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -110,6 +110,7 @@ if n_dirs == 1
     end
 
     set(ax(1), 'YMinorTick', 'on', 'Box', 'on');
+    ylim(ax(1), [0, 1]);
     xlabel(ax(1), 'SNR (dB)');
     ylabel(ax(1), 'MI');
 
@@ -168,6 +169,7 @@ else
         end
 
         set(ax(d), 'YMinorTick', 'on', 'Box', 'on');
+        ylim(ax(d), [0, 1]);
     end
 
     % Shared legend below the subplots

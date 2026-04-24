@@ -150,4 +150,10 @@ for alg = algs_to_plot
         labels{end+1}  = lbl_aug2; %#ok<AGROW>
     end
 end
+
+% Pin x-axis to the full SNR grid so BLER=0 points (dropped by log scale)
+% don't cause auto-scaling to clip the right edge.
+if exist('snrs_plot', 'var') && ~isempty(snrs_plot)
+    xlim([min(snrs_plot), max(snrs_plot)]);
+end
 end

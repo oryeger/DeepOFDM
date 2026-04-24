@@ -1402,7 +1402,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     mi_deeprx = 0
                 if run_deepsic:
                     for iteration in range(iterations):
-                        mi_deepsic = calc_mi(tx_data.cpu(), llrs_mat_deepsic_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                        llrs_deepsic_4d = llrs_mat_deepsic_list[iteration].cpu().unsqueeze(-1)
+                        mi_deepsic = calc_mi(tx_data.cpu(), llrs_deepsic_4d, num_bits_data, n_users, num_res)
                         total_mi_deepsic_list[iteration].append(mi_deepsic)
                 for iteration in range(iters_e2e_disp):
                     if conf.run_e2e:

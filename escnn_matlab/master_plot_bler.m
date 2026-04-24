@@ -5,11 +5,11 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'CFO_MI';
+base_name        = 'Completion';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1 2];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
@@ -69,7 +69,7 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
               0.47, 0.67, 0.19;   % DeepRx  - green
               0.49, 0.18, 0.56];  % DeepSIC - purple
 
-alg_names = {'LMMSE', 'SPHERE', 'DeepRx', 'DeepSIC'};
+alg_names = {'LMMSE', 'RBSD', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsic'};
 
 markers_no_aug = {'^';    % LMMSE   (hollow)
@@ -107,25 +107,41 @@ if n_dirs == 1
     % Extract code rate for title (if available)
     tok = regexp(dirs{1}, '_(0\.\d+)', 'tokens', 'once');
     if ~isempty(tok)
-        title(ax(1), ['r = ', tok{1}]);
+        t1 = title(ax(1), ['r = ', tok{1}]);
+        t1.Units = 'normalized';
+        t1.Position(2) = t1.Position(2) + 0.03;
     end
 
     set(ax(1), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
     xlabel(ax(1), 'SNR (dB)');
     ylabel(ax(1), 'BLER');
 
+    % Reorder legend: all no-aug then all aug, in requested alg order.
+    desired_order = {'LMMSE',     'RBSD',     'DeepSIC',     'DeepRx', ...
+                     'LMMSE aug', 'RBSD aug', 'DeepSIC aug', 'DeepRx aug'};
+    reorder_idx = [];
+    for k = 1:numel(desired_order)
+        idx = find(strcmp(all_labels, desired_order{k}), 1);
+        if ~isempty(idx)
+            reorder_idx(end+1) = idx; %#ok<AGROW>
+        end
+    end
+    all_handles = all_handles(reorder_idx);
+    all_labels  = all_labels(reorder_idx);
+
     % Internal legend, best location, vertical layout
     legend(ax(1), all_handles, all_labels, ...
         'Location',    'southwest', ...
         'Interpreter', 'none', ...
-        'NumColumns',  1);
+        'NumColumns',  1, ...
+        'FontSize',    14);
 
     % Tight axes margins (matches old style)
     set(ax(1), 'LooseInset', get(ax(1), 'TightInset'));
 
 else
     % ---- Two code rates: side-by-side subplots with shared legend below ----
-    set(fig, 'Units', 'inches', 'Position', [0 0 7 3.5]);
+    set(fig, 'Units', 'inches', 'Position', [0 0 14 7]);
 
     all_handles = [];
     all_labels  = {};
@@ -157,7 +173,9 @@ else
         else
             subplot_title = base_name;
         end
-        title(ax(d), subplot_title);
+        t_sp = title(ax(d), subplot_title);
+        t_sp.Units = 'normalized';
+        t_sp.Position(2) = t_sp.Position(2) + 0.03;
 
         set(ax(d), 'YScale', 'log');
         xlabel(ax(d), 'SNR (dB)');
@@ -173,20 +191,34 @@ else
         set(ax(d), 'YMinorTick', 'on', 'Box', 'on');
     end
 
+    % Reorder legend: row 1 = all no-aug, row 2 = all aug, in requested alg order.
+    desired_order = {'LMMSE',     'RBSD',     'DeepSIC',     'DeepRx', ...
+                     'LMMSE aug', 'RBSD aug', 'DeepSIC aug', 'DeepRx aug'};
+    reorder_idx = [];
+    for k = 1:numel(desired_order)
+        idx = find(strcmp(all_labels, desired_order{k}), 1);
+        if ~isempty(idx)
+            reorder_idx(end+1) = idx; %#ok<AGROW>
+        end
+    end
+    all_handles = all_handles(reorder_idx);
+    all_labels  = all_labels(reorder_idx);
+
     % Shared legend below the subplots
     lgd = legend(ax(1), all_handles, all_labels, ...
         'Interpreter', 'none', ...
         'Orientation', 'horizontal', ...
-        'NumColumns',  4);
+        'NumColumns',  4, ...
+        'FontSize',    14);
 
     lgd.Units       = 'normalized';
     lgd.Position(1) = 0.5 - lgd.Position(3)/2;   % center horizontally
     lgd.Position(2) = 0.01;                        % near bottom
 
-    % Shrink subplots to make room for legend + xlabel at bottom
+    % Shrink subplots to make room for the (larger) legend + xlabel at bottom
     for d = 1:n_dirs
         pos = ax(d).Position;
-        ax(d).Position = [pos(1), pos(2)+0.14, pos(3), pos(4)-0.14];
+        ax(d).Position = [pos(1), pos(2)+0.18, pos(3), pos(4)-0.18];
     end
 end
 % ylim(ax(1), [0.0002, 1])
@@ -194,4 +226,5 @@ end
 % ---- Export ----
 out_name = fullfile(root_dir, [base_name, extra_text]);
 print(fig, [out_name, '.eps'], '-depsc', '-painters');
+print(fig, [out_name, '.png'], '-dpng',  '-r600');       % high-DPI raster for PPT
 savefig([out_name, '.fig']);

@@ -23,7 +23,7 @@ MIN_SNR = -np.inf
 MAX_SNR = np.inf
 
 # ---- Missing / cleanup handling configuration ----
-CLEANUP_ENABLED = False              # Master switch: False = plot raw averaged data, no cleanup at all
+CLEANUP_ENABLED = True              # Master switch: False = plot raw averaged data, no cleanup at all
 
 INTERPOLATE_MISSING_PER_SEED = True  and CLEANUP_ENABLED
 MAX_INTERP_GAP = 3                  if CLEANUP_ENABLED else 0   # Fill only interior gaps of up to this many consecutive missing SNRs
@@ -527,6 +527,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
                 y = np.asarray(y, dtype=float)
 
+                # Step 0: on log-scale quantities, treat exact 0 as unobserved.
+                # Log scale can't render it, and isolated zeros between positive
+                # neighbors (statistical misses) would otherwise block downstream
+                # interpolation because 0.0 is finite, not NaN.
+                if CLEANUP_ENABLED and use_log_interp:
+                    y = np.where(y == 0, np.nan, y)
+
                 # Step 1: remove isolated non-monotonic points
                 if REMOVE_ISOLATED_NONMONO_POINTS and use_log_interp:
                     y_cleaned, removed_idx = _remove_isolated_nonmonotonic_points(
@@ -564,6 +571,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             # Remove isolated non-monotonic spikes from the averaged curve, then interpolate
             if use_log_interp:
+                if CLEANUP_ENABLED:
+                    mean_curve = np.where(mean_curve == 0, np.nan, mean_curve)
                 mean_curve, removed_idx = _remove_isolated_nonmonotonic_points(
                     snrs, mean_curve, max_bad_points=MAX_BAD_POINTS_PER_CURVE
                 )
@@ -577,14 +586,19 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         dashes = [":", "-.", "--", "-", "-"]
 
         if plot_type == "MI":
-            mi_1 = avg("mi_1", use_log_interp=False)
-            mi_2 = avg("mi_2", use_log_interp=False)
-            mi_3 = avg("mi_3", use_log_interp=False)
-            mi_jointllr_1 = avg("mi_jointllr_1", use_log_interp=False)
-            mi_lmmse = avg("mi_lmmse", use_log_interp=False)
-            mi_sphere = avg("mi_sphere", use_log_interp=False)
-            mi_deeprx = avg("mi_deeprx", use_log_interp=False)
-            mi_deepsic_1 = avg("mi_deepsic_1", use_log_interp=False)
+            # MI is bounded at 1 bit/symbol; values above are numerical artifacts.
+            def _clip_mi(v):
+                arr = np.asarray(v, dtype=float)
+                return np.minimum(arr, 1.0).tolist()
+
+            mi_1 = _clip_mi(avg("mi_1", use_log_interp=False))
+            mi_2 = _clip_mi(avg("mi_2", use_log_interp=False))
+            mi_3 = _clip_mi(avg("mi_3", use_log_interp=False))
+            mi_jointllr_1 = _clip_mi(avg("mi_jointllr_1", use_log_interp=False))
+            mi_lmmse = _clip_mi(avg("mi_lmmse", use_log_interp=False))
+            mi_sphere = _clip_mi(avg("mi_sphere", use_log_interp=False))
+            mi_deeprx = _clip_mi(avg("mi_deeprx", use_log_interp=False))
+            mi_deepsic_1 = _clip_mi(avg("mi_deepsic_1", use_log_interp=False))
 
             mi_avg_curves = {
                 "mi_1":           mi_1,
@@ -617,6 +631,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
+            ax.set_ylim(top=1.0)
             ax.grid(True)
             ax.legend()
 

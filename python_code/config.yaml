@@ -41,10 +41,10 @@ plot_only_last_iteration: False
 plot_channel: True
 plot_genie: False
 
-channel_model: 'UMa' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = QuaDRiGa (MATLAB pre-generated), 'SUMa'/'SUMi'/'SRMa' = Sionna
+channel_model: 'C' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = QuaDRiGa (MATLAB pre-generated), 'SUMa'/'SUMi'/'SRMa' = Sionna
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-spatial_correlation: 'low' # Options: none, low, medium, medium_a, high, custom
+spatial_correlation: 'medium' # Options: none, low, medium, medium_a, high, custom
 # Sionna environment channel settings (used when channel_model is SUMa, SUMi, or SRMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (SUMa/SUMi only)
 env_bs_height: 25.0           # BS antenna height [m]

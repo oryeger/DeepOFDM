@@ -6,7 +6,7 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'CFO_MI';
+base_name        = 'IQMM_TDLB';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -17,43 +17,73 @@ snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB 
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 % ----------------------------
 
-% ---- Auto-detect code rate directories ----
-pattern    = fullfile(root_dir, [base_name, '_0.*']);
-candidates = dir(pattern);
-candidates = candidates([candidates.isdir]);
+% ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
+dirs     = {};
+set_keys = {};
+set_type = '';
 
-dirs = {};
+% Code-rate suffix (_0.XX)
+candidates = dir(fullfile(root_dir, [base_name, '_0.*']));
+candidates = candidates([candidates.isdir]);
 for i = 1:numel(candidates)
     fname = candidates(i).name;
-    expected_suffix = regexp(fname, ...
+    tok = regexp(fname, ...
         [regexptranslate('escape', base_name), '_(0\.\d+)', ...
          regexptranslate('escape', extra_text), '$'], 'tokens', 'once');
-    if ~isempty(expected_suffix)
-        dirs{end+1} = fullfile(root_dir, fname); %#ok<SAGROW>
+    if ~isempty(tok)
+        dirs{end+1}     = fullfile(root_dir, fname); %#ok<SAGROW>
+        set_keys{end+1} = tok{1};                    %#ok<SAGROW>
     end
 end
-
-cr_vals = zeros(1, numel(dirs));
-for i = 1:numel(dirs)
-    tok = regexp(dirs{i}, '_(0\.\d+)', 'tokens', 'once');
-    cr_vals(i) = str2double(tok{1});
+if ~isempty(dirs)
+    set_type = 'cr';
+    [~, sort_idx] = sort(cellfun(@str2double, set_keys));
+    dirs     = dirs(sort_idx);
+    set_keys = set_keys(sort_idx);
 end
-[~, sort_idx] = sort(cr_vals);
-dirs = dirs(sort_idx);
+
+% TDL-channel suffix (_TDLA / _TDLB / ...)
+if isempty(dirs)
+    candidates = dir(fullfile(root_dir, [base_name, '_TDL*']));
+    candidates = candidates([candidates.isdir]);
+    for i = 1:numel(candidates)
+        fname = candidates(i).name;
+        tok = regexp(fname, ...
+            [regexptranslate('escape', base_name), '_(TDL[A-Z])', ...
+             regexptranslate('escape', extra_text), '$'], 'tokens', 'once');
+        if ~isempty(tok)
+            dirs{end+1}     = fullfile(root_dir, fname); %#ok<SAGROW>
+            set_keys{end+1} = tok{1};                    %#ok<SAGROW>
+        end
+    end
+    if ~isempty(dirs)
+        set_type = 'channel';
+        [~, sort_idx] = sort(set_keys);
+        dirs     = dirs(sort_idx);
+        set_keys = set_keys(sort_idx);
+    end
+end
 
 if isempty(dirs)
     candidate = fullfile(root_dir, [base_name, extra_text]);
     if isfolder(candidate)
-        dirs = {candidate};
+        dirs     = {candidate};
+        set_keys = {''};
+        set_type = '';
     else
         error('No valid directory found for base_name="%s"', base_name);
     end
 end
 
 if numel(dirs) > 1
-    warning('Multiple code rate directories found; using first: %s', dirs{1});
+    warning('Multiple directories found; using first: %s', dirs{1});
 end
 dir_path = dirs{1};
+sk_first = set_keys{1};
+
+% TDL channel -> default delay spread (ns)
+tdl_ds_keys   = {'TDLA', 'TDLB', 'TDLC', 'TDLD', 'TDLE'};
+tdl_ds_values = [   30,    100,    300,    300,    300];
 
 fprintf('Plotting MI + BLER from: %s\n', dir_path);
 % -------------------------------------------
@@ -100,7 +130,7 @@ hold on; grid on;
 hold off;
 xlabel(ax(1), 'SNR (dB)');
 ylabel(ax(1), 'MI');
-ylim(ax(1), [0, 1]);
+ylim(ax(1), [0.8, 1]);
 t1 = title(ax(1), 'Bit-wise Mutual Information');
 t1.Units = 'normalized';
 t1.Position(2) = t1.Position(2) + 0.03;
@@ -123,6 +153,9 @@ t2 = title(ax(2), 'Block Error Rate');
 t2.Units = 'normalized';
 t2.Position(2) = t2.Position(2) + 0.03;
 set(ax(2), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
+
+% Match MI x-axis to BLER's full SNR span so both subplots line up at SNR=0.
+xlim(ax(1), xlim(ax(2)));
 
 % ---- Shared legend below (use BLER labels; strip code-rate suffix) ----
 legend_labels = regexprep(lbl_bler, ',?\s*r=0\.\d+', '');

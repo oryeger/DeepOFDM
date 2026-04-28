@@ -1,6 +1,8 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:conda",
     "python-envs.defaultPackageManager": "ms-python.python:conda",
+    "python.defaultInterpreterPath": "C:\\Users\\owner\\anaconda3\\envs\\DeepOFDMsWindows\\python.exe",
+    "python.terminal.activateEnvironment": true,
     "terminal.integrated.env.windows": {
         "PYTHONPATH": "C:\\Projects\\DeepOFDM"
     }

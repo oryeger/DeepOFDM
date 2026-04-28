@@ -1,14 +1,21 @@
 {
   "version": "0.2.0",
   "configurations": [
-    
     {
       "name": "Python: evaluate.py",
       "type": "debugpy",
       "request": "launch",
       "program": "${workspaceFolder}/python_code/evaluate.py",
-      "console": "integratedTerminal",
-      "python": "C:\\Users\\owner\\anaconda3\\envs\\DeepOFDMsWindows\\python.exe"
+      "console": "internalConsole",
+      "redirectOutput": true,
+      "python": "C:\\Users\\owner\\anaconda3\\envs\\DeepOFDMsWindows\\python.exe",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": true,
+      "subProcess": false,
+      "env": {
+        "PYTHONPATH": "C:\\Projects\\DeepOFDM",
+        "PYDEVD_USE_FRAME_EVAL": "NO"
+      }
     }
   ]
 }

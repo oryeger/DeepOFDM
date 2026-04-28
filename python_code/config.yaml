@@ -38,13 +38,13 @@ sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
-plot_channel: True
+plot_channel: False
 plot_genie: False
 
 channel_model: 'C' # 'N' = flat, 'A'/'B'/'C' = TDL, 'UMa'/'UMi'/'RMa' = QuaDRiGa (MATLAB pre-generated), 'SUMa'/'SUMi'/'SRMa' = Sionna
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-spatial_correlation: 'medium' # Options: none, low, medium, medium_a, high, custom
+spatial_correlation: 'high' # Options: none, low, medium, medium_a, high, custom
 # Sionna environment channel settings (used when channel_model is SUMa, SUMi, or SRMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (SUMa/SUMi only)
 env_bs_height: 25.0           # BS antenna height [m]

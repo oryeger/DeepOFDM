@@ -2,10 +2,10 @@
 % master_plot_bler.m  –  configure here, then run
 % =========================================================
 
-clear; clc; close all;
+clear; clc;
 
 % ---- User configuration ----
-base_name        = 'Completion';
+base_name        = 'RX';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -16,36 +16,62 @@ snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB 
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 % ----------------------------
 
-% ---- Auto-detect code rate directories ----
-pattern    = fullfile(root_dir, [base_name, '_0.*']);
-candidates = dir(pattern);
-candidates = candidates([candidates.isdir]);
+% ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
+% set_type is 'cr' (e.g. base_0.6 / base_0.7) or 'channel' (e.g. base_TDLB / base_TDLC).
+dirs     = {};
+set_keys = {};
+set_type = '';
 
-dirs = {};
+% First try code-rate suffix (_0.XX)
+candidates = dir(fullfile(root_dir, [base_name, '_0.*']));
+candidates = candidates([candidates.isdir]);
 for i = 1:numel(candidates)
     fname = candidates(i).name;
-    expected_suffix = regexp(fname, ...
+    tok = regexp(fname, ...
         [regexptranslate('escape', base_name), '_(0\.\d+)', ...
          regexptranslate('escape', extra_text), '$'], 'tokens', 'once');
-    if ~isempty(expected_suffix)
-        dirs{end+1} = fullfile(root_dir, fname); %#ok<SAGROW>
+    if ~isempty(tok)
+        dirs{end+1}     = fullfile(root_dir, fname); %#ok<SAGROW>
+        set_keys{end+1} = tok{1};                    %#ok<SAGROW>
     end
 end
-
-% Sort by code rate ascending
-cr_vals = zeros(1, numel(dirs));
-for i = 1:numel(dirs)
-    tok = regexp(dirs{i}, '_(0\.\d+)', 'tokens', 'once');
-    cr_vals(i) = str2double(tok{1});
+if ~isempty(dirs)
+    set_type = 'cr';
+    cr_vals  = cellfun(@str2double, set_keys);
+    [~, sort_idx] = sort(cr_vals);
+    dirs     = dirs(sort_idx);
+    set_keys = set_keys(sort_idx);
 end
-[~, sort_idx] = sort(cr_vals);
-dirs = dirs(sort_idx);
+
+% Else try TDL-channel suffix (_TDLA / _TDLB / _TDLC / ...)
+if isempty(dirs)
+    candidates = dir(fullfile(root_dir, [base_name, '_TDL*']));
+    candidates = candidates([candidates.isdir]);
+    for i = 1:numel(candidates)
+        fname = candidates(i).name;
+        tok = regexp(fname, ...
+            [regexptranslate('escape', base_name), '_(TDL[A-Z])', ...
+             regexptranslate('escape', extra_text), '$'], 'tokens', 'once');
+        if ~isempty(tok)
+            dirs{end+1}     = fullfile(root_dir, fname); %#ok<SAGROW>
+            set_keys{end+1} = tok{1};                    %#ok<SAGROW>
+        end
+    end
+    if ~isempty(dirs)
+        set_type = 'channel';
+        [~, sort_idx] = sort(set_keys);   % alphabetical: TDLA, TDLB, TDLC
+        dirs     = dirs(sort_idx);
+        set_keys = set_keys(sort_idx);
+    end
+end
 
 % Fall back to bare base_name if no suffixed dirs found
 if isempty(dirs)
     candidate = fullfile(root_dir, [base_name, extra_text]);
     if isfolder(candidate)
-        dirs = {candidate};
+        dirs     = {candidate};
+        set_keys = {''};
+        set_type = '';
     else
         error('No valid directory found for base_name="%s"', base_name);
     end
@@ -53,9 +79,14 @@ end
 
 % Limit to 2 sets max
 if numel(dirs) > 2
-    warning('More than 2 code rate directories found, using first 2 only.');
-    dirs = dirs(1:2);
+    warning('More than 2 directories found, using first 2 only.');
+    dirs     = dirs(1:2);
+    set_keys = set_keys(1:2);
 end
+
+% TDL channel -> default delay spread (ns), matches python_code/utils/config_singleton.py
+tdl_ds_keys   = {'TDLA', 'TDLB', 'TDLC', 'TDLD', 'TDLE'};
+tdl_ds_values = [   30,    100,    300,    300,    300];
 
 fprintf('Found %d curve set(s):\n', numel(dirs));
 for i = 1:numel(dirs)
@@ -104,10 +135,22 @@ if n_dirs == 1
 
     hold off;
 
-    % Extract code rate for title (if available)
-    tok = regexp(dirs{1}, '_(0\.\d+)', 'tokens', 'once');
-    if ~isempty(tok)
-        t1 = title(ax(1), ['r = ', tok{1}]);
+    % Build title from set_type / set_keys
+    sk = set_keys{1};
+    if strcmp(set_type, 'cr')
+        subplot_title = ['r = ', sk];
+    elseif strcmp(set_type, 'channel')
+        ds_idx = find(strcmp(tdl_ds_keys, sk), 1);
+        if ~isempty(ds_idx)
+            subplot_title = sprintf('TDL-%s, delay spread=%dns', sk(end), tdl_ds_values(ds_idx));
+        else
+            subplot_title = ['TDL-', sk(end)];
+        end
+    else
+        subplot_title = '';
+    end
+    if ~isempty(subplot_title)
+        t1 = title(ax(1), subplot_title);
         t1.Units = 'normalized';
         t1.Position(2) = t1.Position(2) + 0.03;
     end
@@ -166,10 +209,17 @@ else
             all_labels  = regexprep(lbl, ',?\s*r=0\.\d+', '');
         end
 
-        % Extract code rate for subplot title
-        tok = regexp(dirs{d}, '_(0\.\d+)', 'tokens', 'once');
-        if ~isempty(tok)
-            subplot_title = ['r = ', tok{1}];
+        % Subplot title from set_type / set_keys
+        sk = set_keys{d};
+        if strcmp(set_type, 'cr')
+            subplot_title = ['r = ', sk];
+        elseif strcmp(set_type, 'channel')
+            ds_idx = find(strcmp(tdl_ds_keys, sk), 1);
+            if ~isempty(ds_idx)
+                subplot_title = sprintf('TDL-%s, delay spread=%dns', sk(end), tdl_ds_values(ds_idx));
+            else
+                subplot_title = ['TDL-', sk(end)];
+            end
         else
             subplot_title = base_name;
         end

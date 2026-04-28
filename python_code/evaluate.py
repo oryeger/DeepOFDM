@@ -20,7 +20,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices

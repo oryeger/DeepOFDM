@@ -110,8 +110,8 @@ class TDLChannel:
                         R[i, j] = (alpha ** distance + beta ** distance) / 2.0
             return tf.constant(R, dtype=tf.complex64)
 
-        # tx_corr = generate_correlation_matrix_3gpp(num_tx_ant, alpha, beta) - removed as we are in MU-MIMO
-        tx_corr = None
+        # tx_corr = generate_correlation_matrix_3gpp(num_tx_ant, alpha, beta)
+        tx_corr = tf.eye(num_tx_ant, dtype=tf.complex64)
         rx_corr = generate_correlation_matrix_3gpp(num_rx_ant, alpha, beta)
 
         return tx_corr, rx_corr

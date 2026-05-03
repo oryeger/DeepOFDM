@@ -1,7 +1,7 @@
 snr: 40
-cur_str: envnorm
+cur_str: four
 num_snrs: 1
-n_ants: 8
+n_ants: 4
 snr_step: 1
 n_users: 1
 mcs: 17 # [0..4] - QPSK, [5..10] - 16QAM

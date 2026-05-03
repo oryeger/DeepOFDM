@@ -2,11 +2,17 @@ function [handles, labels] = plot_bler_set( ...
     dir_path, ...
     algs_to_plot, alg_colors, alg_names, alg_files, ...
     markers_no_aug, markers_aug, fillable_algs, ...
-    add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts)
+    add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, ...
+    snr_cut_left_pts)
 % PLOT_BLER_SET  Plot one set of BLER curves from a single directory.
 %
 %   snr_pad_left_db   : extend SNR axis left by this many dB with BLER=1 padding
 %   snr_cut_right_pts : remove this many points from the right of SNR/BLER vectors
+%   snr_cut_left_pts  : remove this many points from the left  of SNR/BLER vectors
+
+if nargin < 13 || isempty(snr_cut_left_pts)
+    snr_cut_left_pts = 0;
+end
 %
 %   Encoding:
 %     Dashed + hollow marker = no aug  (LMMSE/Sphere)
@@ -44,11 +50,9 @@ for alg = algs_to_plot
     alg_color   = alg_colors(alg,:);
     is_fillable = ismember(alg, fillable_algs);
 
-    % Build SNR vector with optional left padding of BLER=1 points
+    % Build SNR vector with optional trimming on both sides + left BLER=1 padding
     snrs = S.snrs(:)';
-    if snr_cut_right_pts > 0
-        snrs = snrs(1 : end - snr_cut_right_pts);
-    end
+    snrs = snrs(1 + snr_cut_left_pts : end - snr_cut_right_pts);
     if snr_pad_left_db > 0
         snr_step   = snrs(2) - snrs(1);           % infer step from data
         snr_start  = snrs(1) - snr_pad_left_db;
@@ -59,14 +63,12 @@ for alg = algs_to_plot
     end
     n_pad = numel(snrs_plot) - numel(snrs);        % number of padded points
 
-    % Helper: trim right, then prepend BLER=1 padding to a BLER vector
+    % Helper: trim left+right, then prepend BLER=1 padding to a BLER vector
     n_snrs_orig = numel(S.snrs);
-    if snr_cut_right_pts > 0
-        trim_bler = @(b) b(1 : n_snrs_orig - snr_cut_right_pts);
-    else
-        trim_bler = @(b) b(:)';
-    end
-    pad_bler = @(b) [ones(1, n_pad), trim_bler(b)];
+    left_idx    = 1 + snr_cut_left_pts;
+    right_idx   = n_snrs_orig - snr_cut_right_pts;
+    trim_bler   = @(b) reshape(b(left_idx:right_idx), 1, []);
+    pad_bler    = @(b) [ones(1, n_pad), trim_bler(b)];
 
     % Marker spacing: one marker every ~4 points across full SNR range
     n_total     = numel(snrs_plot);

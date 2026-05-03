@@ -5,16 +5,20 @@
 clear; clc;
 
 % ---- User configuration ----
-base_name        = 'Completion4x4';
+base_name        = 'CLIP';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
-algs_to_plot     = [1 2];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
+algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=RBSD, 3=DeepRx, 4=DeepSIC
 add_snr_target   = false;         % append SNR@10% to legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
-snr_cut_right_pts = 5;            % cut this many SNR points from the right (0 = no cut)
+snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
+snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
+output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
 % ----------------------------
+
+is_ppt = strcmpi(output_target, 'ppt');
 
 % ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
 % set_type is 'cr' (e.g. base_0.6 / base_0.7) or 'channel' (e.g. base_TDLB / base_TDLC).
@@ -131,7 +135,7 @@ if n_dirs == 1
         dirs{1}, ...
         algs_to_plot, alg_colors, alg_names, alg_files, ...
         markers_no_aug, markers_aug, fillable_algs, ...
-        add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+        add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
     hold off;
 
@@ -150,9 +154,13 @@ if n_dirs == 1
         subplot_title = '';
     end
     if ~isempty(subplot_title)
-        t1 = title(ax(1), subplot_title);
-        t1.Units = 'normalized';
-        t1.Position(2) = t1.Position(2) + 0.03;
+        if is_ppt
+            t1 = title(ax(1), subplot_title);
+            t1.Units = 'normalized';
+            t1.Position(2) = t1.Position(2) + 0.03;
+        else
+            title(ax(1), subplot_title);
+        end
     end
 
     set(ax(1), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
@@ -173,18 +181,24 @@ if n_dirs == 1
     all_labels  = all_labels(reorder_idx);
 
     % Internal legend, best location, vertical layout
-    legend(ax(1), all_handles, all_labels, ...
-        'Location',    'southwest', ...
-        'Interpreter', 'none', ...
-        'NumColumns',  1, ...
-        'FontSize',    14);
+    legend_args = {'Location', 'southwest', 'Interpreter', 'none', 'NumColumns', 1};
+    if is_ppt
+        legend_args = [legend_args, {'FontSize', 14}];
+    end
+    legend(ax(1), all_handles, all_labels, legend_args{:});
 
     % Tight axes margins (matches old style)
     set(ax(1), 'LooseInset', get(ax(1), 'TightInset'));
 
 else
     % ---- Two code rates: side-by-side subplots with shared legend below ----
-    set(fig, 'Units', 'inches', 'Position', [0 0 14 7]);
+    if is_ppt
+        set(fig, 'Units', 'inches', 'Position', [0 0 14 7]);
+    else
+        % Match the MI+BLER paper figure height (4.2") so subplots are the
+        % same vertical size across both layouts.
+        set(fig, 'Units', 'inches', 'Position', [0 0 7 4.2]);
+    end
 
     all_handles = [];
     all_labels  = {};
@@ -198,7 +212,7 @@ else
             dirs{d}, ...
             algs_to_plot, alg_colors, alg_names, alg_files, ...
             markers_no_aug, markers_aug, fillable_algs, ...
-            add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+            add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
         hold off;
 
@@ -223,9 +237,13 @@ else
         else
             subplot_title = base_name;
         end
-        t_sp = title(ax(d), subplot_title);
-        t_sp.Units = 'normalized';
-        t_sp.Position(2) = t_sp.Position(2) + 0.03;
+        if is_ppt
+            t_sp = title(ax(d), subplot_title);
+            t_sp.Units = 'normalized';
+            t_sp.Position(2) = t_sp.Position(2) + 0.03;
+        else
+            title(ax(d), subplot_title);
+        end
 
         set(ax(d), 'YScale', 'log');
         xlabel(ax(d), 'SNR (dB)');
@@ -255,20 +273,25 @@ else
     all_labels  = all_labels(reorder_idx);
 
     % Shared legend below the subplots
-    lgd = legend(ax(1), all_handles, all_labels, ...
-        'Interpreter', 'none', ...
-        'Orientation', 'horizontal', ...
-        'NumColumns',  4, ...
-        'FontSize',    14);
+    legend_args = {'Interpreter', 'none', 'Orientation', 'horizontal', 'NumColumns', 4};
+    if is_ppt
+        legend_args = [legend_args, {'FontSize', 14}];
+    end
+    lgd = legend(ax(1), all_handles, all_labels, legend_args{:});
 
     lgd.Units       = 'normalized';
     lgd.Position(1) = 0.5 - lgd.Position(3)/2;   % center horizontally
     lgd.Position(2) = 0.01;                        % near bottom
 
-    % Shrink subplots to make room for the (larger) legend + xlabel at bottom
+    % Shrink subplots to make room for the legend + xlabel at bottom
+    if is_ppt
+        shrink_amt = 0.18;
+    else
+        shrink_amt = 0.14;
+    end
     for d = 1:n_dirs
         pos = ax(d).Position;
-        ax(d).Position = [pos(1), pos(2)+0.18, pos(3), pos(4)-0.18];
+        ax(d).Position = [pos(1), pos(2)+shrink_amt, pos(3), pos(4)-shrink_amt];
     end
 end
 % ylim(ax(1), [0.0002, 1])
@@ -276,5 +299,7 @@ end
 % ---- Export ----
 out_name = fullfile(root_dir, [base_name, extra_text]);
 print(fig, [out_name, '.eps'], '-depsc', '-painters');
-print(fig, [out_name, '.png'], '-dpng',  '-r600');       % high-DPI raster for PPT
+if is_ppt
+    print(fig, [out_name, '.png'], '-dpng',  '-r600');   % high-DPI raster for PPT
+end
 savefig([out_name, '.fig']);

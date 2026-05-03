@@ -5,7 +5,7 @@
 clear; clc; close all;
 
 % ---- User configuration ----
-base_name        = 'CLEAN_LOW';
+base_name        = 'IQMM_TDLB';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -13,6 +13,7 @@ algs_to_plot     = [1 2 3 4];         % 1=LMMSE, 2=SPHERE  (DeepRx/DeepSIC have 
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
+snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
 % ----------------------------
 
 % ---- Auto-detect code rate directories ----
@@ -99,7 +100,7 @@ if n_dirs == 1
         dirs{1}, ...
         algs_to_plot, alg_colors, alg_names, alg_files, ...
         markers_no_aug, markers_aug, fillable_algs, ...
-        plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+        plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
     hold off;
 
@@ -139,7 +140,7 @@ else
             dirs{d}, ...
             algs_to_plot, alg_colors, alg_names, alg_files, ...
             markers_no_aug, markers_aug, fillable_algs, ...
-            plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+            plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
         hold off;
 

@@ -3,7 +3,7 @@
 %                           for a single run (one code rate)
 % =========================================================
 
-clear; clc; close all;
+clear; clc;
 
 % ---- User configuration ----
 base_name        = 'IQMM_TDLB';
@@ -15,7 +15,11 @@ add_snr_target   = false;         % append SNR@10% to BLER legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
+snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
+output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
 % ----------------------------
+
+is_ppt = strcmpi(output_target, 'ppt');
 
 % ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
 dirs     = {};
@@ -113,7 +117,13 @@ end
 
 % ---- Create figure: MI left, BLER right ----
 fig = figure;
-set(fig, 'Units', 'inches', 'Position', [0 0 14 7]);
+if is_ppt
+    set(fig, 'Units', 'inches', 'Position', [0 0 14 7]);
+else
+    % Slightly taller than the BLER-only paper figure (3.5") because this
+    % layout always carries a 2-row legend (no-aug row + aug row).
+    set(fig, 'Units', 'inches', 'Position', [0 0 7 4.2]);
+end
 
 ax = gobjects(1, 2);
 
@@ -125,15 +135,19 @@ hold on; grid on;
     dir_path, ...
     algs_to_plot, alg_colors, alg_names, alg_files, ...
     markers_no_aug, markers_aug, fillable_algs, ...
-    plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+    plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
 hold off;
 xlabel(ax(1), 'SNR (dB)');
 ylabel(ax(1), 'MI');
-ylim(ax(1), [0.8, 1]);
-t1 = title(ax(1), 'Bit-wise Mutual Information');
-t1.Units = 'normalized';
-t1.Position(2) = t1.Position(2) + 0.03;
+ylim(ax(1), [0, 1]);
+if is_ppt
+    t1 = title(ax(1), 'Bit-wise Mutual Information');
+    t1.Units = 'normalized';
+    t1.Position(2) = t1.Position(2) + 0.03;
+else
+    title(ax(1), 'Bit-wise Mutual Information');
+end
 set(ax(1), 'YMinorTick', 'on', 'Box', 'on');
 
 % ---- Right: BLER (log y) ----
@@ -144,14 +158,18 @@ hold on; grid on;
     dir_path, ...
     algs_to_plot, alg_colors, alg_names, alg_files, ...
     markers_no_aug, markers_aug, fillable_algs, ...
-    add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts);
+    add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
 hold off;
 xlabel(ax(2), 'SNR (dB)');
 ylabel(ax(2), 'BLER');
-t2 = title(ax(2), 'Block Error Rate');
-t2.Units = 'normalized';
-t2.Position(2) = t2.Position(2) + 0.03;
+if is_ppt
+    t2 = title(ax(2), 'Block Error Rate');
+    t2.Units = 'normalized';
+    t2.Position(2) = t2.Position(2) + 0.03;
+else
+    title(ax(2), 'Block Error Rate');
+end
 set(ax(2), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
 
 % Match MI x-axis to BLER's full SNR span so both subplots line up at SNR=0.
@@ -173,24 +191,31 @@ end
 h_bler        = h_bler(reorder_idx);
 legend_labels = legend_labels(reorder_idx);
 
-lgd = legend(ax(2), h_bler, legend_labels, ...
-    'Interpreter', 'none', ...
-    'Orientation', 'horizontal', ...
-    'NumColumns',  4, ...
-    'FontSize',    14);
+legend_args = {'Interpreter', 'none', 'Orientation', 'horizontal', 'NumColumns', 4};
+if is_ppt
+    legend_args = [legend_args, {'FontSize', 14}];
+end
+lgd = legend(ax(2), h_bler, legend_labels, legend_args{:});
 
 lgd.Units       = 'normalized';
 lgd.Position(1) = 0.5 - lgd.Position(3)/2;
 lgd.Position(2) = 0.01;
 
-% Shrink subplots to make room for the (larger) legend + xlabel
+% Shrink subplots to make room for the legend + xlabel
+if is_ppt
+    shrink_amt = 0.18;
+else
+    shrink_amt = 0.14;
+end
 for d = 1:2
     pos = ax(d).Position;
-    ax(d).Position = [pos(1), pos(2)+0.18, pos(3), pos(4)-0.18];
+    ax(d).Position = [pos(1), pos(2)+shrink_amt, pos(3), pos(4)-shrink_amt];
 end
 
 % ---- Export ----
 out_name = fullfile(root_dir, [base_name, extra_text, '_mi_bler']);
 print(fig, [out_name, '.eps'], '-depsc', '-painters');
-print(fig, [out_name, '.png'], '-dpng',  '-r600');       % high-DPI raster fallback
+if is_ppt
+    print(fig, [out_name, '.png'], '-dpng',  '-r600');   % high-DPI raster for PPT
+end
 savefig([out_name, '.fig']);

@@ -6,7 +6,7 @@
 clear; clc;
 
 % ---- User configuration ----
-base_name        = 'IQMM_TDLB';
+base_name        = 'Completion4x4';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 

@@ -21,6 +21,15 @@ class Config:
             self.config_name = os.path.splitext(os.path.basename(config_path))[0]
         for k, v in config.items():
             setattr(self, k, v)
+
+        # The make_64QAM_16QAM_percentage=50 three-way split branch (in both
+        # mimo_channel_dataset.py and evaluate.py) only fires when mod_pilot==64.
+        # Force it on so the flag isn't silently ignored when mod_pilot is left at -1.
+        if getattr(self, 'make_64QAM_16QAM_percentage', 0) == 50 and getattr(self, 'mod_pilot', -1) != 64:
+            print(f"[config] make_64QAM_16QAM_percentage=50 requires mod_pilot=64; "
+                  f"overriding mod_pilot={getattr(self, 'mod_pilot', -1)} -> 64")
+            self.mod_pilot = 64
+
         model = getattr(self, 'channel_model', 'N')
         self.delay_spread = {'A': 30e-9, 'B': 100e-9}.get(model[0], 300e-9)
 

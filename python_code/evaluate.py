@@ -592,7 +592,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 if run_sphere and not (num_bits_pilot == 8 and conf.increase_prime_modulation == 0):
                     H = H.cpu().numpy()
 
-                    if not(conf.increase_prime_modulation) or (conf.which_augment == 'AUGMENT_LMMSE') or (num_bits_pilot == 2) :
+                    if (not(conf.increase_prime_modulation) or (conf.which_augment == 'AUGMENT_LMMSE') or (num_bits_pilot == 2)) and conf.make_64QAM_16QAM_percentage != 50:
                         # Standard sphere decoder - all bits
                         llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
                             H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
@@ -614,19 +614,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         # 16QAM→64QAM: 4 bits → 6 bits
                         # Select sphere decoder based on sphere_64qam_mode
                         mode_64 = getattr(conf, 'sphere_64qam_mode', '0235')
+                        # Sphere64qam* uses np.clip internally on values derived from
+                        # noise_var, which fails if it's a CUDA tensor.
+                        noise_var_f = float(noise_var)
                         if mode_64 == '0134':
                             llr_out_4bits, hard_bits_4 = Sphere64qam0134(
-                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [0, 1, 3, 4]
                         elif mode_64 == '1245':
                             llr_out_4bits, hard_bits_4 = Sphere64qam1245(
-                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [1, 2, 4, 5]
                         else:
                             llr_out_4bits, hard_bits_4 = Sphere64qam0235(
-                                H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [0, 2, 3, 5]
 

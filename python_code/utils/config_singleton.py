@@ -30,6 +30,14 @@ class Config:
                   f"overriding mod_pilot={getattr(self, 'mod_pilot', -1)} -> 64")
             self.mod_pilot = 64
 
+        # The percentage=50 curriculum and increase_prime_modulation are two
+        # different mod-mismatch pathways and must not be combined.
+        if getattr(self, 'make_64QAM_16QAM_percentage', 0) == 50 and getattr(self, 'increase_prime_modulation', False):
+            raise ValueError(
+                "make_64QAM_16QAM_percentage=50 cannot be used with increase_prime_modulation=True; "
+                "set increase_prime_modulation=False or change the percentage."
+            )
+
         model = getattr(self, 'channel_model', 'N')
         self.delay_spread = {'A': 30e-9, 'B': 100e-9}.get(model[0], 300e-9)
 

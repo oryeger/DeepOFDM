@@ -211,9 +211,12 @@ class ESCNNTrainer(Trainer):
         """
         tx_all = []
         rx_prob_all = []
+        no_samples = getattr(conf, 'no_samples', False)
         for user in range(n_users):
             if conf.no_probs:
                 rx_prob_all.append(rx.unsqueeze(-1))
+            elif no_samples:
+                rx_prob_all.append(probs_vec)
             else:
                 rx_prob_all.append(torch.cat((rx.unsqueeze(-1), probs_vec), dim=1))
             tx_all.append(tx[:, user, :])
@@ -242,9 +245,12 @@ class ESCNNTrainer(Trainer):
         next_probs_vec = prob.clone()
         # next_probs_vec = torch.zeros_like(prob)
         llrs_mat = torch.zeros(next_probs_vec.shape).to(DEVICE)
+        no_samples = getattr(conf, 'no_samples', False)
         for user in range(n_users):
             if conf.no_probs:
                 rx_prob = rx_real
+            elif no_samples:
+                rx_prob = prob
             else:
                 rx_prob = torch.cat((rx_real, prob), dim=1)
 

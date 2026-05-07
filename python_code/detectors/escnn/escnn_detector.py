@@ -45,8 +45,13 @@ class ESCNNDetector(nn.Module):
         torch.manual_seed(42)
 
         # --------- original channel computation ----------
+        no_samples = getattr(conf, 'no_samples', False)
+        if conf.no_probs and no_samples:
+            raise ValueError("ESCNNDetector: no_probs and no_samples are mutually exclusive")
         if conf.no_probs:
-            conv_num_channels = int(conf.n_ants * 2)
+            conv_num_channels = int(conf.n_ants * 2)              # samples only
+        elif no_samples:
+            conv_num_channels = int(num_bits * n_users)           # LLRs only
         else:
             conv_num_channels = int(num_bits * n_users + conf.n_ants * 2)
 
@@ -178,10 +183,11 @@ class ESCNNDetector(nn.Module):
             soft_estimation, llrs   (same as original code)
         """
         if conf.use_film:
-            # cond_slice = rx_prob[:, 0:conf.n_ants*2, :, :]
-            # B = cond_slice.shape[0]
-            # cond_vec = cond_slice.view(B, -1)  # Shape: (B, 384)
-
+            # FiLM conditioning expects the first 2*n_ants channels to be samples
+            # (rx). In no_samples mode the input has no samples, so FiLM is not
+            # well-defined here.
+            if getattr(conf, 'no_samples', False):
+                raise ValueError("ESCNNDetector: use_film is incompatible with no_samples mode")
             cond_slice = rx_prob[:, 0:2*conf.n_ants, :, :]
             cond_pooled = F.adaptive_avg_pool2d(cond_slice, 1)
             cond_vec = cond_pooled.squeeze(-1).squeeze(-1)  # Shape: (B, 16)

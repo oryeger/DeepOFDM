@@ -15,7 +15,7 @@ seeds=(17 58 41 123)
 # seeds=(123)
 # seeds=(17)
 snrs=($(seq -5 35))
-cfos=(0 0.15)
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -26,16 +26,16 @@ shuffle_augment_priors_vals=(False)
 block_length_factor_vals=(3)
 
 # epochs sweep
-epochs_vals=(500)
+epochs_vals=(150)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-4)
+learning_rate_vals=(5.0e-3)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
 
-batch_size_vals=(1024)
+batch_size_vals=(-1)
 
 which_augment_vals=(
   'AUGMENT_LMMSE'
@@ -52,7 +52,7 @@ override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
 n_users_vals=(4)
-make_64QAM_16QAM_percentage_vals=(0 50)
+make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
 total_count=0

@@ -76,6 +76,18 @@ def entropy_with_bin_width(data, bin_width):
 
 
 def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_users: int, num_res: int) -> np.ndarray:
+    # When make_64QAM_16QAM_percentage=50, the network outputs num_bits_pilot=6 LLRs/symbol
+    # while tx_data is num_bits_data=4 (16-QAM). Mirror the BER-path slicing in
+    # evaluate.py:969-979 / 1199-1205 so the reshape below sees num_bits_data columns.
+    if conf.make_64QAM_16QAM_percentage == 50:
+        num_bits_pilot = llrs_mat.shape[1] // n_users
+        pilot_data_ratio = num_bits_pilot / num_bits_data
+        if pilot_data_ratio > 1:
+            idx = relevant_indices(llrs_mat.shape[1], pilot_data_ratio)
+            llrs_mat = llrs_mat[:, idx, :, :].clone()
+            if pilot_data_ratio == 1.5:
+                llrs_mat[:, 1::2, :, :] *= -1
+
     llr_1 = llrs_mat[:, :, :, :].squeeze(-1)
     llr_2 = llr_1.reshape(int(tx_data.shape[0] / num_bits_data), n_users, num_bits_data, num_res)
     llr_3 = llr_2.swapaxes(1, 2)

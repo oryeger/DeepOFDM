@@ -1,26 +1,26 @@
-snr: 14
-cur_str: cfo_journal
+snr: 40
+cur_str: nosamp
 num_snrs: 1
 n_ants: 8
 snr_step: 1
-n_users: 4
-mcs: 30
+n_users: 1
+mcs: 17 # [0..4] - QPSK, [5..10] - 16QAM
 mod_pilot: -1
 block_length_factor: 3
 num_res: 24
-cfo: 0
+cfo:  0
 clip_percentage_in_tx: 100
-iqmm_gain: 1 # in dB
-iqmm_phase: 5 # in degrees
-epochs: 150
+iqmm_gain: 0 # in dB
+iqmm_phase: 0 # in degrees
+epochs: 100
 iterations: 1
-pilot_size: 20000
-batch_size: -1
-shuffle: False
-shuffle_augment_priors: False
+pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
+batch_size: 1024
+shuffle: True
+shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
 escnn_use_primary_val_only: True  # If True, ESCNN trains only on primary detector's validation portion
-learning_rate: 5.0e-3
+learning_rate: 5.0e-3 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
 full_e2e: True
@@ -30,10 +30,10 @@ save_loss_plot_snr: [28]
 use_film: False
 scale_input: True
 escnn_dropout: 0.0
-escnn_weight_decay: 0.0
-override_noise_var: False
+escnn_weight_decay: 0.0  # Dropout rate after each hidden conv layer (0.0 = disabled). Try 0.2-0.4 for 256QAM overfitting
+override_noise_var: True
 make_64QAM_16QAM_percentage: 0
-increase_prime_modulation: False
+increase_prime_modulation: False  # QPSK→16QAM or 16QAM→64QAM based on mod_pilot
 sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 
 use_data_as_pilots: False
@@ -41,10 +41,10 @@ plot_only_last_iteration: False
 plot_channel: False
 plot_genie: False
 
-channel_model: 'C'
+channel_model: 'N' # 'None', 'A', 'B', 'C'
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
-spatial_correlation: 'low'
+spatial_correlation: 'none' # Options: none, low, medium, medium_a, high, custom
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
 env_bs_height: 25.0           # BS antenna height [m]
@@ -54,7 +54,7 @@ env_indoor: False             # UE indoor state
 env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
 env_enable_shadow_fading: False  # apply shadow fading
 pilot_channel_seed: -1
-channel_seed: 1505
+channel_seed: 21
 
 transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 run_deeprx: False
@@ -66,7 +66,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_LMMSE'
+which_augment: 'AUGMENT_LMMSE' # 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX', 'NO_AUGMENT'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True
@@ -76,6 +76,7 @@ deeprx_override: True
 run_e2e: False
 iters_e2e: 1
 no_probs: False
+no_samples: True  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True

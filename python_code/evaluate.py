@@ -1806,11 +1806,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
+        # Windows MAX_PATH (260 chars) trips on these long titles; \\?\ prefix bypasses it.
+        _long_path = lambda p: ("\\\\?\\" + p) if os.name == 'nt' else p
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
-        df.to_csv(file_path, index=False)
+        df.to_csv(_long_path(file_path), index=False)
         if conf.mcs > -1:
             file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
-            df_bler.to_csv(file_path_bler, index=False)
+            df_bler.to_csv(_long_path(file_path_bler), index=False)
 
         if conf.calc_mi:
             data_mi = {
@@ -1831,7 +1833,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     data_mi[f"total_ber_e2e_{i + 1}"] = total_mi_e2e_list[i]
             df_mi = pd.DataFrame(data_mi)
             file_path_mi = os.path.abspath(os.path.join(output_dir, title_string) + "_mi.csv")
-            df_mi.to_csv(file_path_mi, index=False)
+            df_mi.to_csv(_long_path(file_path_mi), index=False)
 
         if snr_cur in conf.save_loss_plot_snr:
             title_string_cur = "escnn_" + title_string

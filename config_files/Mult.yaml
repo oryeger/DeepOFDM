@@ -1,5 +1,5 @@
 snr: 40
-cur_str: nosamp
+cur_str: trans_equal
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -17,9 +17,9 @@ iterations: 1
 pilot_size: 5000   # 6000 1000 # pilot bits - should be a multilpier of log2(mod_pilot)
 batch_size: 1024
 shuffle: True
-shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
+shuffle_augment_priors: True  # Shuffle samples before train/val split in ESCNN to decorrelate from augmenter's own split
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
-escnn_use_primary_val_only: True  # If True, ESCNN trains only on primary detector's validation portion
+escnn_use_primary_val_only: False  # If True, ESCNN trains only on primary detector's validation portion
 learning_rate: 5.0e-3 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3
@@ -76,7 +76,6 @@ deeprx_override: True
 run_e2e: False
 iters_e2e: 1
 no_probs: False
-no_samples: True  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True

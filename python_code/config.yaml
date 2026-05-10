@@ -1,4 +1,4 @@
-snr: 40
+snr: 0
 cur_str: trasfer_mod
 num_snrs: 1
 n_ants: 8
@@ -32,7 +32,7 @@ scale_input: True
 escnn_dropout: 0.0
 escnn_weight_decay: 0.0
 override_noise_var: False
-make_64QAM_16QAM_percentage: 0
+make_64QAM_16QAM_percentage: 50
 increase_prime_modulation: False
 sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 

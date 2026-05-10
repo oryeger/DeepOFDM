@@ -116,6 +116,30 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_use
     return mi
 
 
+def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
+    """Compute MI from LDPC-decoder-input LLRs and matching tx bits.
+
+    Both inputs have shape (n_users, total_bits) and use the bit ordering that
+    the LDPC decoder consumes — so any per-detector slice/flip must already be
+    applied at the call site (it is, because that's how llr_all_res_* are built).
+    Pure entropy estimation here, no convention surgery.
+    """
+    llr_flat = np.asarray(llr_aligned).flatten()
+    tx_flat = np.asarray(tx_aligned).flatten()
+
+    if llr_flat.shape[0] > 50000:
+        llr_flat = llr_flat[:50000]
+        tx_flat = tx_flat[:50000]
+
+    H_y = entropy_with_bin_width(llr_flat, 0.1)
+    zero_idx = np.where(tx_flat == 0)[0]
+    one_idx = np.where(tx_flat == 1)[0]
+    H_y_x_0 = entropy_with_bin_width(llr_flat[zero_idx], 0.1)
+    H_y_x_1 = entropy_with_bin_width(llr_flat[one_idx], 0.1)
+    H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
+    return float(max(H_y - H_y_x, 0))
+
+
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
 
@@ -1391,6 +1415,34 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             bler_deeprx = 0
                             total_bler_deeprx.append(bler_deeprx)
 
+                    # MI from the same LLRs that go to the LDPC decoder.
+                    # llr_all_res_* already have each detector's correct slice/flip applied.
+                    if conf.calc_mi:
+                        if iteration == 0:
+                            tx_aligned = tx_data.cpu().numpy().transpose(1, 0, 2).reshape(n_users, -1)
+                            tx_aligned_for_ber = tx_data_for_ber.cpu().numpy().transpose(1, 0, 2).reshape(n_users, -1)
+
+                        mi = calc_mi_from_ldpc(tx_aligned_for_ber, llr_all_res)
+                        total_mi_list[iteration].append(mi)
+
+                        if run_deepsic:
+                            mi_deepsic = calc_mi_from_ldpc(tx_aligned, llr_all_res_deepsic)
+                            total_mi_deepsic_list[iteration].append(mi_deepsic)
+
+                        if iteration == 0:
+                            mi_lmmse = calc_mi_from_ldpc(tx_aligned, llr_all_res_lmmse)
+                            total_mi_lmmse.append(mi_lmmse)
+                            if run_sphere:
+                                mi_sphere = calc_mi_from_ldpc(tx_aligned, llr_all_res_sphere)
+                            else:
+                                mi_sphere = 0
+                            total_mi_sphere.append(mi_sphere)
+                            if run_deeprx:
+                                mi_deeprx = calc_mi_from_ldpc(tx_aligned, llr_all_res_deeprx)
+                                total_mi_deeprx.append(mi_deeprx)
+                            else:
+                                mi_deeprx = 0
+
 
             else:
                 for iteration in range(iterations):
@@ -1407,36 +1459,55 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 total_bler_deeprx.append(0)
 
             if conf.calc_mi:
-                for iteration in range(iterations):
-                    mi = calc_mi(tx_data_for_ber.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
-                    total_mi_list[iteration].append(mi)
-                if run_deeprx:
-                    mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
-                    total_mi_deeprx.append(mi_deeprx)
-                else:
-                    mi_deeprx = 0
-                if run_deepsic:
+                if conf.mcs <= -1:
+                    # No LDPC: fall back to calc_mi on raw llrs_mat_*.
+                    # NB: calc_mi's internal slice+flip uses ESCNN convention,
+                    # which is incorrect for LMMSE/Sphere when
+                    # make_64QAM_16QAM_percentage=50 with pilot_data_ratio==1.5.
+                    # The mcs > -1 path above avoids this by reading llr_all_res_*.
                     for iteration in range(iterations):
-                        llrs_deepsic_4d = llrs_mat_deepsic_list[iteration].cpu().unsqueeze(-1)
-                        mi_deepsic = calc_mi(tx_data.cpu(), llrs_deepsic_4d, num_bits_data, n_users, num_res)
-                        total_mi_deepsic_list[iteration].append(mi_deepsic)
+                        mi = calc_mi(tx_data_for_ber.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
+                        total_mi_list[iteration].append(mi)
+                    if run_deeprx:
+                        mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
+                        total_mi_deeprx.append(mi_deeprx)
+                    else:
+                        mi_deeprx = 0
+                    if run_deepsic:
+                        for iteration in range(iterations):
+                            llrs_deepsic_4d = llrs_mat_deepsic_list[iteration].cpu().unsqueeze(-1)
+                            mi_deepsic = calc_mi(tx_data.cpu(), llrs_deepsic_4d, num_bits_data, n_users, num_res)
+                            total_mi_deepsic_list[iteration].append(mi_deepsic)
+                    else:
+                        mi_deepsic = 0
+                    mi_lmmse = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_lmmse), num_bits_data, n_users, num_res)
+                    total_mi_lmmse.append(mi_lmmse)
+                    if run_sphere:
+                        mi_sphere = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_sphere), num_bits_data, n_users, num_res)
+                    else:
+                        mi_sphere = 0
+                    total_mi_sphere.append(mi_sphere)
+                else:
+                    # mcs > -1: MI for LDPC detectors was computed inside the iteration loop
+                    # using the same LLRs the decoder consumes. Just set defaults for unrun ones.
+                    if not run_deeprx:
+                        mi_deeprx = 0
+                    if not run_deepsic:
+                        mi_deepsic = 0
+                    if not run_sphere:
+                        mi_sphere = 0
+                # e2e: always uses calc_mi (no LDPC array path for it)
                 for iteration in range(iters_e2e_disp):
                     if conf.run_e2e:
                         mi_e2e = calc_mi(tx_data.cpu(), llrs_mat_e2e_list[iteration].cpu(), num_bits_data, n_users, num_res)
                     else:
                         mi_e2e = 0
                     total_mi_e2e_list[iteration].append(mi_e2e)
-                mi_lmmse = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_lmmse), num_bits_data, n_users, num_res)
-                total_mi_lmmse.append(mi_lmmse)
-                if run_sphere:
-                    mi_sphere = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_sphere), num_bits_data, n_users, num_res)
-                else:
-                    mi_sphere = 0
-                total_mi_sphere.append(mi_sphere)
             else:
                 mi = 0
                 mi_e2e = 0
                 mi_deeprx = 0
+                mi_deepsic = 0
                 mi_lmmse = 0
                 mi_sphere = 0
 
@@ -1500,7 +1571,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if run_deeprx:
                 print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
                 if conf.mcs > -1:
-                    print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi}')
+                    print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi_deeprx}')
 
             if conf.run_tdfdcnn:
                 print(f'current TDFDCNN: {block_ind, float(ber_tdfdcnn_list[iterations - 1])}')
@@ -1508,9 +1579,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     print(f'current DeepSIC BLER: {block_ind, float(bler_tdfdcnn_list[iterations - 1])}')
 
             if run_deepsic:
-                print(f'current DeepSIC: {block_ind, float(ber_deepsic_list[iterations - 1])}')
+                print(f'current DeepSIC: {block_ind, float(ber_deepsic_list[iterations - 1]), mi_deepsic}')
                 if conf.mcs > -1:
-                    print(f'current DeepSIC BLER: {block_ind, float(bler_deepsic_list[iterations - 1])}')
+                    print(f'current DeepSIC BLER: {block_ind, float(bler_deepsic_list[iterations - 1]), mi_deepsic}')
             if run_mhsa:
                 print(f'current MHSA: {block_ind, float(ber_mhsa_list[iterations - 1])}')
                 if conf.mcs > -1:
@@ -1524,18 +1595,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
             if conf.run_deepstag:
                 print(f'current DeepSTAG: {block_ind, float(ber_deepstag_list[iterations * 2 - 1])}')
-            if mod_data == 4:
-                print(f'current lmmse: {block_ind, ber_lmmse.item(), mi_lmmse}')
-            else:
-                print(f'current lmmse: {block_ind, ber_lmmse}')
+            print(f'current lmmse: {block_ind, float(ber_lmmse), mi_lmmse}')
 
             if conf.mcs > -1:
-                print(f'current lmmse BLER: {block_ind, float(bler_lmmse), mi}')
+                print(f'current lmmse BLER: {block_ind, float(bler_lmmse), mi_lmmse}')
 
             if run_sphere:
-                print(f'current sphere: {block_ind, ber_sphere.item()}')
+                print(f'current sphere: {block_ind, ber_sphere.item(), mi_sphere}')
                 if conf.mcs > -1:
-                    print(f'current sphere BLER: {block_ind, float(bler_sphere), mi}')
+                    print(f'current sphere BLER: {block_ind, float(bler_sphere), mi_sphere}')
 
         cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
 

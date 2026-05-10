@@ -218,6 +218,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ldpc_n = 0
         ldpc_k = 0
 
+    # cfo=1 is a sentinel that requests modulation-aware effective cfo
+    # (higher-order constellations are more sensitive to phase noise).
+    # Any other value of cfo is used as-is.
+    if conf.cfo == 1:
+        _cfo_per_qm = {2: 0.3, 4: 0.15, 6: 0.075, 8: 0.03}
+        if num_bits_data in _cfo_per_qm:
+            new_cfo = _cfo_per_qm[num_bits_data]
+            print(f"[cfo] cfo=1 sentinel: effective cfo={new_cfo} for num_bits_data={num_bits_data}")
+            conf.set_value('cfo', new_cfo)
+
     n_users = conf.n_users
     n_ants = conf.n_ants
     iterations = conf.iterations

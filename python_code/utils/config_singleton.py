@@ -26,8 +26,11 @@ class Config:
         # mimo_channel_dataset.py and evaluate.py) only fires when mod_pilot==64.
         # Force it on so the flag isn't silently ignored when mod_pilot is left at -1.
         if getattr(self, 'make_64QAM_16QAM_percentage', 0) == 50 and getattr(self, 'mod_pilot', -1) != 64:
-            print(f"[config] make_64QAM_16QAM_percentage=50 requires mod_pilot=64; "
-                  f"overriding mod_pilot={getattr(self, 'mod_pilot', -1)} -> 64")
+            warned = getattr(Config, '_warned_mod_pilot_override', False)
+            if not warned:
+                print(f"[config] make_64QAM_16QAM_percentage=50 requires mod_pilot=64; "
+                      f"overriding mod_pilot={getattr(self, 'mod_pilot', -1)} -> 64")
+                Config._warned_mod_pilot_override = True
             self.mod_pilot = 64
 
         # The percentage=50 curriculum and increase_prime_modulation are two

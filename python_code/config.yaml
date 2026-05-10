@@ -1,10 +1,10 @@
-snr: 30
+snr: 40
 cur_str: trasfer_mod
 num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 4
+mcs: 28
 mod_pilot: -1
 block_length_factor: 3
 num_res: 24

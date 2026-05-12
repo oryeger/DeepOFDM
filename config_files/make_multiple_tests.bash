@@ -15,7 +15,7 @@ seeds=(17 58 41 123)
 # seeds=(123)
 # seeds=(17)
 snrs=($(seq -5 35))
-cfos=(0 1)
+cfos=(1)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -26,7 +26,7 @@ shuffle_augment_priors_vals=(False)
 block_length_factor_vals=(3)
 
 # epochs sweep
-epochs_vals=(500)
+epochs_vals=(499)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -46,8 +46,8 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)
-# mcs_vals=(4 28 17)
-mcs_vals=(28)
+mcs_vals=(4 28 17)
+# mcs_vals=(17)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)

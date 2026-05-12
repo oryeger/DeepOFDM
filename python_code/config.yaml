@@ -32,7 +32,7 @@ scale_input: True
 escnn_dropout: 0.0
 escnn_weight_decay: 0.0
 override_noise_var: False
-make_64QAM_16QAM_percentage: 50
+make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: False
 sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 
@@ -76,7 +76,7 @@ deeprx_override: True
 run_e2e: False
 iters_e2e: 1
 no_probs: False
-no_samples: True  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
+no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True

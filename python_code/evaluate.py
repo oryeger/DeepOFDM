@@ -417,6 +417,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
                 if GENIE_CFO:
                     cfo_est = conf.cfo
+                    if block_ind == 0:
+                        print(f"[cfo-comp] GENIE_CFO: using cfo_est=conf.cfo={cfo_est} (matches channel value)")
                 else:
                     cfo_est_vect = np.zeros(n_users)
                     for user in range(n_users):

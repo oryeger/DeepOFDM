@@ -1,5 +1,5 @@
 snr: 40
-cur_str: trans_equal
+cur_str: transeq
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -76,6 +76,7 @@ deeprx_override: True
 run_e2e: False
 iters_e2e: 1
 no_probs: False
+no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True

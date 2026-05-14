@@ -9,19 +9,233 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-# Initialize array
-config_files=()
+# ---------------- Parameters ----------------
+#seeds=(912 3008 1011 1806)
+seeds=(17 58 41 123)
+# seeds=(123)
+# seeds=(17)
+snrs=($(seq -5 35))
+cfos=(1)
 
-for i in $(seq 5 30); do
-  out_file="${base_name}_${i}.yaml"
-#  {
-#    echo "snr: $i"
-#    tail -n +2 "$input_file"
-#  } > "$out_file"
+clip_percentage_in_tx_vals=(100)
+use_film_vals=(False)
 
-  config_files+=("\"$out_file\"")
+shuffle_vals=(False)
+shuffle_augment_priors_vals=(False)
+
+block_length_factor_vals=(3)
+
+# epochs sweep
+epochs_vals=(150)
+
+escnn_dropout_vals=(0.0)
+escnn_weight_decay_vals=(0.0)
+learning_rate_vals=(5.0e-3)
+
+increase_prime_modulation_vals=(False)
+spatial_correlation_vals=('low')
+
+batch_size_vals=(-1)
+
+which_augment_vals=(
+  'AUGMENT_DEEPRX'
+)
+
+channel_model_vals=('C')
+kernel_size_vals=(3)
+run_tdfdcnn_vals=(False)
+
+pilot_size_vals=(20000)
+# mcs_vals=(4 28 17)
+mcs_vals=(28)
+override_noise_var_vals=(False)
+
+mod_pilot_vals=(-1)
+n_users_vals=(4)
+make_64QAM_16QAM_percentage_vals=(0)
+
+# --------------------------------------------
+total_count=0
+all_config_files=()
+
+for seed in "${seeds[@]}"; do
+  for cfo in "${cfos[@]}"; do
+    echo "Generating configs for seed=$seed, cfo=$cfo"
+
+    for clip in "${clip_percentage_in_tx_vals[@]}"; do
+      for use_film in "${use_film_vals[@]}"; do
+        for shuffle in "${shuffle_vals[@]}"; do
+          for shuffle_augment_priors in "${shuffle_augment_priors_vals[@]}"; do
+            for block_length_factor in "${block_length_factor_vals[@]}"; do
+              for which_aug in "${which_augment_vals[@]}"; do
+                for run_tdfdcnn in "${run_tdfdcnn_vals[@]}"; do
+
+                  [[ "$run_tdfdcnn" == True ]] && tdtag="td1" || tdtag="td0"
+                  [[ "$shuffle" == True ]] && shtag="sh1" || shtag="sh0"
+                  [[ "$shuffle_augment_priors" == True ]] && saptag="sap1" || saptag="sap0"
+                  blftag="blf${block_length_factor}"
+
+                  for override_noise_var in "${override_noise_var_vals[@]}"; do
+                    [[ "$override_noise_var" == True ]] && ovtag="ov1" || ovtag="ov0"
+
+                    for channel in "${channel_model_vals[@]}"; do
+                      for spatial_corr in "${spatial_correlation_vals[@]}"; do
+
+                        case "$spatial_corr" in
+                          none)   sctag="sc0" ;;
+                          medium) sctag="scM" ;;
+                          medium_a) sctag="scMA" ;;
+                          high)   sctag="scH" ;;
+                          *)      sctag="sc${spatial_corr}" ;;
+                        esac
+
+                        [[ "$use_film" == True ]] && uf="f1" || uf="f0"
+                        ttag="CM${channel}"
+
+                        case "$which_aug" in
+                          NO_AUGMENT)      aug="NOAUG" ;;
+                          AUGMENT_LMMSE)   aug="LMMSE" ;;
+                          AUGMENT_DEEPRX)  aug="DEEPRX" ;;
+                          AUGMENT_SPHERE)  aug="SPHERE" ;;
+                          AUGMENT_DEEPSIC) aug="DEEPSIC" ;;
+                          *)
+                            echo "ERROR: Unknown which_augment: $which_aug" >&2
+                            exit 1
+                            ;;
+                        esac
+
+                        for kernel_size in "${kernel_size_vals[@]}"; do
+                          ktag="k${kernel_size}"
+
+                          for pilot_size in "${pilot_size_vals[@]}"; do
+                            if [[ "$pilot_size" -eq 1000 ]]; then
+                              ptag="p1k"
+                            elif [[ "$pilot_size" -eq 5000 ]]; then
+                              ptag="p5k"
+                            elif [[ "$pilot_size" -eq 10000 ]]; then
+                              ptag="p10k"
+                            elif [[ "$pilot_size" -eq 20000 ]]; then
+                              ptag="p20k"
+                            else
+                              ptag="p${pilot_size}"
+                            fi
+
+                            for mcs in "${mcs_vals[@]}"; do
+                              mtag="m${mcs}"
+
+                              for n_users in "${n_users_vals[@]}"; do
+                                utag="u${n_users}"
+
+                                for mix_pct in "${make_64QAM_16QAM_percentage_vals[@]}"; do
+                                  mixtag="mix${mix_pct}"
+
+                                  for mod_pilot in "${mod_pilot_vals[@]}"; do
+                                    if [[ "$mod_pilot" -lt 0 ]]; then
+                                      mptag="mpm${mod_pilot#-}"
+                                    else
+                                      mptag="mp${mod_pilot}"
+                                    fi
+
+                                    for ipm_val in "${increase_prime_modulation_vals[@]}"; do
+                                      [[ "$ipm_val" == True ]] && ipm_tag="ipm1" || ipm_tag="ipm0"
+
+                                      for batch_size in "${batch_size_vals[@]}"; do
+                                        bstag="bs${batch_size}"
+
+                                        for epochs in "${epochs_vals[@]}"; do
+                                          etag="ep${epochs}"
+
+                                          for escnn_dropout in "${escnn_dropout_vals[@]}"; do
+                                            if [[ "$escnn_dropout" == "0.0" ]]; then
+                                              drtag="dr0p0"
+                                            elif [[ "$escnn_dropout" == "0.3" ]]; then
+                                              drtag="dr0p3"
+                                            else
+                                              drtag="dr${escnn_dropout//./p}"
+                                            fi
+
+                                            for escnn_weight_decay in "${escnn_weight_decay_vals[@]}"; do
+                                              case "$escnn_weight_decay" in
+                                                0.0)  wdtag="wd0p0" ;;
+                                                1e-3) wdtag="wd1em3" ;;
+                                                *)    wdtag="wd${escnn_weight_decay//./p}" ;;
+                                              esac
+
+                                              for learning_rate in "${learning_rate_vals[@]}"; do
+                                                case "$learning_rate" in
+                                                  5.0e-3) lrtag="lr5em3" ;;
+                                                  5.0e-4) lrtag="lr5em4" ;;
+                                                  *)      lrtag="lr${learning_rate//./p}" ;;
+                                                esac
+
+                                                for snr in "${snrs[@]}"; do
+
+                                                  out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+
+                                                  sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                                      -e "s/^snr:.*/snr: $snr/" \
+                                                      -e "s/^cfo:.*/cfo: $cfo/" \
+                                                      -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                                      -e "s/^use_film:.*/use_film: $use_film/" \
+                                                      -e "s/^shuffle:.*/shuffle: $shuffle/" \
+                                                      -e "s/^shuffle_augment_priors:.*/shuffle_augment_priors: $shuffle_augment_priors/" \
+                                                      -e "s/^block_length_factor:.*/block_length_factor: $block_length_factor/" \
+                                                      -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                                      -e "s/^channel_model:.*/channel_model: '$channel'/" \
+                                                      -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
+                                                      -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                                      -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                                      -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                                      -e "s/^mcs:.*/mcs: $mcs/" \
+                                                      -e "s/^n_users:.*/n_users: $n_users/" \
+                                                      -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                                      -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
+                                                      -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                                      -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
+                                                      -e "s/^batch_size:.*/batch_size: $batch_size/" \
+                                                      -e "s/^epochs:.*/epochs: $epochs/" \
+                                                      -e "s/^escnn_dropout:.*/escnn_dropout: $escnn_dropout/" \
+                                                      -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
+                                                      -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
+                                                      "$input_file" > "$out_file"
+
+                                                  all_config_files+=("$out_file")
+                                                  ((total_count++))
+                                                done
+                                              done
+                                            done
+                                          done
+                                        done
+                                      done
+                                    done
+                                  done
+                                done
+                              done
+                            done
+                          done
+                        done
+                      done
+                    done
+                  done
+                done
+              done
+            done
+          done
+        done
+      done
+    done
+
+    echo "Finished seed=$seed cfo=$cfo"
+  done
 done
 
-# Print the array in the required format
-echo "config_files=(${config_files[*]})"
+quoted_files=()
+for f in "${all_config_files[@]}"; do
+  safe_f=${f//\"/\\\"}
+  quoted_files+=("\\\"$safe_f\\\"")
+done
 
+config_line="config_files=(${quoted_files[*]})"
+echo "\"$config_line\""
+
+echo "Total configs generated: $total_count"

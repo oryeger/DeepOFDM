@@ -83,6 +83,12 @@ class ESCNNTrainer(Trainer):
         train_dataset = TensorDataset(rx_prob_train, tx_train)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
 
+        es_patience = int(getattr(conf, 'early_stopping_patience', -1))
+        es_enabled = es_patience > 0
+        best_val_loss = float('inf')
+        epochs_since_best = 0
+        best_state = None
+
         for epoch in range(epochs):
             epoch_loss = 0.0
             num_batches = 0
@@ -121,6 +127,20 @@ class ESCNNTrainer(Trainer):
                 else:
                     val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE))
                 val_loss_vect.append(val_loss.item())
+
+            if es_enabled:
+                cur_val = val_loss.item()
+                if cur_val < best_val_loss:
+                    best_val_loss = cur_val
+                    epochs_since_best = 0
+                    best_state = {k: v.detach().clone() for k, v in single_model.state_dict().items()}
+                else:
+                    epochs_since_best += 1
+                    if epochs_since_best > es_patience:
+                        break
+
+        if es_enabled and best_state is not None:
+            single_model.load_state_dict(best_state)
 
         return train_loss_vect, val_loss_vect
 

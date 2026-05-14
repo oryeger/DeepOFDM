@@ -1873,7 +1873,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
         title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
         title_string = title_string + '_b' + str(conf.batch_size)
-        title_string = title_string + '_drxOvr=' + str(int(conf.deeprx_override))
+        title_string = title_string + '_es=' + str(int(getattr(conf, 'early_stopping_patience', -1)))
         title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
         title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
         title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))

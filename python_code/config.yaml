@@ -20,6 +20,7 @@ shuffle: False
 shuffle_augment_priors: False
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
 escnn_use_primary_val_only: True  # If True, ESCNN trains only on primary detector's validation portion
+early_stopping_patience: 20  # Early stopping patience in epochs. -1 = disabled. When > 0, training stops if val loss hasn't improved for this many epochs and best-val-loss weights are restored. Affects DeepSIC, DeepRX, ESCNN.
 learning_rate: 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3

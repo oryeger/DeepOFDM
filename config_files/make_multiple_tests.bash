@@ -15,7 +15,7 @@ seeds=(17 58 41 123)
 # seeds=(123)
 # seeds=(17)
 snrs=($(seq -5 35))
-cfos=(0)
+cfos=(1)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)

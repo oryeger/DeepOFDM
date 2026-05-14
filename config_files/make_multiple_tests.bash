@@ -10,11 +10,11 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-seeds=(912 3008 1011 1806)
-#seeds=(17 58 41 123)
+#seeds=(912 3008 1011 1806)
+seeds=(17 58 41 123)
 # seeds=(123)
 # seeds=(17)
-snrs=($(seq 10 40))
+snrs=($(seq -5 35))
 cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
@@ -32,14 +32,13 @@ escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
-increase_prime_modulation_vals=(True)
-spatial_correlation_vals=('medium')
+increase_prime_modulation_vals=(False)
+spatial_correlation_vals=('low')
 
-batch_size_vals=(1024)
+batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_DEEPSIC'
-  'AUGMENT_SPHERE'
+  'AUGMENT_DEEPRX'
 )
 
 channel_model_vals=('C')
@@ -47,7 +46,8 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)
-mcs_vals=(11 12 13)
+# mcs_vals=(4 28 17)
+mcs_vals=(28)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)

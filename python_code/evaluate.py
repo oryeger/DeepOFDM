@@ -324,6 +324,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         llr_h5_file = h5py.File(llr_h5_path, "w")
 
     for snr_cur in SNR_range:
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment} =====", flush=True)
         ber_sum = np.zeros(iterations)
         ber_per_re = np.zeros((iterations, conf.num_res))
         ber_per_re_deepsic = np.zeros((iterations, conf.num_res))

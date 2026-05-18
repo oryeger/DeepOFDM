@@ -594,10 +594,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # Per-user post-MRC SNR accumulator across REs (from LMMSE channel + noise estimates)
             total_snr_per_user_lin = np.zeros(conf.n_users, dtype=np.float64)
 
-            # DIAG-4: per-user H power accumulator (before dividing by noise_var) and noise per RE
-            total_h_pwr_per_user_diag = np.zeros(conf.n_users, dtype=np.float64)
-            total_nv_diag = 0.0
-
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
@@ -625,8 +621,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 h_pwr_per_user = torch.sum(torch.abs(H) ** 2, dim=0).cpu().numpy()  # [n_users]
                 nv = noise_var.item() if hasattr(noise_var, 'item') else float(noise_var)
                 total_snr_per_user_lin += h_pwr_per_user / max(nv, 1e-30)
-                total_h_pwr_per_user_diag += h_pwr_per_user
-                total_nv_diag += nv
 
                 # Store H for JointLLR detector (convert complex to real/imag interleaved)
                 if conf.run_jointllr:
@@ -783,14 +777,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             print(f"[{ts}] [LMMSE-SNR] post-MRC SNR per user (avg over {conf.num_res} REs):", flush=True)
             for _u in range(conf.n_users):
                 print(f"[{ts}] [LMMSE-SNR]   user {_u}: {avg_snr_per_user_db[_u]:.2f} dB", flush=True)
-
-            # DIAG-4: separately show per-user channel POWER (no division by noise) and avg noise_var
-            avg_h_pwr_per_user = total_h_pwr_per_user_diag / max(conf.num_res, 1)
-            avg_nv = total_nv_diag / max(conf.num_res, 1)
-            print(f"[{ts}] [LMMSE-DIAG-4] avg sum_ant |H|^2 per user: {avg_h_pwr_per_user}", flush=True)
-            if avg_h_pwr_per_user.max() > 0 and avg_h_pwr_per_user.min() > 0:
-                print(f"[{ts}] [LMMSE-DIAG-4] per-user H-power range: {10*np.log10(avg_h_pwr_per_user.max()/avg_h_pwr_per_user.min()):.2f} dB", flush=True)
-            print(f"[{ts}] [LMMSE-DIAG-4] avg estimated noise_var: {avg_nv:.6e}", flush=True)
 
             # Time measurements - currently not used
             # time_ce = time_ce / (conf.num_res-1) * conf.num_res

@@ -1,6 +1,7 @@
 import time
 import numpy as np
 from itertools import product
+from datetime import datetime
 import commpy.modulation as mod
 
 from python_code import conf
@@ -373,7 +374,10 @@ def Sphere64qam1245(
     n_forced = 0
     n_bf = 0
 
+    sphere_log_every = int(getattr(conf, 'log_sphere_every_symbols', 0))
     for n in range(n_symbols):
+        if sphere_log_every > 0 and n > 0 and n % sphere_log_every == 0:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [Sphere64qam1245] symbol {n}/{n_symbols}", flush=True)
         y_tilde = Q.conj().T @ y[n, :]
 
         # Initial radius

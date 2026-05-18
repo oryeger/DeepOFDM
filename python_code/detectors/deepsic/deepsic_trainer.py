@@ -1,3 +1,4 @@
+from datetime import datetime
 from typing import List
 
 import torch
@@ -28,7 +29,7 @@ class DeepSICTrainer(Trainer):
         self.detector = [[[DeepSICDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations )] for _ in range(n_users)] for _ in
                          range(conf.num_res)]  # 2D list for Storing the DeepSIC Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int) -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx: torch.Tensor, num_bits:int, epochs: int, network_id: str = "") -> list[float]:
         """
         Trains a DeepSIC Network and returns the total training loss.
         """
@@ -67,6 +68,14 @@ class DeepSICTrainer(Trainer):
         epochs_since_best = 0
         best_state = None
 
+        log_every = int(getattr(conf, 'log_train_every_epochs', 0))
+        log_enabled = log_every > 0
+        tag = f"[DeepSIC {network_id}]" if network_id else "[DeepSIC]"
+        if log_enabled:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} training start (train={len(rx_train)} val={len(rx_val)} epochs={epochs})", flush=True)
+
+        stopped_early = False
+        last_epoch = epochs
         for epoch in range(epochs):
             epoch_loss = 0.0
             num_batches = 0
@@ -105,10 +114,29 @@ class DeepSICTrainer(Trainer):
                 else:
                     epochs_since_best += 1
                     if epochs_since_best > es_patience:
+                        stopped_early = True
+                        last_epoch = epoch + 1
+                        if log_enabled:
+                            msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f} best_val={best_val_loss:.4f}"
+                            print(msg, flush=True)
                         break
+
+            if log_enabled and (epoch + 1) % log_every == 0:
+                msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f}"
+                if es_enabled:
+                    msg += f" best_val={best_val_loss:.4f}"
+                print(msg, flush=True)
+
+        if not stopped_early:
+            last_epoch = epochs
 
         if es_enabled and best_state is not None:
             single_model.load_state_dict(best_state)
+
+        if log_enabled:
+            reason = "early stop" if stopped_early else "completed"
+            final_val = best_val_loss if es_enabled else (val_loss_vect[-1] if val_loss_vect else float('nan'))
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] {tag} done @ epoch {last_epoch} ({reason}) val={final_val:.4f}", flush=True)
 
         return train_loss_vect, val_loss_vect
 
@@ -118,7 +146,8 @@ class DeepSICTrainer(Trainer):
         val_loss_vect_user = []
         for re in range(conf.num_res):
             for user in range(n_users):
-                train_loss_vect , val_loss_vect = self._train_model(model[re][user][i], tx_all[user][:,re], rx_all[user][:,:,re].to(DEVICE), num_bits, epochs)
+                net_id = f"u={user} re={re} it={i}"
+                train_loss_vect , val_loss_vect = self._train_model(model[re][user][i], tx_all[user][:,re], rx_all[user][:,:,re].to(DEVICE), num_bits, epochs, network_id=net_id)
                 if user == 0:
                     train_loss_vect_user = train_loss_vect
                     val_loss_vect_user = val_loss_vect

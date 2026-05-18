@@ -755,6 +755,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                                                                     user].reshape(
                         int(llr_out[:, user].shape[0] / num_bits_pilot), num_bits_pilot, 1)
 
+                print(f"[{datetime.now().strftime('%H:%M:%S')}] [LMMSE] RE {re + 1}/{conf.num_res} done", flush=True)
+                if run_sphere and not (num_bits_pilot == 8 and conf.increase_prime_modulation == 0):
+                    print(f"[{datetime.now().strftime('%H:%M:%S')}] [Sphere] RE {re + 1}/{conf.num_res} done", flush=True)
+
             # Time measurements - currently not used
             # time_ce = time_ce / (conf.num_res-1) * conf.num_res
             # time_lmmse = time_lmmse / (conf.num_res-1) * conf.num_res

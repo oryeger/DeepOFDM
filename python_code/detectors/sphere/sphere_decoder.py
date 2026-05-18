@@ -1,5 +1,6 @@
 import numpy as np
 from itertools import product
+from datetime import datetime
 import commpy.modulation as mod
 from python_code import conf
 from python_code.coding.mcs_table import get_mcs
@@ -100,7 +101,10 @@ def SphereDecoder(H, y, noise_var=1.0, radius=np.inf):
     # Loop over received symbols
 #     for idx in range(1):
 #     for idx in np.array([0,1,2, 3]):
+    sphere_log_every = int(getattr(conf, 'log_sphere_every_symbols', 0))
     for idx in range(n_symbols):
+        if sphere_log_every > 0 and idx > 0 and idx % sphere_log_every == 0:
+            print(f"[{datetime.now().strftime('%H:%M:%S')}] [SphereDecoder] symbol {idx}/{n_symbols}", flush=True)
         y_tilde = Q.conj().T @ y[idx, :]
 
         best = {"dist": np.inf, "bits": None}

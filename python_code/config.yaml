@@ -1,4 +1,4 @@
-snr: 0
+snr: 10
 cur_str: trasfer_mod
 num_snrs: 1
 n_ants: 8
@@ -41,10 +41,10 @@ sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0
 
 use_data_as_pilots: False
 plot_only_last_iteration: False
-plot_channel: False
+plot_channel: True
 plot_genie: False
 
-channel_model: 'C'
+channel_model: 'UMa'
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
 spatial_correlation: 'low'
@@ -69,7 +69,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_SPHERE'
+which_augment: 'AUGMENT_LMMSE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

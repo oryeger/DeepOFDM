@@ -53,6 +53,7 @@ n_paths       = get_int(qcfg,   'quadriga_num_paths',       12);
 
 %% ---- Scenario type → QuaDRiGa scenario string mapping ------------------
 scenario_types = {'UMa', 'UMi', 'RMa'};
+scenario_types = {'RMa'};
 scenario_map = containers.Map( ...
     {'UMa', 'UMi', 'RMa'}, ...
     {'3GPP_38.901_UMa_NLOS', '3GPP_38.901_UMi_NLOS', '3GPP_38.901_RMa_NLOS'});
@@ -210,6 +211,12 @@ for seed_idx = 1 : numel(seeds_to_gen)
     end
 
     fprintf('   Clusters from QuaDRiGa: %d, saving: %d\n', n_clusters_actual, n_save);
+
+    %% Diagnostic: per-user total channel power (linear) and dB spread
+    pwr_per_user = squeeze(sum(sum(abs(coeff_all).^2, 1), 3));   % sum over ant and paths -> [n_users x 1]
+    fprintf('   DIAG: per-user total power (linear) = %s\n', num2str(pwr_per_user(:)', '%.3e '));
+    fprintf('   DIAG: per-user power range = %.2f dB (max/min ratio)\n', ...
+        10 * log10(max(pwr_per_user) / max(min(pwr_per_user), eps)));
 
     %% Save
     coeff = coeff_all;   % [n_rx_ant, n_users, n_save]  complex

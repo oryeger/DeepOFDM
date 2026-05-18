@@ -75,6 +75,11 @@ class QuadrigaChannel:
             coeff = data['coeff'].astype(np.complex64)
             delay = data['delay'].astype(np.float32)
 
+            # DIAG-1: per-user power in the .mat file (sum over ant and paths)
+            _u_pwr_mat = np.sum(np.abs(coeff)**2, axis=(0, 2))  # [n_users]
+            print(f"[Quadriga-DIAG] (1) .mat per-user power: {_u_pwr_mat}", flush=True)
+            print(f"[Quadriga-DIAG] (1) .mat per-user range: {10*np.log10(_u_pwr_mat.max()/max(_u_pwr_mat.min(),1e-30)):.2f} dB", flush=True)
+
             n_rx_ant = coeff.shape[0]
             n_users_file = coeff.shape[1]
 
@@ -104,9 +109,29 @@ class QuadrigaChannel:
             # A single global scaling below sets the overall mean power to 1 so SNR calibration still works.
             h_time = cir_to_time_channel(bandwidth, a_tf, tau_tf, l_min, l_max, normalize=False)
 
+            # DIAG-2: per-user power right after cir_to_time_channel (sum over ant, time, taps)
+            _ht_np = h_time.numpy()
+            _u_pwr_ht = np.sum(np.abs(_ht_np)**2, axis=(0, 1, 2, 4, 5, 6))  # [num_tx = n_users]
+            print(f"[Quadriga-DIAG] (2) after cir_to_time_channel per-user power: {_u_pwr_ht}", flush=True)
+            print(f"[Quadriga-DIAG] (2) after cir_to_time_channel range: {10*np.log10(_u_pwr_ht.max()/max(_u_pwr_ht.min(),1e-30)):.2f} dB", flush=True)
+
             # Global re-normalization: mean power across all (user, ant, tap) = 1.
             mean_pwr = tf.reduce_mean(tf.abs(h_time) ** 2)
             h_time = h_time / tf.cast(tf.sqrt(mean_pwr), h_time.dtype)
+
+            # Empirical per-model SNR calibration applied AFTER global normalization.
+            # (Pre-normalization scaling cancels out because mean_pwr scales with it.)
+            # Values from comparing measured post-MRC SNR to configured SNR at 10 dB across seeds.
+            _calib_db = {'RMa': 13.0, 'UMa': 13.0, 'UMi': 8.0}.get(conf.channel_model, 0.0)
+            if _calib_db != 0.0:
+                _calib_amp = tf.cast(10.0 ** (-_calib_db / 20.0), h_time.dtype)
+                h_time = h_time * _calib_amp
+
+            # DIAG-3: per-user power after global normalization + calibration
+            _ht_np = h_time.numpy()
+            _u_pwr_norm = np.sum(np.abs(_ht_np)**2, axis=(0, 1, 2, 4, 5, 6))  # [n_users]
+            print(f"[Quadriga-DIAG] (3) after global norm + {_calib_db:.1f} dB calib, per-user power: {_u_pwr_norm}", flush=True)
+            print(f"[Quadriga-DIAG] (3) after global norm range: {10*np.log10(_u_pwr_norm.max()/max(_u_pwr_norm.min(),1e-30)):.2f} dB", flush=True)
 
             if conf.plot_channel:
                 colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']
@@ -132,9 +157,11 @@ class QuadrigaChannel:
 
         y_out = np.zeros([1, 1, conf.n_ants, NUM_SAMPLES_PER_SLOT * num_slots], dtype=np.complex128)
         for slot in range(num_slots):
+            # h_time uses num_tx=n_users, num_tx_ant=1 (one antenna per user, each user a separate TX).
+            # Sionna ApplyTimeChannel expects x: [batch, num_tx, num_tx_ant, T] so users must be axis 1.
             y_reshaped = tf.reshape(
                 y_tf[:, :, slot * num_time_samples:(slot + 1) * num_time_samples],
-                [conv_size, 1, y_in.shape[0], num_time_samples])
+                [conv_size, y_in.shape[0], 1, num_time_samples])
             y_reshaped = tf.cast(y_reshaped, h_time.dtype)
             y_out_cur_slot = channel_time([y_reshaped, h_time, no])
             y_out_cur_slot = y_out_cur_slot[:, :, :, TA:-l_tot + 1 + TA]

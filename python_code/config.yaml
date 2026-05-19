@@ -14,7 +14,7 @@ iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 100
 iterations: 1
-pilot_size: 100
+pilot_size: 200
 batch_size: 1024
 shuffle: False
 shuffle_augment_priors: False
@@ -69,7 +69,7 @@ run_sphere: False
 run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
-which_augment: 'AUGMENT_LMMSE'
+which_augment: 'AUGMENT_SPHERE'
 override_augment_with_lmmse: False
 
 mhsa_no_probs: True

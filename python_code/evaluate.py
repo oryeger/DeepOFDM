@@ -594,6 +594,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # Per-user post-MRC SNR accumulator across REs (from LMMSE channel + noise estimates)
             total_snr_per_user_lin = np.zeros(conf.n_users, dtype=np.float64)
 
+            # When escnn_use_primary_val_only is on, ESCNN trains only on the second half of pilots.
+            # Skip LMMSE/Sphere LLR computation on the first half of pilots; the LLR arrays stay zero
+            # there (already zero-initialised) and ESCNN's internal pvo filter discards them anyway.
+            pvo_skip = bool(getattr(conf, 'escnn_use_primary_val_only', False))
+            pilot_first_half = (pilot_chunk // 2) if pvo_skip else 0          # in OFDM symbols
+            pilot_first_half_bits = pilot_first_half * num_bits_pilot         # in bits
+
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
@@ -603,16 +610,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
                     equalized_pilot, postEqSINR_pilot, _ = LmmseEqualize(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
                                noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized_pilot, postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                    LmmseDemod(equalized_pilot[pilot_first_half:], postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
+                               detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
                     equalized_data, postEqSINR_data, noise_var = LmmseEqualize(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
                                noise_var, pilot_chunk, re, H)
                     LmmseDemod(equalized_data, postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
                 else:
                     equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized[:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[:pilot_size, :, :], 1)
+                    LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
+                               detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
                     LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                                detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
 
@@ -638,25 +645,30 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                 if run_sphere and not (num_bits_pilot == 8 and conf.increase_prime_modulation == 0):
                     H = H.cpu().numpy()
+                    # When pvo_skip is on, sphere skips the first half of pilots; results go into the
+                    # tail of the full-size output arrays, leaving zeros (initial value) up to pilot_first_half_bits.
+                    sphere_rx = rx_c[pilot_first_half:, :, re].numpy()
+                    # Full-size llr_out (zeros in skipped region, filled below with actual values for the rest)
+                    llr_out = np.zeros((rx_c.shape[0] * num_bits_pilot, n_users))
 
                     if (not(conf.increase_prime_modulation) or (conf.which_augment == 'AUGMENT_LMMSE') or (num_bits_pilot == 2)) and conf.make_64QAM_16QAM_percentage != 50:
                         # Standard sphere decoder - all bits
-                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
-                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        sphere_llr, detected_word_sphere_for_aug[pilot_first_half_bits:, :, re] = SphereDecoder(
+                            H, sphere_rx, noise_var, conf.sphere_radius
                         )
+                        llr_out[pilot_first_half_bits:, :] = sphere_llr
                     elif num_bits_pilot == 4:
 
                         # QPSK→16QAM: 2 bits → 4 bits
-                        detected_word_sphere_for_aug[1::2,:,re] = 0.5
-                        llr_out_red, detected_word_sphere_for_aug[0::2, :, re] = Sphere16qamEvenbits(
+                        detected_word_sphere_for_aug[pilot_first_half_bits+1::2, :, re] = 0.5
+                        llr_out_red, detected_word_sphere_for_aug[pilot_first_half_bits::2, :, re] = Sphere16qamEvenbits(
                             H,
-                            rx_c[:, :, re].numpy(),
+                            sphere_rx,
                             noise_var=noise_var,
                             keep_bits=(0, 2),
                             init_expand=conf.sphere_radius  # OR whatever parameter you intended
                         )
-                        llr_out = np.zeros((int(llr_out_red.shape[0]*2), llr_out_red.shape[1]))
-                        llr_out[0::2,:] = llr_out_red
+                        llr_out[pilot_first_half_bits::2, :] = llr_out_red
                     elif num_bits_pilot == 6:
                         # 16QAM→64QAM: 4 bits → 6 bits
                         # Select sphere decoder based on sphere_64qam_mode
@@ -666,95 +678,98 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         noise_var_f = float(noise_var)
                         if mode_64 == '0134':
                             llr_out_4bits, hard_bits_4 = Sphere64qam0134(
-                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
+                                H, sphere_rx, noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [0, 1, 3, 4]
                         elif mode_64 == '1245':
                             llr_out_4bits, hard_bits_4 = Sphere64qam1245(
-                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
+                                H, sphere_rx, noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [1, 2, 4, 5]
                         else:
                             llr_out_4bits, hard_bits_4 = Sphere64qam0235(
-                                H, rx_c[:, :, re].numpy(), noise_var_f, conf.sphere_radius
+                                H, sphere_rx, noise_var_f, conf.sphere_radius
                             )
                             keep_bits = [0, 2, 3, 5]
 
-                        # Expand from 4 bits to 6 bits per symbol
-                        num_symbols = llr_out_4bits.shape[0] // 4
-                        llr_out = np.zeros((num_symbols * 6, n_users))
-                        hard_out = np.zeros((num_symbols * 6, n_users))
+                        # Expand from 4 bits to 6 bits per symbol (only over the sphere_rx symbols)
+                        num_symbols_sub = llr_out_4bits.shape[0] // 4
+                        llr_out_sub = np.zeros((num_symbols_sub * 6, n_users))
+                        hard_out_sub = np.zeros((num_symbols_sub * 6, n_users))
 
-                        for sym in range(num_symbols):
+                        for sym in range(num_symbols_sub):
                             i4_base = sym * 4
                             i6_base = sym * 6
                             # Set all 6 bits to unknown defaults
                             for b in range(6):
-                                llr_out[i6_base + b, :] = 0
-                                hard_out[i6_base + b, :] = 0.5
+                                llr_out_sub[i6_base + b, :] = 0
+                                hard_out_sub[i6_base + b, :] = 0.5
                             # Fill in the 4 decoded bits
                             for j, bit_idx in enumerate(keep_bits):
-                                llr_out[i6_base + bit_idx, :] = llr_out_4bits[i4_base + j, :]
-                                hard_out[i6_base + bit_idx, :] = hard_bits_4[i4_base + j, :]
+                                llr_out_sub[i6_base + bit_idx, :] = llr_out_4bits[i4_base + j, :]
+                                hard_out_sub[i6_base + bit_idx, :] = hard_bits_4[i4_base + j, :]
 
-                        detected_word_sphere_for_aug[:, :, re] = hard_out
+                        llr_out[pilot_first_half_bits:, :] = llr_out_sub
+                        detected_word_sphere_for_aug[pilot_first_half_bits:, :, re] = hard_out_sub
                     elif num_bits_pilot == 8:
                         # 16QAM→256QAM: 4 bits → 8 bits
                         # Use Sphere256qamFourbits to calculate bits 0, 3, 4, 7
                         llr_out_4bits, hard_bits_4 = Sphere256qamFourbits(
-                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                            H, sphere_rx, noise_var, conf.sphere_radius
                         )
 
-                        # Expand from 4 bits to 8 bits per symbol
+                        # Expand from 4 bits to 8 bits per symbol (only over the sphere_rx symbols)
                         # fourbits output order: [b0, b3, b4, b7] per symbol
                         # 256QAM order:          [b0, b1, b2, b3, b4, b5, b6, b7] per symbol
-                        num_symbols = llr_out_4bits.shape[0] // 4
-                        llr_out = np.zeros((num_symbols * 8, n_users), dtype=float)
-                        hard_out = np.zeros((num_symbols * 8, n_users), dtype=float)
+                        num_symbols_sub = llr_out_4bits.shape[0] // 4
+                        llr_out_sub = np.zeros((num_symbols_sub * 8, n_users), dtype=float)
+                        hard_out_sub = np.zeros((num_symbols_sub * 8, n_users), dtype=float)
 
-                        for sym in range(num_symbols):
+                        for sym in range(num_symbols_sub):
                             i4_base = sym * 4
                             i8_base = sym * 8
 
                             # Bit 0: from fourbits[0]
-                            llr_out[i8_base + 0, :] = llr_out_4bits[i4_base + 0, :]
-                            hard_out[i8_base + 0, :] = hard_bits_4[i4_base + 0, :]
+                            llr_out_sub[i8_base + 0, :] = llr_out_4bits[i4_base + 0, :]
+                            hard_out_sub[i8_base + 0, :] = hard_bits_4[i4_base + 0, :]
 
                             # Bit 1: unknown
-                            llr_out[i8_base + 1, :] = 0.0
-                            hard_out[i8_base + 1, :] = 0.5
+                            llr_out_sub[i8_base + 1, :] = 0.0
+                            hard_out_sub[i8_base + 1, :] = 0.5
 
                             # Bit 2: unknown
-                            llr_out[i8_base + 2, :] = 0.0
-                            hard_out[i8_base + 2, :] = 0.5
+                            llr_out_sub[i8_base + 2, :] = 0.0
+                            hard_out_sub[i8_base + 2, :] = 0.5
 
                             # Bit 3: from fourbits[1]
-                            llr_out[i8_base + 3, :] = llr_out_4bits[i4_base + 1, :]
-                            hard_out[i8_base + 3, :] = hard_bits_4[i4_base + 1, :]
+                            llr_out_sub[i8_base + 3, :] = llr_out_4bits[i4_base + 1, :]
+                            hard_out_sub[i8_base + 3, :] = hard_bits_4[i4_base + 1, :]
 
                             # Bit 4: from fourbits[2]
-                            llr_out[i8_base + 4, :] = llr_out_4bits[i4_base + 2, :]
-                            hard_out[i8_base + 4, :] = hard_bits_4[i4_base + 2, :]
+                            llr_out_sub[i8_base + 4, :] = llr_out_4bits[i4_base + 2, :]
+                            hard_out_sub[i8_base + 4, :] = hard_bits_4[i4_base + 2, :]
 
                             # Bit 5: unknown
-                            llr_out[i8_base + 5, :] = 0.0
-                            hard_out[i8_base + 5, :] = 0.5
+                            llr_out_sub[i8_base + 5, :] = 0.0
+                            hard_out_sub[i8_base + 5, :] = 0.5
 
                             # Bit 6: unknown
-                            llr_out[i8_base + 6, :] = 0.0
-                            hard_out[i8_base + 6, :] = 0.5
+                            llr_out_sub[i8_base + 6, :] = 0.0
+                            hard_out_sub[i8_base + 6, :] = 0.5
 
                             # Bit 7: from fourbits[3]
-                            llr_out[i8_base + 7, :] = llr_out_4bits[i4_base + 3, :]
-                            hard_out[i8_base + 7, :] = hard_bits_4[i4_base + 3, :]
+                            llr_out_sub[i8_base + 7, :] = llr_out_4bits[i4_base + 3, :]
+                            hard_out_sub[i8_base + 7, :] = hard_bits_4[i4_base + 3, :]
 
-                        detected_word_sphere_for_aug[:, :, re] = hard_out
+                        llr_out[pilot_first_half_bits:, :] = llr_out_sub
+                        detected_word_sphere_for_aug[pilot_first_half_bits:, :, re] = hard_out_sub
 
                     else:
                         # Fallback for other bit configurations
-                        llr_out, detected_word_sphere_for_aug[:, :, re] = SphereDecoder(
-                            H, rx_c[:, :, re].numpy(), noise_var, conf.sphere_radius
+                        sphere_llr, detected_word_sphere_for_aug[pilot_first_half_bits:, :, re] = SphereDecoder(
+                            H, sphere_rx, noise_var, conf.sphere_radius
                         )
+                        llr_out[pilot_first_half_bits:, :] = sphere_llr
 
 
                 else:

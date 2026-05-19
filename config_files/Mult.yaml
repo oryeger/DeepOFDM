@@ -1,7 +1,7 @@
 snr: 40
-cur_str: four
+cur_str: qquuaadd
 num_snrs: 1
-n_ants: 4
+n_ants: 8
 snr_step: 1
 n_users: 1
 mcs: 17 # [0..4] - QPSK, [5..10] - 16QAM
@@ -21,6 +21,8 @@ shuffle_augment_priors: False  # Shuffle samples before train/val split in ESCNN
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
 escnn_use_primary_val_only: True  # If True, ESCNN trains only on primary detector's validation portion
 early_stopping_patience: 20
+log_train_every_epochs: 50  # Print training progress every N epochs (DeepSIC/DeepRX/ESCNN). 0 or -1 disables training progress prints (start/per-epoch/done).
+log_sphere_every_symbols: 5000  # Print sphere decoder progress every N symbols inside the per-symbol loop (sphere_decoder + sphere_64QAM_1245). 0 or -1 disables.
 learning_rate: 5.0e-3 # 5.0e-4
 kernel_size: 3
 stag_re_kernel_size: 3

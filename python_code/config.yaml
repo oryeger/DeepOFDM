@@ -14,7 +14,7 @@ iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 100
 iterations: 1
-pilot_size: 200
+pilot_size: 100
 batch_size: 1024
 shuffle: False
 shuffle_augment_priors: False

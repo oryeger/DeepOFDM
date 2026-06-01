@@ -6,7 +6,7 @@
 clear; clc;
 
 % ---- User configuration ----
-base_name        = 'CFO_MI';
+base_name        = 'Completion8k_0.7372/';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 

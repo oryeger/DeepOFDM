@@ -35,6 +35,18 @@ REMOVE_ISOLATED_NONMONO_POINTS = True  and CLEANUP_ENABLED
 MAX_BAD_POINTS_PER_CURVE = 1        if CLEANUP_ENABLED else 0   # Max non-monotonic points to remove per curve
 PRINT_NONMONO_SUMMARY = True  and CLEANUP_ENABLED
 
+# ---- Per-seed fill of all missing points (independent of CLEANUP_ENABLED) ----
+# When True: every NaN in a seed's curve is filled before averaging.
+#   - Interior gaps -> piecewise-linear interpolation between neighbors
+#   - Leading/trailing gaps -> linear extrapolation from first/last 2 finite pts
+# Done in log10 space for BER/BLER, linear space for MI. No gap cap.
+FILL_ALL_MISSING_PER_SEED = False
+PRINT_FILL_SUMMARY = True
+
+# Filling without a continuous integer grid has no effect on the missing
+# integer SNRs, so tie the two flags together.
+USE_FULL_INTEGER_SNR_GRID = USE_FULL_INTEGER_SNR_GRID or FILL_ALL_MISSING_PER_SEED
+
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
@@ -244,6 +256,96 @@ def _fill_missing_curve(snrs, values, use_log_interp=True, max_gap=3):
                 alpha = (x[k] - x_left) / (x_right - x_left)
                 y[k] = (1 - alpha) * y_left + alpha * y_right
                 filled_positions.append(k)
+
+    return y, filled_positions
+
+
+def _fill_all_missing_points(snrs, values, use_log_interp=True):
+    """
+    Fill missing points in a single curve.
+
+    Log-scale behavior (BER/BLER), assuming monotonic non-increasing in SNR:
+    - If the source data contains an observed 0 at SNR=Z, every position
+      from Z onwards is LOCKED to 0 (NaNs in that range also become 0).
+      The fit is computed only on positions BEFORE Z, so it isn't pulled
+      toward the cliff. On a log plot, those zero tail points are not
+      rendered, so the curve drops off the chart cleanly.
+    - For positions before Z: NaN (and any non-positive) cells are filled
+      by piecewise-linear interp / linear extrapolation in log10 space,
+      using only positive finite observations.
+    - Predicted values are upper-bounded by 1.0. If they dip below
+      ZERO_THRESHOLD (1e-12), the curve sticks at 0 from that point on.
+
+    Linear-scale behavior (MI): piecewise-linear interp/extrap over finite
+    values; only NaN positions are filled.
+
+    snrs must be sorted ascending.
+
+    Returns
+    -------
+    filled_values : np.ndarray
+    filled_positions : list[int]
+    """
+    x = np.asarray(snrs, dtype=float)
+    y = np.asarray(values, dtype=float).copy()
+    n = len(y)
+    filled_positions = []
+
+    if n == 0:
+        return y, filled_positions
+
+    # For log scale: first observed 0 marks the start of the tail zero region.
+    if use_log_interp:
+        zero_idx = np.flatnonzero(np.isfinite(y) & (y == 0))
+        tail_start = int(zero_idx[0]) if zero_idx.size > 0 else n
+    else:
+        tail_start = n
+
+    # Fit and fill the pre-tail region [0, tail_start).
+    if use_log_interp:
+        pre_missing = ~np.isfinite(y[:tail_start]) | (y[:tail_start] <= 0)
+        pre_fit_mask = np.isfinite(y[:tail_start]) & (y[:tail_start] > 0)
+    else:
+        pre_missing = ~np.isfinite(y[:tail_start])
+        pre_fit_mask = np.isfinite(y[:tail_start])
+
+    if pre_missing.any() and pre_fit_mask.sum() >= 2:
+        x_pre = x[:tail_start]
+        x_fit = x_pre[pre_fit_mask]
+        y_fit = y[:tail_start][pre_fit_mask]
+
+        x_unique, idx = np.unique(x_fit, return_index=True)
+        y_unique = y_fit[idx]
+        if x_unique.size >= 2:
+            if use_log_interp:
+                ly = np.log10(y_unique)
+                f = interp1d(x_unique, ly, kind="linear",
+                             fill_value="extrapolate", bounds_error=False)
+                y_pred = 10 ** f(x_pre[pre_missing])
+                y_pred = np.minimum(y_pred, 1.0)
+            else:
+                f = interp1d(x_unique, y_unique, kind="linear",
+                             fill_value="extrapolate", bounds_error=False)
+                y_pred = f(x_pre[pre_missing])
+
+            pre_idx = np.flatnonzero(pre_missing)
+            y[pre_idx] = y_pred
+            filled_positions.extend(pre_idx.tolist())
+
+    # Lock the tail region to 0 (log scale only).
+    if use_log_interp and tail_start < n:
+        tail_nan_idx = (np.flatnonzero(~np.isfinite(y[tail_start:])) + tail_start).tolist()
+        y[tail_start:] = 0.0
+        filled_positions.extend(tail_nan_idx)
+
+    # Once the curve dips below ZERO_THRESHOLD, stick at 0 from that point
+    # on (so the curve drops off cleanly on log scale).
+    if use_log_interp:
+        ZERO_THRESHOLD = 1e-4
+        below = np.flatnonzero(np.isfinite(y) & (y > 0) & (y < ZERO_THRESHOLD))
+        if below.size > 0:
+            first_below = int(below[0])
+            y[first_below:] = 0.0
 
     return y, filled_positions
 
@@ -521,6 +623,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             curves = []
             interp_report = []
             nonmono_report = []
+            extrap_report = []
 
             for seed in seeds:
                 y = []
@@ -557,6 +660,17 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                         interp_report.append((seed, [snrs[i] for i in filled_idx]))
                     y = y_filled
 
+                # Step 3: fill every remaining missing point (interior + endpoints)
+                if FILL_ALL_MISSING_PER_SEED:
+                    y_filled_all, all_filled_idx = _fill_all_missing_points(
+                        snrs,
+                        y,
+                        use_log_interp=use_log_interp,
+                    )
+                    if PRINT_FILL_SUMMARY and all_filled_idx:
+                        extrap_report.append((seed, [snrs[i] for i in all_filled_idx]))
+                    y = y_filled_all
+
                 curves.append(y)
 
             if PRINT_NONMONO_SUMMARY and nonmono_report:
@@ -566,6 +680,10 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             if PRINT_INTERP_SUMMARY and interp_report:
                 pretty = ", ".join([f"seed {seed}: {pts}" for seed, pts in interp_report])
                 print(f"[INFO] Interpolated missing points for key '{key}' in panel '{plot_type}': {pretty}")
+
+            if PRINT_FILL_SUMMARY and extrap_report:
+                pretty = ", ".join([f"seed {seed}: {len(pts)} pts ({min(pts)}..{max(pts)} dB)" for seed, pts in extrap_report])
+                print(f"[INFO] Filled missing points (interp+extrap) for key '{key}' in panel '{plot_type}': {pretty}")
 
             curves = np.asarray(curves, dtype=float)
             with np.errstate(invalid="ignore"):

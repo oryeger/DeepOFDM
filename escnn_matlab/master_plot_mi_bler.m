@@ -6,7 +6,7 @@
 clear; clc;
 
 % ---- User configuration ----
-base_name        = 'Completion8k_0.7_sphere_uniterpolated';
+base_name        = 'Completion8k_0.4_sphere_mi_5_iterpolated_FOR_MI';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -17,6 +17,7 @@ snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB 
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
 output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
+override_mi_only = false;         % if true: do not create a new figure; just redraw the MI subplot in the currently-open figure
 % ----------------------------
 
 is_ppt = strcmpi(output_target, 'ppt');
@@ -115,6 +116,141 @@ else
     subplot_title = base_name;
 end
 
+% ---- Override mode: redraw MI subplot in the existing open figure ----
+if override_mi_only
+    if isempty(findall(0, 'Type', 'figure'))
+        error('override_mi_only=true requires an open figure.');
+    end
+    fig = gcf;
+
+    % Find the MI subplot in the open figure. Prefer the axes with a linear
+    % YScale (BLER uses log); fall back to the leftmost axes by position.
+    all_axes = findobj(fig, 'Type', 'axes');
+    ax_mi = gobjects(0);
+    for k = 1:numel(all_axes)
+        if strcmpi(get(all_axes(k), 'YScale'), 'linear')
+            ax_mi = all_axes(k);
+            break;
+        end
+    end
+    if isempty(ax_mi)
+        xs = arrayfun(@(a) get(a, 'Position') * [1;0;0;0], all_axes);
+        [~, left_idx] = min(xs);
+        ax_mi = all_axes(left_idx);
+    end
+
+    % Capture current xlim so we can keep MI x-axis aligned with BLER.
+    prev_xlim = xlim(ax_mi);
+
+    % Clear graphics children only -- DO NOT reset, otherwise we lose the
+    % subplot's shrunk position, font sizes, etc. that match the old PPT
+    % format (set by the original figure's shrink_amt + ppt config).
+    cla(ax_mi);
+    axes(ax_mi); %#ok<LAXES>
+    hold on; grid on;
+
+    [h_mi, lbl_mi] = plot_mi_set( ...
+        dir_path, ...
+        algs_to_plot, alg_colors, alg_names, alg_files, ...
+        markers_no_aug, markers_aug, fillable_algs, ...
+        plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
+
+    hold off;
+
+    % Match master_plot_bler.m order: title first, then YScale, xlabel, ylabel,
+    % then YMinorTick+Box. Use absolute Position (not '+0.03') in override mode
+    % because title() preserves Position across calls, so the relative nudge
+    % accumulates every time the script is re-run and pushes the title off-chart.
+    if is_ppt
+        t1 = title(ax_mi, 'Bit-wise Mutual Information');
+        t1.Units = 'normalized';
+        t1.Position(2) = 1.03;
+    else
+        t1 = title(ax_mi, 'Bit-wise Mutual Information');
+        t1.Units = 'normalized';
+        t1.Position(2) = 1.0;
+    end
+    set(ax_mi, 'YScale', 'linear');
+    xlabel(ax_mi, 'SNR (dB)');
+    ylabel(ax_mi, 'MI');
+    ylim(ax_mi, [0, 1]);
+    set(ax_mi, 'YMinorTick', 'on', 'Box', 'on');
+    xlim(ax_mi, prev_xlim);
+
+    % ---- Find BLER axes and retitle it to "Block Error Rate" ----
+    ax_bler = gobjects(0);
+    for k = 1:numel(all_axes)
+        if strcmpi(get(all_axes(k), 'YScale'), 'log')
+            ax_bler = all_axes(k);
+            break;
+        end
+    end
+    if ~isempty(ax_bler)
+        if is_ppt
+            t2 = title(ax_bler, 'Block Error Rate');
+            t2.Units = 'normalized';
+            t2.Position(2) = 1.03;
+        else
+            t2 = title(ax_bler, 'Block Error Rate');
+            t2.Units = 'normalized';
+            t2.Position(2) = 1.0;
+        end
+    end
+
+    % ---- Rebuild the legend with correct labels ----
+    % Build the legend from the freshly-created MI handles+labels (h_mi /
+    % lbl_mi). MI is always plotted for every alg in algs_to_plot, whereas
+    % BLER may be missing some algorithms (e.g. DeepSIC at certain rates),
+    % so using MI guarantees a complete legend. Marker / linestyle / color
+    % are identical between plot_mi_set and plot_bler_set, so the legend
+    % looks the same regardless of which axes' handles it points to.
+
+    legend_labels = regexprep(lbl_mi, ',?\s*r=0\.\d+', '');
+
+    desired_order = {'LMMSE',     'SPHERE',     'DeepSIC',     'DeepRx', ...
+                     'LMMSE aug', 'SPHERE aug', 'DeepSIC aug', 'DeepRx aug'};
+    ordered_handles = gobjects(0);
+    ordered_labels  = {};
+    for k = 1:numel(desired_order)
+        idx = find(strcmp(legend_labels, desired_order{k}), 1);
+        if ~isempty(idx)
+            ordered_handles(end+1) = h_mi(idx);             %#ok<AGROW>
+            ordered_labels{end+1}  = legend_labels{idx};    %#ok<AGROW>
+        end
+    end
+
+    if ~isempty(ordered_handles)
+        delete(findobj(fig, 'Type', 'legend'));
+
+        legend_args = {'Interpreter', 'none', 'Orientation', 'horizontal', 'NumColumns', 4};
+        if is_ppt
+            legend_args = [legend_args, {'FontSize', 14}];
+        end
+
+        if ~isempty(ax_bler)
+            lgd_parent = ax_bler;
+        else
+            lgd_parent = ax_mi;
+        end
+        lgd = legend(lgd_parent, ordered_handles, ordered_labels, legend_args{:});
+        lgd.Units       = 'normalized';
+        lgd.Position(1) = 0.5 - lgd.Position(3)/2;
+        lgd.Position(2) = 0.01;
+    end
+
+    % ---- Export (same set of formats as normal mode) ----
+    out_name = fullfile(root_dir, [base_name, extra_text, '_mi_bler']);
+    print(fig, [out_name, '.eps'], '-depsc', '-painters');
+    if is_ppt
+        print(fig, [out_name, '.png'], '-dpng',  '-r600');
+    end
+    savefig(fig, [out_name, '.fig']);
+
+    fprintf('Override mode: MI subplot updated in figure %d; saved %s.{eps,fig}.\n', ...
+        fig.Number, out_name);
+    return;
+end
+
 % ---- Create figure: MI left, BLER right ----
 fig = figure;
 if is_ppt
@@ -138,9 +274,10 @@ hold on; grid on;
     plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
 hold off;
-xlabel(ax(1), 'SNR (dB)');
-ylabel(ax(1), 'MI');
-ylim(ax(1), [0, 1]);
+
+% Order matches master_plot_bler.m: title (with PPT nudge) -> YScale -> xlabel
+% -> ylabel -> ylim -> YMinorTick+Box. Keeping this order is required so the
+% +0.03 normalized title nudge sees the same baseline as the BLER-only script.
 if is_ppt
     t1 = title(ax(1), 'Bit-wise Mutual Information');
     t1.Units = 'normalized';
@@ -148,6 +285,10 @@ if is_ppt
 else
     title(ax(1), 'Bit-wise Mutual Information');
 end
+set(ax(1), 'YScale', 'linear');
+xlabel(ax(1), 'SNR (dB)');
+ylabel(ax(1), 'MI');
+ylim(ax(1), [0, 1]);
 set(ax(1), 'YMinorTick', 'on', 'Box', 'on');
 
 % ---- Right: BLER (log y) ----
@@ -161,8 +302,7 @@ hold on; grid on;
     add_snr_target, plot_aug_iter_2, snr_pad_left_db, snr_cut_right_pts, snr_cut_left_pts);
 
 hold off;
-xlabel(ax(2), 'SNR (dB)');
-ylabel(ax(2), 'BLER');
+
 if is_ppt
     t2 = title(ax(2), 'Block Error Rate');
     t2.Units = 'normalized';
@@ -170,7 +310,10 @@ if is_ppt
 else
     title(ax(2), 'Block Error Rate');
 end
-set(ax(2), 'YScale', 'log', 'YMinorTick', 'on', 'Box', 'on');
+set(ax(2), 'YScale', 'log');
+xlabel(ax(2), 'SNR (dB)');
+ylabel(ax(2), 'BLER');
+set(ax(2), 'YMinorTick', 'on', 'Box', 'on');
 
 % Match MI x-axis to BLER's full SNR span so both subplots line up at SNR=0.
 xlim(ax(1), xlim(ax(2)));

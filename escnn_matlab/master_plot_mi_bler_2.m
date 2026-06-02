@@ -18,12 +18,6 @@ snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 =
 snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
 output_target    = 'ppt';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
 override_mi_only = true;         % if true: do not create a new figure; just redraw the MI subplot in the currently-open figure
-
-% ---- MI zoom inset (left subplot only) ----
-mi_zoom_enable   = false;          % draw a zoom inset on the MI subplot
-mi_zoom_xlim     = [16, 24];      % SNR range (dB) shown inside the inset
-mi_zoom_ylim     = [0.965, 1.00]; % MI  range shown inside the inset
-mi_zoom_position = [0.41, 0.10, 0.50, 0.45]; % inset placement inside MI axes, normalized [left bottom width height]
 % ----------------------------
 
 is_ppt = strcmpi(output_target, 'ppt');
@@ -107,11 +101,6 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
 
 alg_names = {'LMMSE', 'SPHERE', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsic'};
-
-% Completion runs label SPHERE as RBSD in the legend.
-if contains(base_name, 'Completion')
-    alg_names{2} = 'RBSD';
-end
 
 markers_no_aug = {'^'; 's'; 'o'; 'd'};
 markers_aug    = {'^'; 's'; 'o'; 'd'};
@@ -208,11 +197,6 @@ if override_mi_only
         end
     end
 
-    % ---- MI zoom inset ----
-    if mi_zoom_enable
-        add_mi_zoom_inset(ax_mi, mi_zoom_xlim, mi_zoom_ylim, mi_zoom_position);
-    end
-
     % ---- Rebuild the legend with correct labels ----
     % Build the legend from the freshly-created MI handles+labels (h_mi /
     % lbl_mi). MI is always plotted for every alg in algs_to_plot, whereas
@@ -223,8 +207,8 @@ if override_mi_only
 
     legend_labels = regexprep(lbl_mi, ',?\s*r=0\.\d+', '');
 
-    desired_order = {alg_names{1},             alg_names{2},             alg_names{4},             alg_names{3}, ...
-                     [alg_names{1}, ' aug'],   [alg_names{2}, ' aug'],   [alg_names{4}, ' aug'],   [alg_names{3}, ' aug']};
+    desired_order = {'LMMSE',     'SPHERE',     'DeepSIC',     'DeepRx', ...
+                     'LMMSE aug', 'SPHERE aug', 'DeepSIC aug', 'DeepRx aug'};
     ordered_handles = gobjects(0);
     ordered_labels  = {};
     for k = 1:numel(desired_order)
@@ -338,8 +322,8 @@ xlim(ax(1), xlim(ax(2)));
 legend_labels = regexprep(lbl_bler, ',?\s*r=0\.\d+', '');
 
 % Reorder so row 1 = all no-aug, row 2 = all aug, each with the requested alg order.
-desired_order = {alg_names{1},             alg_names{2},             alg_names{4},             alg_names{3}, ...
-                 [alg_names{1}, ' aug'],   [alg_names{2}, ' aug'],   [alg_names{4}, ' aug'],   [alg_names{3}, ' aug']};
+desired_order = {'LMMSE',     'SPHERE',     'DeepSIC',     'DeepRx', ...
+                 'LMMSE aug', 'SPHERE aug', 'DeepSIC aug', 'DeepRx aug'};
 reorder_idx = [];
 for k = 1:numel(desired_order)
     idx = find(strcmp(legend_labels, desired_order{k}), 1);
@@ -371,11 +355,6 @@ for d = 1:2
     ax(d).Position = [pos(1), pos(2)+shrink_amt, pos(3), pos(4)-shrink_amt];
 end
 
-% ---- MI zoom inset ----
-if mi_zoom_enable
-    add_mi_zoom_inset(ax(1), mi_zoom_xlim, mi_zoom_ylim, mi_zoom_position);
-end
-
 % ---- Export ----
 out_name = fullfile(root_dir, [base_name, extra_text, '_mi_bler']);
 print(fig, [out_name, '.eps'], '-depsc', '-painters');
@@ -383,129 +362,3 @@ if is_ppt
     print(fig, [out_name, '.png'], '-dpng',  '-r600');   % high-DPI raster for PPT
 end
 savefig([out_name, '.fig']);
-
-% =========================================================
-% Local functions
-% =========================================================
-
-function add_mi_zoom_inset(ax_mi, zoom_xlim, zoom_ylim, inset_pos_norm)
-    % Add a magnified inset of a region of the MI subplot. The inset shows
-    % the same MI curves restricted to (zoom_xlim, zoom_ylim). A dashed
-    % rectangle is drawn on the main MI plot to mark the zoomed region,
-    % and two black connector lines are drawn from the rectangle to the
-    % inset so the reader can see which area was magnified.
-    %
-    % inset_pos_norm : [left bottom width height], normalized within ax_mi.
-
-    parent_fig = ancestor(ax_mi, 'figure');
-
-    % Remove any existing zoom inset / marker / connectors / overlay so
-    % re-running override mode doesn't stack them on top of each other.
-    delete(findobj(parent_fig, 'Tag', 'mi_zoom_inset'));
-    delete(findobj(ax_mi,      'Tag', 'mi_zoom_rect'));
-    delete(findall(parent_fig, 'Tag', 'mi_zoom_connector'));
-    delete(findobj(parent_fig, 'Tag', 'mi_zoom_overlay'));
-
-    % Convert inset position from MI-axes-relative to figure-relative.
-    ax_pos = ax_mi.Position;
-    inset_pos_fig = [ax_pos(1) + inset_pos_norm(1) * ax_pos(3), ...
-                     ax_pos(2) + inset_pos_norm(2) * ax_pos(4), ...
-                     inset_pos_norm(3) * ax_pos(3), ...
-                     inset_pos_norm(4) * ax_pos(4)];
-
-    inset_ax = axes('Parent', parent_fig, 'Position', inset_pos_fig);
-    inset_ax.Tag = 'mi_zoom_inset';
-
-    % Copy only the Line children from the MI axes (skip title/labels/etc.).
-    mi_lines = findobj(ax_mi, 'Type', 'line');
-    if ~isempty(mi_lines)
-        copyobj(mi_lines, inset_ax);
-    end
-
-    xlim(inset_ax, zoom_xlim);
-    ylim(inset_ax, zoom_ylim);
-    set(inset_ax, 'Box', 'on', 'XMinorTick', 'on', 'YMinorTick', 'on', ...
-                  'Color', [1 1 1], 'FontSize', 8);
-    grid(inset_ax, 'on');
-
-    % Solid black rectangle on the main MI plot marking the zoomed region.
-    rectangle(ax_mi, ...
-        'Position',  [zoom_xlim(1), zoom_ylim(1), diff(zoom_xlim), diff(zoom_ylim)], ...
-        'EdgeColor', 'k', ...
-        'LineStyle', '-', ...
-        'LineWidth', 0.8, ...
-        'Tag',       'mi_zoom_rect');
-
-    % ---- Connector lines from zoom rectangle on main axes to inset box ----
-    % Force rendering so ax_mi.Position and inset_ax.Position reflect the
-    % final laid-out positions before we convert coordinates.
-    drawnow;
-
-    ax_pos    = double(ax_mi.Position);
-    inset_pos = double(inset_ax.Position);
-    main_xlim = double(ax_mi.XLim);   % some datasets return XLim as int32 etc.
-    main_ylim = double(ax_mi.YLim);
-    zoom_xlim = double(zoom_xlim);
-    zoom_ylim = double(zoom_ylim);
-
-    % Convert main-axes data coords to figure-normalized using:
-    %   x_norm = ax.Position(1) + (x_data - ax.XLim(1)) / diff(ax.XLim) * ax.Position(3)
-    %   y_norm = ax.Position(2) + (y_data - ax.YLim(1)) / diff(ax.YLim) * ax.Position(4)
-    zoom_tl_x = ax_pos(1) + (zoom_xlim(1) - main_xlim(1)) / diff(main_xlim) * ax_pos(3);
-    zoom_tl_y = ax_pos(2) + (zoom_ylim(2) - main_ylim(1)) / diff(main_ylim) * ax_pos(4);
-    zoom_br_x = ax_pos(1) + (zoom_xlim(2) - main_xlim(1)) / diff(main_xlim) * ax_pos(3);
-    zoom_br_y = ax_pos(2) + (zoom_ylim(1) - main_ylim(1)) / diff(main_ylim) * ax_pos(4);
-
-    % Inset box corners (Position is already in figure-normalized coords).
-    inset_tl_x = inset_pos(1);
-    inset_tl_y = inset_pos(2) + inset_pos(4);
-    inset_br_x = inset_pos(1) + inset_pos(3);
-    inset_br_y = inset_pos(2);
-
-    fprintf('[mi_zoom] ax_pos     = [%.4f %.4f %.4f %.4f]\n', ax_pos);
-    fprintf('[mi_zoom] inset_pos  = [%.4f %.4f %.4f %.4f]\n', inset_pos);
-    fprintf('[mi_zoom] main_xlim  = [%.4f %.4f]    main_ylim = [%.4f %.4f]\n', main_xlim, main_ylim);
-    fprintf('[mi_zoom] zoom_xlim  = [%.4f %.4f]    zoom_ylim = [%.4f %.4f]\n', zoom_xlim, zoom_ylim);
-
-    % Step-by-step debug of the X-term computation
-    dbg_num   = zoom_xlim(1) - main_xlim(1);
-    dbg_den   = diff(main_xlim);
-    dbg_w     = ax_pos(3);
-    dbg_ratio = dbg_num / dbg_den;
-    dbg_term  = dbg_ratio * dbg_w;
-    fprintf('[mi_zoom] DEBUG x-term TL\n');
-    fprintf('          class(zoom_xlim)=%s size=[%s]\n', class(zoom_xlim), num2str(size(zoom_xlim)));
-    fprintf('          class(main_xlim)=%s size=[%s]\n', class(main_xlim), num2str(size(main_xlim)));
-    fprintf('          class(ax_pos)   =%s size=[%s]\n', class(ax_pos),    num2str(size(ax_pos)));
-    fprintf('          num   = zoom_xlim(1)-main_xlim(1) = %.10g  size=[%s] class=%s\n', dbg_num,   num2str(size(dbg_num)),   class(dbg_num));
-    fprintf('          den   = diff(main_xlim)           = %.10g  size=[%s] class=%s\n', dbg_den,   num2str(size(dbg_den)),   class(dbg_den));
-    fprintf('          w     = ax_pos(3)                 = %.10g  size=[%s] class=%s\n', dbg_w,     num2str(size(dbg_w)),     class(dbg_w));
-    fprintf('          num/den                           = %.10g  size=[%s]\n',         dbg_ratio, num2str(size(dbg_ratio)));
-    fprintf('          (num/den)*w                       = %.10g  size=[%s]\n',         dbg_term,  num2str(size(dbg_term)));
-
-    fprintf('[mi_zoom] zoom  TL   = (%.4f, %.4f)   BR = (%.4f, %.4f)\n', ...
-            zoom_tl_x, zoom_tl_y, zoom_br_x, zoom_br_y);
-    fprintf('[mi_zoom] inset TL   = (%.4f, %.4f)   BR = (%.4f, %.4f)\n', ...
-            inset_tl_x, inset_tl_y, inset_br_x, inset_br_y);
-
-    % Make parent_fig the current figure so annotation() targets it.
-    prev_fig = get(0, 'CurrentFigure');
-    figure(parent_fig);
-    cleanup_fig = onCleanup(@() restore_current_fig(prev_fig));
-
-    % Top-left of zoom rect -> top-left of inset box.
-    ann1 = annotation('line', [zoom_tl_x, inset_tl_x], [zoom_tl_y, inset_tl_y], ...
-                      'Color', 'k', 'LineWidth', 1);
-    ann1.Tag = 'mi_zoom_connector';
-
-    % Bottom-right of zoom rect -> bottom-right of inset box.
-    ann2 = annotation('line', [zoom_br_x, inset_br_x], [zoom_br_y, inset_br_y], ...
-                      'Color', 'k', 'LineWidth', 1);
-    ann2.Tag = 'mi_zoom_connector';
-end
-
-function restore_current_fig(prev_fig)
-    if ~isempty(prev_fig) && isgraphics(prev_fig)
-        set(0, 'CurrentFigure', prev_fig);
-    end
-end

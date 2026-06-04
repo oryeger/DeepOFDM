@@ -749,6 +749,14 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 if np.isfinite(mi_sphere_arr).any():
                     ax.plot(snrs, mi_sphere, linestyle=dashes[4], marker=markers[4], color="brown", label="Sphere")
 
+            mi_deepsic_arr = np.asarray(mi_deepsic_1, dtype=float)
+            if np.isfinite(mi_deepsic_arr).any() and not np.all(mi_deepsic_arr[np.isfinite(mi_deepsic_arr)] == 0):
+                ax.plot(snrs, mi_deepsic_1, linestyle=dashes[0], marker=markers[0], color="purple", label="DeepSIC1")
+
+            mi_deeprx_arr = np.asarray(mi_deeprx, dtype=float)
+            if np.isfinite(mi_deeprx_arr).any() and not np.all(mi_deeprx_arr[np.isfinite(mi_deeprx_arr)] == 0):
+                ax.plot(snrs, mi_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan", label="DeepRx")
+
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.set_ylim(top=1.0)

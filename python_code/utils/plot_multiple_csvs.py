@@ -40,7 +40,7 @@ PRINT_NONMONO_SUMMARY = True  and CLEANUP_ENABLED
 #   - Interior gaps -> piecewise-linear interpolation between neighbors
 #   - Leading/trailing gaps -> linear extrapolation from first/last 2 finite pts
 # Done in log10 space for BER/BLER, linear space for MI. No gap cap.
-FILL_ALL_MISSING_PER_SEED = False
+FILL_ALL_MISSING_PER_SEED = True
 PRINT_FILL_SUMMARY = True
 
 # Filling without a continuous integer grid has no effect on the missing

@@ -82,10 +82,18 @@ class QuadrigaChannel:
                 f"QuaDRiGa mat file has {n_rx_ant} RX antennas but conf.n_ants={conf.n_ants}. "
                 f"Re-generate channels with the current config."
             )
-            assert n_users_file == y_in.shape[0], (
+            assert n_users_file >= y_in.shape[0], (
                 f"QuaDRiGa mat file has {n_users_file} users but signal has {y_in.shape[0]}. "
-                f"Re-generate channels with the current config."
+                f"Mat file must have at least as many users as the current config; "
+                f"re-generate channels with the current config."
             )
+            if n_users_file > y_in.shape[0]:
+                # YAML config has fewer users than the mat file: keep the first
+                # y_in.shape[0] users. Slice BEFORE the global power normalization
+                # below so the mean-power calculation reflects only the kept users.
+                coeff = coeff[:, :y_in.shape[0], :]
+                delay = delay[:y_in.shape[0], :]
+                n_users_file = y_in.shape[0]
 
             # Format for Sionna cir_to_time_channel:
             #   a:   [batch, num_rx, num_rx_ant, num_tx,   num_tx_ant, num_paths, num_time_steps]

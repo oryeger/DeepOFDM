@@ -33,15 +33,13 @@ escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-4)
 
-increase_prime_modulation_vals=(False)
+increase_prime_modulation_vals=(True)
 spatial_correlation_vals=('low')
 
 batch_size_vals=(-1)
 
 which_augment_vals=(
   'AUGMENT_SPHERE'
-  'AUGMENT_DEEPSIC'
-  'AUGMENT_DEEPRX'
 )
 
 channel_model_vals=('UMi')

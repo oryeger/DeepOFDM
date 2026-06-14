@@ -15,8 +15,8 @@ base_name=$(basename "$input_file" .yaml)
 seeds=(123 17 41 58)
 # seeds=(123)
 # seeds=(17)
-snrs=($(seq -10 40))
-cfos=(0)
+snrs=($(seq -5 35))
+cfos=(0.15)
 
 clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
@@ -27,27 +27,30 @@ shuffle_augment_priors_vals=(False)
 block_length_factor_vals=(3)
 
 # epochs sweep
-epochs_vals=(500)
+epochs_vals=(150)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-4)
+learning_rate_vals=(5.0e-3)
 
-increase_prime_modulation_vals=(True)
+increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
 
 batch_size_vals=(-1)
 
 which_augment_vals=(
+  'AUGMENT_LMMSE'
   'AUGMENT_SPHERE'
+  'AUGMENT_DEEPSIC'
+  'AUGMENT_DEEPRX'
 )
 
-channel_model_vals=('UMi')
+channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)
-mcs_vals=(34)
+mcs_vals=(28)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)

@@ -16,14 +16,17 @@ plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
-output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
+output_target    = 'ppt';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
 override_mi_only = false;         % if true: do not create a new figure; just redraw the MI subplot in the currently-open figure
 
 % ---- MI zoom inset (left subplot only) ----
-mi_zoom_enable   = false;          % draw a zoom inset on the MI subplot
-mi_zoom_xlim     = [16, 24];      % SNR range (dB) shown inside the inset
-mi_zoom_ylim     = [0.965, 1.00]; % MI  range shown inside the inset
-mi_zoom_position = [0.41, 0.10, 0.50, 0.45]; % inset placement inside MI axes, normalized [left bottom width height]
+mi_zoom_enable   = true;          % draw a zoom inset on the MI subplot
+% mi_zoom_xlim     = [16, 24];      % SNR range (dB) shown inside the inset
+% mi_zoom_ylim     = [0.965, 1.00]; % MI  range shown inside the inset
+% mi_zoom_position = [0.41, 0.10, 0.50, 0.45]; % inset placement inside MI axes, normalized [left bottom width height]
+mi_zoom_xlim     = [35, 40];      % SNR range (dB) shown inside the inset
+mi_zoom_ylim     = [0.81, 0.86]; % MI  range shown inside the inset
+mi_zoom_position = [0.11, 0.65, 0.26, 0.30]; % inset placement inside MI axes, normalized [left bottom width height]
 % ----------------------------
 
 is_ppt = strcmpi(output_target, 'ppt');
@@ -108,10 +111,8 @@ alg_colors = [0.00, 0.45, 0.70;   % LMMSE   - blue
 alg_names = {'LMMSE', 'SPHERE', 'DeepRx', 'DeepSIC'};
 alg_files = {'lmmse', 'sphere', 'deeprx', 'deepsic'};
 
-% Completion runs label SPHERE as RBSD in the legend.
-if contains(base_name, 'Completion')
-    alg_names{2} = 'RBSD';
-end
+% Always label SPHERE as RBSD in the legend.
+alg_names{2} = 'RBSD';
 
 markers_no_aug = {'^'; 's'; 'o'; 'd'};
 markers_aug    = {'^'; 's'; 'o'; 'd'};
@@ -425,7 +426,9 @@ function add_mi_zoom_inset(ax_mi, zoom_xlim, zoom_ylim, inset_pos_norm)
     xlim(inset_ax, zoom_xlim);
     ylim(inset_ax, zoom_ylim);
     set(inset_ax, 'Box', 'on', 'XMinorTick', 'on', 'YMinorTick', 'on', ...
-                  'Color', [1 1 1], 'FontSize', 8);
+                  'Color', [1 1 1], 'FontSize', 6);
+    % Show only the bottom and top y-ticks (suppress intermediate values).
+    set(inset_ax, 'YTick', [zoom_ylim(1), zoom_ylim(2)]);
     grid(inset_ax, 'on');
 
     % Solid black rectangle on the main MI plot marking the zoomed region.

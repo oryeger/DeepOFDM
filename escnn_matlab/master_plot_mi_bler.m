@@ -16,7 +16,7 @@ plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
 snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
-output_target    = 'ppt';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
+output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, reordered legend, fontsize 14, PNG export)
 override_mi_only = false;         % if true: do not create a new figure; just redraw the MI subplot in the currently-open figure
 
 % ---- MI zoom inset (left subplot only) ----

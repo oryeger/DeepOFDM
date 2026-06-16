@@ -67,7 +67,7 @@ run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
 which_augment: 'AUGMENT_LMMSE'
-override_augment_with_lmmse: True
+override_augment_with_lmmse: False
 
 mhsa_no_probs: True
 

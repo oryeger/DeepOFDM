@@ -1,5 +1,5 @@
 snr: 14
-cur_str: rbsd_cfo
+cur_str: ttpp
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -67,7 +67,7 @@ run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
 which_augment: 'AUGMENT_LMMSE'
-override_augment_with_lmmse: False
+override_augment_with_lmmse: True
 
 mhsa_no_probs: True
 

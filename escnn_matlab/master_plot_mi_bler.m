@@ -6,7 +6,7 @@
 clear; clc;
 
 % ---- User configuration ----
-base_name        = 'Clip_UMi_4UEs_goodmcs';
+base_name        = 'RBSD_CFO';
 extra_text       = '';             % e.g. '_transfer'
 root_dir         = 'C:\Projects\Scratchpad\mat_files\';
 
@@ -20,7 +20,7 @@ output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (
 override_mi_only = false;         % if true: do not create a new figure; just redraw the MI subplot in the currently-open figure
 
 % ---- MI zoom inset (left subplot only) ----
-mi_zoom_enable   = true;          % draw a zoom inset on the MI subplot
+mi_zoom_enable   = false;          % draw a zoom inset on the MI subplot
 % mi_zoom_xlim     = [16, 24];      % SNR range (dB) shown inside the inset
 % mi_zoom_ylim     = [0.965, 1.00]; % MI  range shown inside the inset
 % mi_zoom_position = [0.41, 0.10, 0.50, 0.45]; % inset placement inside MI axes, normalized [left bottom width height]
@@ -29,7 +29,7 @@ mi_zoom_ylim     = [0.81, 0.86]; % MI  range shown inside the inset
 mi_zoom_position = [0.11, 0.65, 0.26, 0.30]; % inset placement inside MI axes, normalized [left bottom width height]
 % ----------------------------
 
-is_ppt = strcmpi(output_target, 'ppt');
+is_ppt = strcmpi(output_target, 'paper');
 
 % ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
 dirs     = {};

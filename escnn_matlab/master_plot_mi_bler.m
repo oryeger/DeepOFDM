@@ -29,7 +29,7 @@ mi_zoom_ylim     = [0.81, 0.86]; % MI  range shown inside the inset
 mi_zoom_position = [0.11, 0.65, 0.26, 0.30]; % inset placement inside MI axes, normalized [left bottom width height]
 % ----------------------------
 
-is_ppt = strcmpi(output_target, 'paper');
+is_ppt = strcmpi(output_target, 'ppt');
 
 % ---- Auto-detect directories: code-rate variants OR TDL-channel variants ----
 dirs     = {};

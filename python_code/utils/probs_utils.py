@@ -107,6 +107,24 @@ def skip_indices(N, pilot_data_ratio, is_256qam=False):
     return np.setdiff1d(all_idx, rel, assume_unique=False)
 
 
+def pilot_third_bit_mask(num_symbols: int, num_bits: int) -> torch.Tensor:
+    """
+    Per-pilot-symbol mask of which bits carry real information when
+    make_64QAM_16QAM_percentage == 50 (3-way QPSK/16QAM/64QAM pilot mix).
+
+    Mirrors the symbol-third split used to force constant bits in
+    mimo_channel_dataset.py and to neutralize probs_for_aug in evaluate.py:
+    first third only relevant_indices(num_bits, 3) bits are real (QPSK-effective),
+    second third relevant_indices(num_bits, 1.5) bits are real (16QAM-effective),
+    last third all bits are real (full 64QAM).
+    """
+    mask = torch.ones(num_symbols, num_bits, dtype=torch.bool)
+    third_size = num_symbols // 3
+    mask[:third_size, skip_indices(num_bits, 3)] = False
+    mask[third_size:2 * third_size, skip_indices(num_bits, 1.5)] = False
+    return mask
+
+
 def get_64QAM_16QAM_indices_and_probs(total_bits, bits_per_symbol=6):
     """
     For 64QAM with make_64QAM_16QAM_percentage=50:

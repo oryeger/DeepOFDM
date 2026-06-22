@@ -15,6 +15,7 @@ from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
+from python_code.utils.probs_utils import pilot_third_bit_mask
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -31,7 +32,7 @@ class ESCNNTrainer(Trainer):
         self.optimizer = Adam(filter(lambda p: p.requires_grad, single_model.parameters()),
                               lr=self.lr, weight_decay=weight_decay)
         from torch.nn import BCEWithLogitsLoss
-        self.criterion = BCEWithLogitsLoss().to(DEVICE)
+        self.criterion = BCEWithLogitsLoss(reduction='none').to(DEVICE)
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
@@ -54,11 +55,19 @@ class ESCNNTrainer(Trainer):
         # Reshape tx to match the expected format
         tx_reshaped = tx.reshape(int(tx.shape[0] // num_bits), num_bits, tx.shape[1])
 
+        # Mask out bits forced constant by the QPSK/16QAM thirds of the 64QAM pilot
+        # mix (make_64QAM_16QAM_percentage == 50), so the loss only sees real bits.
+        loss_mask = torch.ones_like(tx_reshaped, dtype=torch.bool)
+        if conf.make_64QAM_16QAM_percentage == 50 and num_bits == 6:
+            bit_mask = pilot_third_bit_mask(tx_reshaped.shape[0], num_bits)
+            loss_mask = bit_mask.unsqueeze(-1).expand_as(tx_reshaped)
+
         # Restrict to primary detector's validation portion only
         if getattr(conf, 'escnn_use_primary_val_only', False):
             primary_train_samples = rx_prob.shape[0] // 2
             rx_prob = rx_prob[primary_train_samples:]
             tx_reshaped = tx_reshaped[primary_train_samples:]
+            loss_mask = loss_mask[primary_train_samples:]
 
         # Shuffle samples before train/val split to decorrelate from augmenter's own split
         if getattr(conf, 'shuffle_augment_priors', False):
@@ -67,6 +76,7 @@ class ESCNNTrainer(Trainer):
             perm = torch.randperm(rx_prob.shape[0], generator=generator)
             rx_prob = rx_prob[perm]
             tx_reshaped = tx_reshaped[perm]
+            loss_mask = loss_mask[perm]
 
         # Split into train and validation sets
         train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
@@ -74,6 +84,8 @@ class ESCNNTrainer(Trainer):
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]
         tx_val = tx_reshaped[train_samples:]
+        mask_train = loss_mask[:train_samples]
+        mask_val = loss_mask[train_samples:]
 
         # Create DataLoader for mini-batch training
         # batch_size <= 0 means full-batch (no mini-batching)
@@ -81,7 +93,7 @@ class ESCNNTrainer(Trainer):
         if batch_size <= 0:
             batch_size = len(rx_prob_train)  # Full batch
         shuffle = conf.shuffle if hasattr(conf, 'shuffle') else True
-        train_dataset = TensorDataset(rx_prob_train, tx_train)
+        train_dataset = TensorDataset(rx_prob_train, tx_train, mask_train)
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
 
         es_patience = int(getattr(conf, 'early_stopping_patience', -1))
@@ -103,20 +115,23 @@ class ESCNNTrainer(Trainer):
             num_batches = 0
 
             # Mini-batch training
-            for batch_rx, batch_tx in train_loader:
+            for batch_rx, batch_tx, batch_mask in train_loader:
                 batch_rx = batch_rx.to(DEVICE)
                 batch_tx = batch_tx.to(DEVICE)
+                batch_mask = batch_mask.to(DEVICE)
 
                 soft_estimation, llrs = single_model(batch_rx)
 
                 if first_half_flag:
                     llrs_cur = llrs[:, 0::2, :, :]
                     batch_tx_cur = batch_tx[:, 0::2, :]
+                    batch_mask_cur = batch_mask[:, 0::2, :]
                 else:
                     llrs_cur = llrs
                     batch_tx_cur = batch_tx
+                    batch_mask_cur = batch_mask
 
-                loss = self._calculate_loss(llrs_cur, batch_tx_cur)
+                loss = self._calculate_loss(llrs_cur, batch_tx_cur, batch_mask_cur)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -132,9 +147,10 @@ class ESCNNTrainer(Trainer):
                 rx_prob_val_device = rx_prob_val.to(DEVICE)
                 _, llrs_val = single_model(rx_prob_val_device)
                 if first_half_flag:
-                    val_loss = self._calculate_loss(llrs_val[:, 0::2, :, :], tx_val[:, 0::2, :].to(DEVICE))
+                    val_loss = self._calculate_loss(llrs_val[:, 0::2, :, :], tx_val[:, 0::2, :].to(DEVICE),
+                                                     mask_val[:, 0::2, :].to(DEVICE))
                 else:
-                    val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE))
+                    val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE), mask_val.to(DEVICE))
                 val_loss_vect.append(val_loss.item())
 
             if es_enabled:
@@ -218,12 +234,18 @@ class ESCNNTrainer(Trainer):
                 val_loss_vect = val_loss_vect + val_loss_cur
         return train_loss_vect , val_loss_vect
 
-    def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:
+    def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor, mask: torch.Tensor = None) -> torch.Tensor:
         """
-        Cross Entropy loss - distribution over states versus the gt state label
+        Cross Entropy loss - distribution over states versus the gt state label.
+        `mask` (same shape as tx) excludes bits forced constant by lower-order
+        pilot thirds (see pilot_third_bit_mask) from the loss.
         """
         est_rs = est.squeeze(-1)
-        return self.criterion(input=est_rs, target=tx)
+        elementwise_loss = self.criterion(input=est_rs, target=tx)
+        if mask is None:
+            return elementwise_loss.mean()
+        mask = mask.to(elementwise_loss.dtype)
+        return (elementwise_loss * mask).sum() / mask.sum().clamp(min=1.0)
 
     @staticmethod
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:

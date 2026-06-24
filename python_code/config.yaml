@@ -12,9 +12,9 @@ cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
-epochs: 100
+epochs: 2
 iterations: 1
-pilot_size: 1000
+pilot_size: 100
 batch_size: 1024
 shuffle: False
 shuffle_augment_priors: False
@@ -35,7 +35,7 @@ scale_input: True
 escnn_dropout: 0.0
 escnn_weight_decay: 0.0
 override_noise_var: False
-make_64QAM_16QAM_percentage: 50
+make_64QAM_16QAM_percentage: 0
 increase_prime_modulation: False
 sphere_64qam_mode: '1245'  # Which 4 bits the sphere decoder handles: '0235', '0134', or '1245'
 
@@ -56,10 +56,8 @@ env_distance: 100.0           # BS-UT distance [m]
 env_indoor: False             # UE indoor state
 env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
 env_enable_shadow_fading: False  # apply shadow fading
-pilot_channel_seed: -1
 channel_seed: 17
 
-transfer_cnn: False  # When True with pilot_channel_seed > 0: train CNN on seed_a, then train only scale on seed_b
 run_deeprx: False
 run_deepsic: False
 run_deepsicmb: False
@@ -83,6 +81,13 @@ no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclus
 calc_mi: True
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
+
+# ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
+save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
+escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
+load_escnn_weights_tag: 'a0e680'  # Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
+load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
+escnn_load_freeze: 'none'  # What stays trainable after loading: 'none' (train all), 'scale' (freeze elementwise scale), 'last_conv' (freeze fc3), 'all' (freeze everything - pure zero-shot transfer test)
 
 
 

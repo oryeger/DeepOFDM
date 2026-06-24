@@ -1,4 +1,7 @@
 import os
+import glob
+import hashlib
+import re
 from pathlib import Path
 import time
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
@@ -188,6 +191,68 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     return fig
 
 
+def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
+                                  code_rate, pilot_data_ratio, corr_level) -> str:
+    """
+    Builds the descriptive part of the ESCNN weights/CSV filename from the current run's
+    parameters (everything the CSV filename has, minus the date/time prefix and SNR). Used
+    both to save ESCNN weights (save_escnn_weights) and to name the CSV itself, so the two
+    stay in sync by construction. SNR is deliberately excluded here (and from the resulting
+    hash tag) so the same tag is produced regardless of which SNR a model was trained at -
+    callers append '_SNR=<value>' themselves for the actual filename.
+    """
+    title_string = (chan_text + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
+        conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
+                    'cfo=' + str(conf.cfo) + ' scs' + ', Epo=' + str(epochs) + ', it=' + str(
+                iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
+                conf.clip_percentage_in_tx))
+
+    title_string = title_string.replace("\n", "")
+    title_string = title_string.replace(",", "")
+    title_string = title_string.replace(" ", "_")
+    title_string = title_string.replace("_scs", "")
+    title_string = title_string.replace("AUGMENT_LMMSE", "LMMSE")
+    title_string = title_string.replace("AUGMENT_SPHERE", "SPHERE")
+    title_string = title_string.replace("AUGMENT_DEEPSIC", "DEEPSIC")
+    title_string = title_string.replace("AUGMENT_DEEPRX", "DEEPRX")
+    title_string = title_string.replace("NO_AUGMENT", "NOAUG")
+    title_string = title_string.replace("ONV_False", "ONV_0")
+    title_string = title_string.replace("ONV_True", "ONV_1")
+    corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
+    title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
+    title_string = title_string + '_#ant=' + str(conf.n_ants)
+    title_string = title_string + '_' + conf.which_augment
+    if conf.mcs > -1:
+        title_string = title_string + f'_Rc={code_rate:.2f}'
+    title_string = title_string + '_PDR_' + str(pilot_data_ratio)
+    title_string = title_string + '_ONV_' + str(conf.override_noise_var)
+    title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
+    title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
+    title_string = title_string + '_b' + str(conf.batch_size)
+    title_string = title_string + '_es=' + str(int(getattr(conf, 'early_stopping_patience', -1)))
+    title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
+    title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
+    title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
+    title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
+    title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
+    title_string = title_string + '_bf=' + str(conf.block_length_factor)
+    title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
+    title_string = title_string + '_' + conf.cur_str
+    title_string = title_string + '_s=' + str(conf.channel_seed)
+    return title_string
+
+
+def _escnn_weights_tag(suffix: str) -> str:
+    """Short deterministic fingerprint of an ESCNN filename suffix, for easy reference when loading."""
+    return hashlib.sha1(suffix.encode()).hexdigest()[:6]
+
+
+def _long_path(p: str) -> str:
+    """Bypass Windows' 260-char MAX_PATH limit for absolute paths (the long descriptive ESCNN
+    filenames routinely exceed it)."""
+    return ("\\\\?\\" + p) if os.name == 'nt' else p
+
+
 def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
                  deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer, jointllr_trainer) -> List[float]:
     """
@@ -354,6 +419,23 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         pilot_data_ratio = num_bits_pilot/num_bits_data
 
         escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
+        if conf.load_escnn_weights_tag:
+            weights_load_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad', 'weights'))
+            all_tag_matches = glob.glob(os.path.join(weights_load_dir, f'*_{conf.load_escnn_weights_tag}.pt'))
+            if not all_tag_matches:
+                raise FileNotFoundError(f"No saved ESCNN weights found for tag '{conf.load_escnn_weights_tag}' in {weights_load_dir}")
+            snr_override = getattr(conf, 'load_escnn_weights_snr_override', -1)
+            desired_snr = snr_override if snr_override >= 0 else conf.snr
+            weights_matches = [p for p in all_tag_matches if f'_SNR={desired_snr}_' in os.path.basename(p)]
+            if not weights_matches:
+                available_snrs = sorted({re.search(r'_SNR=([^_]+)_', os.path.basename(p)).group(1)
+                                          for p in all_tag_matches if re.search(r'_SNR=([^_]+)_', os.path.basename(p))})
+                raise FileNotFoundError(
+                    f"No saved ESCNN weights for tag '{conf.load_escnn_weights_tag}' at SNR={desired_snr}. "
+                    f"Available SNRs for this tag: {available_snrs}. Set load_escnn_weights_snr_override to pick one explicitly.")
+            best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
+            escnn_trainer.load_weights(_long_path(best_weights_path))
+            escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
         if conf.run_tdfdcnn:
             tdfdcnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)  # For reseting the weights
         deepsice2e_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
@@ -606,22 +688,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
 
                 # Regular CE
-                if conf.pilot_channel_seed > 0:
-                    # Calling twice to perform separate channel estimation for the pilot and the data part - works only for LMMSE, not for sphere
-                    equalized_pilot, postEqSINR_pilot, _ = LmmseEqualize(rx_ce[:, :pilot_chunk, :, :], rx_c[:pilot_chunk, :, :], s_orig[:pilot_chunk, :, :],
-                               noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized_pilot[pilot_first_half:], postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
-                    equalized_data, postEqSINR_data, noise_var = LmmseEqualize(rx_ce[:, pilot_chunk:, :, :], rx_c[pilot_chunk:, :, :], s_orig[pilot_chunk:, :, :],
-                               noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized_data, postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
-                else:
-                    equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
-                    LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
-                    LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                               detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
+                equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
+                           detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
+                LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                           detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
 
                 # Accumulate per-user post-MRC SNR for this RE:
                 #   signal power = sum_ant |H[ant, user]|^2 ,  noise power = noise_var (per antenna)
@@ -846,7 +917,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if conf.override_augment_with_lmmse:
                 probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
 
-            # Default tx_data for BER calculation (may be overwritten when transfer_cnn is enabled)
             tx_data_for_ber = tx_data
 
             # online training main function
@@ -871,68 +941,47 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5
 
-                train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
-                                                                                n_users, iterations, epochs, False,
-                                                                                probs_for_aug[:pilot_chunk], stage="base" )
+                if conf.escnn_load_freeze != "all":
+                    train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
+                                                                                    n_users, iterations, epochs, False,
+                                                                                    probs_for_aug[:pilot_chunk], stage="base" )
+                else:
+                    # Pure zero-shot transfer test: everything frozen, nothing to train
+                    train_loss_vect, val_loss_vect = [], []
 
                 if conf.use_film:
-                    train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
-                                                                                    n_users, iterations, epochs, False,
-                                                                                    probs_for_aug[:pilot_chunk], stage="film")
+                    if conf.escnn_load_freeze != "all":
+                        train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
+                                                                                        n_users, iterations, epochs, False,
+                                                                                        probs_for_aug[:pilot_chunk], stage="film")
+                    else:
+                        train_loss_vect_film, val_loss_vect_film = [], []
 
                 if conf.override_augment_with_lmmse:
                     probs_for_aug.copy_(probs_for_aug_lmmse)
 
-                # CNN Transfer Learning: train scale on seed_b while keeping CNN from seed_a
-                if conf.transfer_cnn and conf.pilot_channel_seed > 0:
-                    # Save CNN parameters trained on seed_a
-                    cnn_state_seed_a = {}
-                    for user in range(n_users):
-                        cnn_state_seed_a[user] = {}
-                        for i in range(iterations):
-                            cnn_state_seed_a[user][i] = escnn_trainer.detector[user][i].get_cnn_state_dict()
+                if conf.save_escnn_weights:
+                    corr_level = getattr(conf, 'spatial_correlation', 'none')
+                    weights_suffix = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs,
+                                                                   iterations, code_rate if conf.mcs > -1 else None,
+                                                                   pilot_data_ratio, corr_level)
+                    weights_tag = _escnn_weights_tag(weights_suffix)
+                    weights_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad', 'weights'))
+                    os.makedirs(_long_path(weights_dir), exist_ok=True)
+                    weights_filename = f"{weights_suffix}_SNR={conf.snr}_{weights_tag}.pt"
+                    weights_path = os.path.join(weights_dir, weights_filename)
+                    escnn_trainer.save_weights(_long_path(weights_path))
+                    print(f"[ESCNN] saved weights, tag={weights_tag} -> {weights_path}", flush=True)
 
-                    # Reinitialize detector (resets scale to ones)
-                    escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+                if conf.escnn_weights_only:
+                    # Training (and saving) is all that was asked for - skip inference/BER/plots/CSV entirely.
+                    return []
 
-                    # Load CNN parameters from seed_a
-                    for user in range(n_users):
-                        for i in range(iterations):
-                            escnn_trainer.detector[user][i].load_cnn_from(cnn_state_seed_a[user][i])
-
-                    # Split data for stage 2 training and inference
-                    # Stage 2 training uses first pilot_chunk samples from data (seed_b)
-                    # Inference uses remaining samples from data (seed_b)
-                    tx_data_train = tx_data[:pilot_size]
-                    tx_data_infer = tx_data[pilot_size:]
-                    rx_data_train = rx_data[:pilot_chunk]
-                    rx_data_infer = rx_data[pilot_chunk:]
-                    probs_for_aug_train = probs_for_aug[pilot_chunk:2*pilot_chunk]
-                    probs_for_aug_infer = probs_for_aug[2*pilot_chunk:]
-
-                    # Train stage 2: only scale, CNN frozen
-                    train_loss_vect_s2, val_loss_vect_s2 = escnn_trainer._online_training(
-                        tx_data_train, rx_data_train, num_bits_pilot,
-                        n_users, iterations, epochs, False,
-                        probs_for_aug_train, stage="scale_only")
-
-                    # Concatenate stage 1 and stage 2 losses for plotting
-                    train_loss_vect = train_loss_vect + train_loss_vect_s2
-                    val_loss_vect = val_loss_vect + val_loss_vect_s2
-
-                    # Inference on remaining data (seed_b)
-                    detected_word_list, llrs_mat_list = escnn_trainer._forward(
-                        rx_data_infer, num_bits_pilot, n_users, iterations,
-                        probs_for_aug_infer)
-
-                    # Use tx_data_infer for BER calculation
-                    tx_data_for_ber = tx_data_infer
-                else:
-                    # Original behavior: inference on all data
-                    detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
-                                                                               probs_for_aug[pilot_chunk:])
-                    # Use full tx_data for BER calculation
-                    tx_data_for_ber = tx_data
+                # Original behavior: inference on all data
+                detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
+                                                                           probs_for_aug[pilot_chunk:])
+                # Use full tx_data for BER calculation
+                tx_data_for_ber = tx_data
 
 
 
@@ -1034,12 +1083,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             for re in range(conf.num_res):
                 # Regular CE
                 if pilot_data_ratio <= 1:
-                    if not(conf.transfer_cnn):
-                        detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
-                        detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
-                    else:
-                        detected_word_lmmse = detected_word_lmmse_for_aug[int(pilot_size*2):, :, re]
-                        detected_word_sphere = detected_word_sphere_for_aug[int(pilot_size*2):, :, re]
+                    detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size:, :, re]
+                    detected_word_sphere = detected_word_sphere_for_aug[pilot_size:, :, re]
                 else:
                     detected_word_lmmse = detected_word_lmmse_for_aug[pilot_size+relevant_indices(detected_word_lmmse_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
                     detected_word_sphere = detected_word_sphere_for_aug[pilot_size+relevant_indices(detected_word_sphere_for_aug.shape[0]-pilot_size,pilot_data_ratio), :, re]
@@ -1883,49 +1928,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         plt.show()
         fig_lmmse_per_re = fig
 
-        title_string = title_string.replace("\n", "")
-        title_string = title_string.replace(",", "")
-        title_string = title_string.replace(" ", "_")
-        title_string = title_string.replace("_scs", "")
-        title_string = title_string.replace("AUGMENT_LMMSE", "LMMSE")
-        title_string = title_string.replace("AUGMENT_SPHERE", "SPHERE")
-        title_string = title_string.replace("AUGMENT_DEEPSIC", "DEEPSIC")
-        title_string = title_string.replace("AUGMENT_DEEPRX", "DEEPRX")
-        title_string = title_string.replace("NO_AUGMENT", "NOAUG")
-        title_string = title_string.replace("ONV_False", "ONV_0")
-        title_string = title_string.replace("ONV_True", "ONV_1")
-        # Add spatial correlation indicator
-        corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
         corr_level = getattr(conf, 'spatial_correlation', 'none')
-        title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
-        title_string = title_string + '_#ant=' + str(conf.n_ants)
-        # title_string = title_string + '_FFT_size=' + str(FFT_size)
-        # title_string = title_string + '_sep_pilots_deeprx=' + str(conf.separate_pilots)
-        title_string = title_string + '_' + conf.which_augment
-        if conf.mcs > -1:
-            title_string = title_string + f'_Rc={code_rate:.2f}'
-        # title_string = title_string + '_scale_' + str(conf.scale_input)
-        # title_string = title_string + '_FILM_' + str(conf.use_film)
-        title_string = title_string + '_PDR_' + str(pilot_data_ratio)
-        title_string = title_string + '_ONV_' + str(conf.override_noise_var)
-        title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
-        title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
-        title_string = title_string + '_b' + str(conf.batch_size)
-        title_string = title_string + '_es=' + str(int(getattr(conf, 'early_stopping_patience', -1)))
-        title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
-        title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
-        title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
-        title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
-        title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
-        title_string = title_string + '_bf=' + str(conf.block_length_factor)
-        title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-        title_string = title_string + '_' + conf.cur_str
-        title_string = title_string + '_s=' + str(conf.channel_seed)
+        title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
+                                                     code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
         title_string = title_string + '_SNR=' + str(conf.snr)
+        if conf.load_escnn_weights_tag:
+            title_string = title_string + '_from=' + conf.load_escnn_weights_tag
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         # Windows MAX_PATH (260 chars) trips on these long titles; \\?\ prefix bypasses it.
-        _long_path = lambda p: ("\\\\?\\" + p) if os.name == 'nt' else p
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(_long_path(file_path), index=False)
         if conf.mcs > -1:
@@ -2221,10 +2232,6 @@ if __name__ == '__main__':
                 conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
     assert not (
                 conf.no_probs and conf.iters_e2e != 1 and conf.full_e2e == True), "Assert: No probs only works with 1 iteration or with full e2e"
-    assert not (conf.transfer_cnn and conf.pilot_channel_seed > 0 and conf.block_length_factor <= 2), \
-        "Assert: transfer_cnn with pilot_channel_seed requires block_length_factor > 2 for stage 2 training and inference"
-    assert not (conf.transfer_cnn and conf.pilot_channel_seed <= 0), \
-        "Assert: transfer_cnn requires pilot_channel_seed > 0 (need two different channel seeds)"
 
 
     start_time = time.time()

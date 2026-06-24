@@ -268,14 +268,7 @@ class SEDChannel:
                 y_ce , _ = SEDChannel.apply_td_and_impairments(y_ce, True, 0, 100, num_res, n_users, False, empty_tf_tensor, 0, 0, conf.channel_seed)
 
         else:
-            qm, _ = get_mcs(conf.mcs)
-            pilot_chunk = int(pilot_length / qm)
-            if conf.pilot_channel_seed < 0:
-                y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
-            else:
-                y_pilot, channel_used_pilot = SEDChannel.apply_td_and_impairments(s[:,:pilot_chunk,:], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.pilot_channel_seed)
-                y_data, channel_used_data = SEDChannel.apply_td_and_impairments(s[:,pilot_chunk:,], True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
-                y = np.concatenate((y_pilot, y_data), axis=1)
+            y, channel_used = SEDChannel.apply_td_and_impairments(s, True, 0, 100, num_res, n_users, True, empty_tf_tensor, 0, 0, conf.channel_seed)
 
             all_values = list(range(n_users))
             if not(conf.separate_pilots):
@@ -290,13 +283,7 @@ class SEDChannel:
                 for user in range(n_users):
                     s_separate_pilots[user, user::n_users,:] = s[user, user::n_users, :]
 
-                if conf.pilot_channel_seed < 0:
-                    conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed)
-                else:
-                    conv_ce_pilot, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,:pilot_chunk,:], True, 0, 100, num_res, 1, True, channel_used_pilot, 0, 0, conf.pilot_channel_seed)
-                    conv_ce_data, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots[:,pilot_chunk:,:], True, 0, 100, num_res, 1, True, channel_used_data, 0, 0, conf.channel_seed)
-                    conv_ce = np.concatenate((conv_ce_pilot, conv_ce_data), axis=1)
-
+                conv_ce, _ = SEDChannel.apply_td_and_impairments(s_separate_pilots, True, 0, 100, num_res, 1, True, channel_used, 0, 0, conf.channel_seed)
                 y_ce[:, :, :] = conv_ce
 
 

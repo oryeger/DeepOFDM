@@ -341,15 +341,20 @@ class ESCNNTrainer(Trainer):
         dim3 = 1
         return HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32).to(DEVICE)
 
-    def transfer_cnn_from(self, source_trainer: 'ESCNNTrainer'):
-        """Transfer CNN parameters from source trainer to this trainer (in-memory).
+    def save_weights(self, path: str):
+        """Save the full state_dict of every (user, iteration) ESCNN network to a single .pt file."""
+        state = {user: {i: net.state_dict() for i, net in enumerate(nets)} for user, nets in enumerate(self.detector)}
+        torch.save(state, path)
 
-        Similar to pilot_channel_seed pattern - no file saving required.
-        After transfer, call _online_training with stage="scale_only" to train only scale.
+    def load_weights(self, path: str):
+        """Load weights previously written by save_weights into the current (user, iteration) networks."""
+        state = torch.load(path, map_location=DEVICE)
+        for user, nets in enumerate(self.detector):
+            for i, net in enumerate(nets):
+                net.load_state_dict(state[user][i])
 
-        Args:
-            source_trainer: ESCNNTrainer that was trained on seed_a
-        """
-        for user in range(len(self.detector)):
-            for i in range(len(self.detector[user])):
-                self.detector[user][i].load_cnn_from(source_trainer.detector[user][i])
+    def set_load_freeze(self, mode: str):
+        """Apply set_load_freeze(mode) to every (user, iteration) ESCNN network."""
+        for nets in self.detector:
+            for net in nets:
+                net.set_load_freeze(mode)

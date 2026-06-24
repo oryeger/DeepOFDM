@@ -148,32 +148,28 @@ class ESCNNDetector(nn.Module):
             for p in film_params:
                 p.requires_grad = False
 
-    def get_cnn_state_dict(self):
-        """Extract only CNN layer parameters (fc1, fc2, fc3), excluding scale."""
-        cnn_state = {}
-        for name, param in self.state_dict().items():
-            if name.startswith(('fc1.', 'fc2.', 'fc3.')):
-                cnn_state[name] = param.clone()
-        return cnn_state
-
-    def load_cnn_from(self, source):
-        """Load CNN parameters from another model or state dict, keeping scale untouched.
-
-        Args:
-            source: ESCNNDetector instance or state dict containing CNN params
+    def set_load_freeze(self, mode: str):
         """
-        if isinstance(source, ESCNNDetector):
-            source_state = source.get_cnn_state_dict()
-        elif isinstance(source, dict):
-            source_state = {k: v.clone() for k, v in source.items()
-                           if k.startswith(('fc1.', 'fc2.', 'fc3.'))}
-        else:
-            raise TypeError("source must be ESCNNDetector or state dict")
-
-        # Load only the CNN parameters
-        current_state = self.state_dict()
-        current_state.update(source_state)
-        self.load_state_dict(current_state)
+        Controls which parameters stay trainable after loading weights saved from a
+        previous run (transfer-learning second run). mode:
+          'none'      - train everything (fc1, fc2, fc3, scale, FiLM)
+          'scale'     - freeze only the elementwise scale
+          'last_conv' - freeze only fc3 (the last conv layer, producing the LLRs)
+          'all'       - freeze everything (pure zero-shot transfer test)
+        """
+        assert mode in ["none", "scale", "last_conv", "all"]
+        for p in self.fc1.parameters():
+            p.requires_grad = (mode != "all")
+        for p in self.fc2.parameters():
+            p.requires_grad = (mode != "all")
+        for p in self.fc3.parameters():
+            p.requires_grad = mode not in ("all", "last_conv")
+        if self.scale is not None:
+            self.scale.requires_grad = mode not in ("all", "scale")
+        for film in (self.film1, self.film2):
+            if film is not None:
+                for p in film.parameters():
+                    p.requires_grad = (mode == "none")
 
     def forward(self, rx_prob):
         """

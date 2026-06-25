@@ -20,7 +20,7 @@ from scipy.io import savemat
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
 # seeds = [123, 17, 41, 58, 1011, 1809, 3008, 1806, 912, 1505, 1807, 1109]
 # For 0.4:
-seeds = [123, 17, 41, 58, 1011, 3008, 1806, 912, 1807, 1109]
+seeds = [123, 17, 41, 58, 1011, 3008, 1806, 912, 1807, 1109, 42]
 MIN_SNR = -np.inf
 MAX_SNR = np.inf
 

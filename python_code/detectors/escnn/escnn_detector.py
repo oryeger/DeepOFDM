@@ -105,6 +105,7 @@ class ESCNNDetector(nn.Module):
             self.film2 = None
 
         self.stage = "base"  # default
+        self._load_freeze_mode = "none"  # set by set_load_freeze, re-applied by set_stage below
 
     def set_stage(self, stage: str):
         assert stage in ["base", "film", "scale_only"]
@@ -148,24 +149,50 @@ class ESCNNDetector(nn.Module):
             for p in film_params:
                 p.requires_grad = False
 
+        # Re-apply any active load-freeze restriction on top - otherwise a transfer-learning
+        # freeze set via set_load_freeze (e.g. 'scale' or 'last_conv') would get silently
+        # undone the next time training runs and set_stage() re-enables everything.
+        # (FiLM is deliberately left alone here so the separate stage="film" pass still works.)
+        if self._load_freeze_mode == "scale" and self.scale is not None:
+            self.scale.requires_grad = False
+        elif self._load_freeze_mode == "last_conv":
+            for p in self.fc3.parameters():
+                p.requires_grad = False
+        elif self._load_freeze_mode == "scale_only":
+            for m in [self.fc1, self.fc2, self.fc3]:
+                for p in m.parameters():
+                    p.requires_grad = False
+        elif self._load_freeze_mode == "last_conv_only":
+            for m in [self.fc1, self.fc2]:
+                for p in m.parameters():
+                    p.requires_grad = False
+            if self.scale is not None:
+                self.scale.requires_grad = False
+        elif self._load_freeze_mode == "all":
+            for p in self.parameters():
+                p.requires_grad = False
+
     def set_load_freeze(self, mode: str):
         """
         Controls which parameters stay trainable after loading weights saved from a
         previous run (transfer-learning second run). mode:
-          'none'      - train everything (fc1, fc2, fc3, scale, FiLM)
-          'scale'     - freeze only the elementwise scale
-          'last_conv' - freeze only fc3 (the last conv layer, producing the LLRs)
-          'all'       - freeze everything (pure zero-shot transfer test)
+          'none'           - train everything (fc1, fc2, fc3, scale, FiLM)
+          'scale'          - freeze only the elementwise scale
+          'last_conv'      - freeze only fc3 (the last conv layer, producing the LLRs)
+          'scale_only'     - freeze everything except the elementwise scale
+          'last_conv_only' - freeze everything except fc3
+          'all'            - freeze everything (pure zero-shot transfer test)
         """
-        assert mode in ["none", "scale", "last_conv", "all"]
+        assert mode in ["none", "scale", "last_conv", "scale_only", "last_conv_only", "all"]
+        self._load_freeze_mode = mode
         for p in self.fc1.parameters():
-            p.requires_grad = (mode != "all")
+            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only")
         for p in self.fc2.parameters():
-            p.requires_grad = (mode != "all")
+            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only")
         for p in self.fc3.parameters():
-            p.requires_grad = mode not in ("all", "last_conv")
+            p.requires_grad = mode not in ("all", "last_conv", "scale_only")
         if self.scale is not None:
-            self.scale.requires_grad = mode not in ("all", "scale")
+            self.scale.requires_grad = mode not in ("all", "scale", "last_conv_only")
         for film in (self.film1, self.film2):
             if film is not None:
                 for p in film.parameters():

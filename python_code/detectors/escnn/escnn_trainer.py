@@ -348,7 +348,7 @@ class ESCNNTrainer(Trainer):
 
     def load_weights(self, path: str):
         """Load weights previously written by save_weights into the current (user, iteration) networks."""
-        state = torch.load(path, map_location=DEVICE)
+        state = torch.load(path, map_location=DEVICE, weights_only=True)
         for user, nets in enumerate(self.detector):
             for i, net in enumerate(nets):
                 net.load_state_dict(state[user][i])

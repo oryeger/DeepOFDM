@@ -195,11 +195,11 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
                                   code_rate, pilot_data_ratio, corr_level) -> str:
     """
     Builds the descriptive part of the ESCNN weights/CSV filename from the current run's
-    parameters (everything the CSV filename has, minus the date/time prefix and SNR). Used
-    both to save ESCNN weights (save_escnn_weights) and to name the CSV itself, so the two
-    stay in sync by construction. SNR is deliberately excluded here (and from the resulting
-    hash tag) so the same tag is produced regardless of which SNR a model was trained at -
-    callers append '_SNR=<value>' themselves for the actual filename.
+    parameters (everything the CSV filename has, minus the date/time prefix, channel_seed and
+    SNR). Used both to save ESCNN weights (save_escnn_weights) and to name the CSV itself, so
+    the two stay in sync by construction. channel_seed/SNR are appended by callers afterwards
+    (SNR is also deliberately excluded from the hash tag, so the same tag is produced
+    regardless of which SNR a model was trained at).
     """
     title_string = (chan_text + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
         conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
@@ -238,7 +238,6 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string + '_bf=' + str(conf.block_length_factor)
     title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
     title_string = title_string + '_' + conf.cur_str
-    title_string = title_string + '_s=' + str(conf.channel_seed)
     return title_string
 
 
@@ -918,6 +917,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
 
             tx_data_for_ber = tx_data
+            weights_tag = None
 
             # online training main function
             if escnn_trainer.is_online_training:
@@ -941,7 +941,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     indexes = skip_indices(int(num_bits_pilot*conf.n_users), pilot_data_ratio)
                     probs_for_aug[:int(pilot_chunk*conf.make_64QAM_16QAM_percentage/100), indexes, :, :] = 0.5
 
-                if conf.escnn_load_freeze != "all":
+                escnn_frozen = bool(conf.load_escnn_weights_tag) and conf.escnn_load_freeze == "all"
+                if not escnn_frozen:
                     train_loss_vect, val_loss_vect = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                     n_users, iterations, epochs, False,
                                                                                     probs_for_aug[:pilot_chunk], stage="base" )
@@ -950,7 +951,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     train_loss_vect, val_loss_vect = [], []
 
                 if conf.use_film:
-                    if conf.escnn_load_freeze != "all":
+                    if not escnn_frozen:
                         train_loss_vect_film, val_loss_vect_film = escnn_trainer._online_training(tx_pilot, rx_pilot, num_bits_pilot,
                                                                                         n_users, iterations, epochs, False,
                                                                                         probs_for_aug[:pilot_chunk], stage="film")
@@ -965,10 +966,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     weights_suffix = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs,
                                                                    iterations, code_rate if conf.mcs > -1 else None,
                                                                    pilot_data_ratio, corr_level)
-                    weights_tag = _escnn_weights_tag(weights_suffix)
+                    weights_tag = _escnn_weights_tag(weights_suffix + '_s=' + str(conf.channel_seed))
                     weights_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad', 'weights'))
                     os.makedirs(_long_path(weights_dir), exist_ok=True)
-                    weights_filename = f"{weights_suffix}_SNR={conf.snr}_{weights_tag}.pt"
+                    weights_filename = f"{weights_suffix}_s={conf.channel_seed}_SNR={conf.snr}_{weights_tag}.pt"
                     weights_path = os.path.join(weights_dir, weights_filename)
                     escnn_trainer.save_weights(_long_path(weights_path))
                     print(f"[ESCNN] saved weights, tag={weights_tag} -> {weights_path}", flush=True)
@@ -1931,9 +1932,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         corr_level = getattr(conf, 'spatial_correlation', 'none')
         title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
                                                      code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
-        title_string = title_string + '_SNR=' + str(conf.snr)
         if conf.load_escnn_weights_tag:
-            title_string = title_string + '_from=' + conf.load_escnn_weights_tag
+            title_string = title_string + '_read=' + conf.load_escnn_weights_tag
+            freeze_codes = {'none': 'n', 'scale': 'sc', 'last_conv': 'lc', 'scale_only': 'so', 'last_conv_only': 'lco', 'all': 'a'}
+            title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
+        if conf.save_escnn_weights and weights_tag:
+            title_string = title_string + '_write=' + weights_tag
+        title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         # Windows MAX_PATH (260 chars) trips on these long titles; \\?\ prefix bypasses it.

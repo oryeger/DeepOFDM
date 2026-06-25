@@ -10,32 +10,33 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-#seeds=(912 3008 1011 1806)
-seeds=(17 58 41 123)
-# seeds=(123)
-# seeds=(17)
-snrs=($(seq -5 35))
-cfos=(1)
+seeds=(42)
+snrs=($(seq 0 30))
+cfos=(0)
 
-clip_percentage_in_tx_vals=(100)
+clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
 
 shuffle_vals=(False)
-shuffle_augment_priors_vals=(True)
+shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-# epochs sweep
-epochs_vals=(499)
+epochs_vals=(150)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-4)
+learning_rate_vals=(5.0e-3)
+
+escnn_load_freeze_vals=(
+  'scale_only'
+  'last_conv_only'
+)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
 
-batch_size_vals=(1024)
+batch_size_vals=(-1)
 
 which_augment_vals=(
   'AUGMENT_LMMSE'
@@ -46,13 +47,12 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)
-mcs_vals=(4 35 17)
-# mcs_vals=(17)
+mcs_vals=(28)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
 n_users_vals=(4)
-make_64QAM_16QAM_percentage_vals=(50)
+make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
 total_count=0
@@ -82,11 +82,11 @@ for seed in "${seeds[@]}"; do
                       for spatial_corr in "${spatial_correlation_vals[@]}"; do
 
                         case "$spatial_corr" in
-                          none)   sctag="sc0" ;;
-                          medium) sctag="scM" ;;
+                          none)     sctag="sc0" ;;
+                          medium)   sctag="scM" ;;
                           medium_a) sctag="scMA" ;;
-                          high)   sctag="scH" ;;
-                          *)      sctag="sc${spatial_corr}" ;;
+                          high)     sctag="scH" ;;
+                          *)        sctag="sc${spatial_corr}" ;;
                         esac
 
                         [[ "$use_film" == True ]] && uf="f1" || uf="f0"
@@ -168,39 +168,55 @@ for seed in "${seeds[@]}"; do
                                                   *)      lrtag="lr${learning_rate//./p}" ;;
                                                 esac
 
-                                                for snr in "${snrs[@]}"; do
+                                                for escnn_load_freeze in "${escnn_load_freeze_vals[@]}"; do
+                                                  case "$escnn_load_freeze" in
+                                                    none)           freeze_tag="frnone" ;;
+                                                    scale)          freeze_tag="frscale" ;;
+                                                    last_conv)      freeze_tag="frlastconv" ;;
+                                                    all)            freeze_tag="frall" ;;
+                                                    scale_only)     freeze_tag="frscaleonly" ;;
+                                                    last_conv_only) freeze_tag="frlastconvonly" ;;
+                                                    *)
+                                                      echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
+                                                      exit 1
+                                                      ;;
+                                                  esac
 
-                                                  out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                                  for snr in "${snrs[@]}"; do
 
-                                                  sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
-                                                      -e "s/^snr:.*/snr: $snr/" \
-                                                      -e "s/^cfo:.*/cfo: $cfo/" \
-                                                      -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
-                                                      -e "s/^use_film:.*/use_film: $use_film/" \
-                                                      -e "s/^shuffle:.*/shuffle: $shuffle/" \
-                                                      -e "s/^shuffle_augment_priors:.*/shuffle_augment_priors: $shuffle_augment_priors/" \
-                                                      -e "s/^block_length_factor:.*/block_length_factor: $block_length_factor/" \
-                                                      -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
-                                                      -e "s/^channel_model:.*/channel_model: '$channel'/" \
-                                                      -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
-                                                      -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
-                                                      -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                                      -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
-                                                      -e "s/^mcs:.*/mcs: $mcs/" \
-                                                      -e "s/^n_users:.*/n_users: $n_users/" \
-                                                      -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
-                                                      -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
-                                                      -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
-                                                      -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
-                                                      -e "s/^batch_size:.*/batch_size: $batch_size/" \
-                                                      -e "s/^epochs:.*/epochs: $epochs/" \
-                                                      -e "s/^escnn_dropout:.*/escnn_dropout: $escnn_dropout/" \
-                                                      -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
-                                                      -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
-                                                      "$input_file" > "$out_file"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
 
-                                                  all_config_files+=("$out_file")
-                                                  ((total_count++))
+                                                    sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                                        -e "s/^snr:.*/snr: $snr/" \
+                                                        -e "s/^cfo:.*/cfo: $cfo/" \
+                                                        -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
+                                                        -e "s/^use_film:.*/use_film: $use_film/" \
+                                                        -e "s/^shuffle:.*/shuffle: $shuffle/" \
+                                                        -e "s/^shuffle_augment_priors:.*/shuffle_augment_priors: $shuffle_augment_priors/" \
+                                                        -e "s/^block_length_factor:.*/block_length_factor: $block_length_factor/" \
+                                                        -e "s/^which_augment:.*/which_augment: '$which_aug'/" \
+                                                        -e "s/^channel_model:.*/channel_model: '$channel'/" \
+                                                        -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
+                                                        -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
+                                                        -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
+                                                        -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                                        -e "s/^mcs:.*/mcs: $mcs/" \
+                                                        -e "s/^n_users:.*/n_users: $n_users/" \
+                                                        -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
+                                                        -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
+                                                        -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
+                                                        -e "s/^increase_prime_modulation:.*/increase_prime_modulation: $ipm_val/" \
+                                                        -e "s/^batch_size:.*/batch_size: $batch_size/" \
+                                                        -e "s/^epochs:.*/epochs: $epochs/" \
+                                                        -e "s/^escnn_dropout:.*/escnn_dropout: $escnn_dropout/" \
+                                                        -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
+                                                        -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
+                                                        -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
+                                                        "$input_file" > "$out_file"
+
+                                                    all_config_files+=("$out_file")
+                                                    ((total_count++))
+                                                  done
                                                 done
                                               done
                                             done

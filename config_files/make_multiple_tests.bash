@@ -29,8 +29,7 @@ escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
-  'scale_only'
-  'last_conv_only'
+  'first_conv_only'
 )
 
 increase_prime_modulation_vals=(False)
@@ -172,10 +171,13 @@ for seed in "${seeds[@]}"; do
                                                   case "$escnn_load_freeze" in
                                                     none)           freeze_tag="frnone" ;;
                                                     scale)          freeze_tag="frscale" ;;
-                                                    last_conv)      freeze_tag="frlastconv" ;;
+                                                    first_conv)     freeze_tag="frfc1" ;;
+                                                    second_conv)    freeze_tag="frfc2" ;;
+                                                    last_conv)      freeze_tag="frfc3" ;;
                                                     all)            freeze_tag="frall" ;;
                                                     scale_only)     freeze_tag="frscaleonly" ;;
                                                     last_conv_only) freeze_tag="frlastconvonly" ;;
+                                                    first_conv_only) freeze_tag="frfirstconvonly" ;;
                                                     *)
                                                       echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                       exit 1
@@ -255,3 +257,4 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+

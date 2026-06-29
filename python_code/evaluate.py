@@ -211,19 +211,16 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string.replace(",", "")
     title_string = title_string.replace(" ", "_")
     title_string = title_string.replace("_scs", "")
-    title_string = title_string.replace("AUGMENT_LMMSE", "LMMSE")
-    title_string = title_string.replace("AUGMENT_SPHERE", "SPHERE")
-    title_string = title_string.replace("AUGMENT_DEEPSIC", "DEEPSIC")
-    title_string = title_string.replace("AUGMENT_DEEPRX", "DEEPRX")
-    title_string = title_string.replace("NO_AUGMENT", "NOAUG")
     title_string = title_string.replace("ONV_False", "ONV_0")
     title_string = title_string.replace("ONV_True", "ONV_1")
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
     title_string = title_string + '_#ant=' + str(conf.n_ants)
-    title_string = title_string + '_' + conf.which_augment
+    augment_map = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AUGMENT_DEEPSIC': 'aDEEPSIC',
+                   'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
+    title_string = title_string + '_' + augment_map.get(conf.which_augment, conf.which_augment)
     if conf.mcs > -1:
-        title_string = title_string + f'_Rc={code_rate:.2f}'
+        title_string = title_string + f'_R={code_rate:.2f}'
     title_string = title_string + '_PDR_' + str(pilot_data_ratio)
     title_string = title_string + '_ONV_' + str(conf.override_noise_var)
     title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
@@ -304,7 +301,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     elif mod_data == 4:
         mod_text = 'QPSK'
     else:
-        mod_text = [str(mod_data) + 'QAM']
+        mod_text = [str(mod_data) + 'Q']
         mod_text = mod_text[0]
 
     if conf.channel_model[0] == 'N':
@@ -315,7 +312,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         chan_text = conf.channel_model
 
     now = datetime.now()
-    formatted_date = now.strftime("%Y_%m_%d_%H_%M_")
+    formatted_date = now.strftime("%Y%m%d_%H%M_")
 
     if conf.full_e2e:
         iters_e2e_disp = 1
@@ -390,23 +387,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     for snr_cur in SNR_range:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment} =====", flush=True)
         ber_sum = np.zeros(iterations)
-        ber_per_re = np.zeros((iterations, conf.num_res))
-        ber_per_re_deepsic = np.zeros((iterations, conf.num_res))
-        ber_per_re_deepsicmb = np.zeros((iterations, conf.num_res))
-        ber_per_re_deepstag = np.zeros((iterations * 2, conf.num_res))
-        ber_per_re_mhsa = np.zeros((iterations, conf.num_res))
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_tdfdcnn = np.zeros(iterations)
         ber_sum_deeprx = 0
         ber_sum_lmmse = 0
-        ber_per_re_lmmse = np.zeros(conf.num_res)
         ber_sum_sphere = 0
         ber_sum_deepsic = np.zeros(iterations)
         ber_sum_deepsicmb = np.zeros(iterations)
         ber_sum_deepstag = np.zeros(iterations * 2)
         ber_sum_mhsa = np.zeros(iterations)
         ber_sum_jointllr = np.zeros(iterations)
-        ber_per_re_jointllr = np.zeros((iterations, conf.num_res))
 
         if conf.mod_pilot> 0:
             num_bits_pilot = int(np.log2(conf.mod_pilot))
@@ -1120,7 +1110,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         ber = calculate_ber(detected_word_cur_re.cpu(), target.cpu(), num_bits_data)
 
                     ber_sum[iteration] += ber
-                    ber_per_re[iteration, re] = ber
 
                 if conf.run_e2e:
                     for iteration in range(iters_e2e_disp):
@@ -1189,7 +1178,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_deepsic = calculate_ber(detected_word_cur_re_deepsic.cpu(), target.cpu(), num_bits_data)
                         ber_sum_deepsic[iteration] += ber_deepsic
-                        ber_per_re_deepsic[iteration, re] = ber_deepsic
 
                 if conf.run_deepsicmb:
                     for iteration in range(iterations):
@@ -1206,7 +1194,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_deepsicmb = calculate_ber(detected_word_cur_re_deepsicmb.cpu(), target.cpu(), num_bits_data)
                         ber_sum_deepsicmb[iteration] += ber_deepsicmb
-                        ber_per_re_deepsicmb[iteration, re] = ber_deepsicmb
 
                 if conf.run_deepstag:
                     for iteration in range(iterations * 2):
@@ -1223,7 +1210,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_deepstag = calculate_ber(detected_word_cur_re_deepstag.cpu(), target.cpu(), num_bits_data)
                         ber_sum_deepstag[iteration] += ber_deepstag
-                        ber_per_re_deepstag[iteration, re] = ber_deepstag
 
                 if run_mhsa:
                     for iteration in range(iterations):
@@ -1240,7 +1226,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_mhsa = calculate_ber(detected_word_cur_re_mhsa.cpu(), target.cpu(), num_bits_data)
                         ber_sum_mhsa[iteration] += ber_mhsa
-                        ber_per_re_mhsa[iteration, re] = ber_mhsa
 
                 if conf.run_jointllr:
                     for iteration in range(iterations):
@@ -1263,7 +1248,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_jointllr = calculate_ber(detected_word_cur_re_jointllr.cpu(), target.cpu(), num_bits_data)
                         ber_sum_jointllr[iteration] += ber_jointllr
-                        ber_per_re_jointllr[iteration, re] = ber_jointllr
 
                 if conf.ber_on_one_user >= 0:
                     ber_lmmse = calculate_ber(
@@ -1297,8 +1281,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
                         if run_sphere:
                             ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
-
-                ber_per_re_lmmse[re] = ber_lmmse
 
                 if run_deeprx:
                     ber_sum_deeprx += ber_deeprx
@@ -1858,83 +1840,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx))
 
-        # plot BER per RE for first iteration:
-        if conf.ber_on_one_user >= 0:
-            add_text = 'user ' + str(conf.ber_on_one_user)
-        else:
-            add_text = 'all users'
-
-        colors = ['g', 'r', 'k', 'b', 'yellow', 'pink']
-        fig, ax = plt.subplots()
-        for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re[iter, :], linestyle='-', color=colors[iter],
-                     label='BER ' + add_text + ', iter' + str(iter))
-        ax.legend()
-        ax.set_title('ESCNN, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_escnn_per_re = fig
-
-        fig, ax = plt.subplots()
-        for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re_deepsic[iter, :], linestyle='-', color=colors[iter],
-                     label='BER ' + add_text + ', iter' + str(iter))
-        ax.legend()
-        ax.set_title('DeepSIC, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_deepsic_per_re = fig
-
-        fig, ax = plt.subplots()
-        for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re_deepsicmb[iter, :], linestyle='-', color=colors[iter],
-                     label='BER ' + add_text + ', iter' + str(iter))
-        ax.legend()
-        ax.set_title('DeepSICMB, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_deepsicmb_per_re = fig
-
-        fig, ax = plt.subplots()
-        for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re_deepstag[iter, :], linestyle='-', color=colors[iter],
-                     label='BER ' + add_text + ', iter' + str(iter))
-        ax.legend()
-        ax.set_title('DeepSTAG, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_deepstag_per_re = fig
-
-        fig, ax = plt.subplots()
-        for iter in range(iterations):
-            plt.plot(np.arange(conf.num_res), ber_per_re_mhsa[iter, :], linestyle='-', color=colors[iter],
-                     label='BER ' + add_text + ', iter' + str(iter))
-        ax.legend()
-        ax.set_title('MHSA, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_mhsa_per_re = fig
-
-        fig, ax = plt.subplots()
-        plt.plot(np.arange(conf.num_res), ber_per_re_lmmse, linestyle='-', color='g', label='BER ' + add_text)
-        ax.legend()
-        ax.set_title('lmmse, ' + title_string)
-        ax.grid(True)
-        fig.tight_layout()
-        plt.show()
-        fig_lmmse_per_re = fig
-
         corr_level = getattr(conf, 'spatial_correlation', 'none')
         title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
                                                      code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_read=' + conf.load_escnn_weights_tag
-            freeze_codes = {'none': 'n', 'scale': 'sc', 'last_conv': 'lc', 'scale_only': 'so', 'last_conv_only': 'lco', 'all': 'a'}
+            freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
+                            'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco', 'all': 'a'}
             title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag
@@ -1972,69 +1884,50 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if snr_cur in conf.save_loss_plot_snr:
             title_string_cur = "escnn_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_escnn.savefig(file_path)
+            fig_escnn.savefig(_long_path(file_path))
             if conf.use_film:
                 title_string_cur = "film_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_film.savefig(file_path)
-
-            title_string_cur = "escnn_per_re_" + title_string
-            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_escnn_per_re.savefig(file_path)
+                fig_film.savefig(_long_path(file_path))
 
             title_string_cur = "lmmse_" + title_string
             file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_lmmse.savefig(file_path)
-            title_string_cur = "lmmse_per_re_" + title_string
-            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_lmmse_per_re.savefig(file_path)
+            fig_lmmse.savefig(_long_path(file_path))
 
             if run_deepsic:
                 title_string_cur = "deepsic_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsic.savefig(file_path)
-                title_string_cur = "deepsic_per_re_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsic_per_re.savefig(file_path)
+                fig_deepsic.savefig(_long_path(file_path))
             if run_mhsa:
                 title_string_cur = "mhsa_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_mhsa.savefig(file_path)
-                title_string_cur = "mhsa_per_re_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_mhsa_per_re.savefig(file_path)
+                fig_mhsa.savefig(_long_path(file_path))
             if conf.run_deepsicmb:
                 title_string_cur = "deepsicmb_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsicmb.savefig(file_path)
-                title_string_cur = "deepsicmb_per_re_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsicmb_per_re.savefig(file_path)
+                fig_deepsicmb.savefig(_long_path(file_path))
             if conf.run_deepstag:
                 title_string_cur = "deepstag_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepstag.savefig(file_path)
-                title_string_cur = "deepstag_per_re_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepstag_per_re.savefig(file_path)
+                fig_deepstag.savefig(_long_path(file_path))
             if run_deeprx:
                 title_string_cur = "deeprx_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deeprx.savefig(file_path)
+                fig_deeprx.savefig(_long_path(file_path))
             if conf.run_tdcnn:
                 title_string_cur = "tdcnn_" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_tdcnn.savefig(file_path)
+                fig_tdcnn.savefig(_long_path(file_path))
 
             if conf.run_e2e:
                 title_string_cur = "e2e" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_e2e.savefig(file_path)
+                fig_e2e.savefig(_long_path(file_path))
 
             if conf.run_tdfdcnn:
                 title_string_cur = "tdfdcnn" + title_string
                 file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_tdfdcnn.savefig(file_path)
+                fig_tdfdcnn.savefig(_long_path(file_path))
 
     if conf.save_llrs:
         llr_h5_file.close()

@@ -10,9 +10,9 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-seeds=(42)
-snrs=($(seq 0 30))
-cfos=(0)
+seeds=(123)
+snrs=($(seq -15 20))
+cfos=(0 0.3 0.4)
 
 clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
@@ -22,14 +22,14 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(150)
+epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
-  'first_conv_only'
+  'none'
 )
 
 increase_prime_modulation_vals=(False)
@@ -41,12 +41,12 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
 )
 
-channel_model_vals=('C')
+channel_model_vals=('N')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
-mcs_vals=(28)
+pilot_size_vals=(10000)
+mcs_vals=(4)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)

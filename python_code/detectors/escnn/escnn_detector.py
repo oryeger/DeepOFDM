@@ -106,6 +106,15 @@ class ESCNNDetector(nn.Module):
 
         self.stage = "base"  # default
         self._load_freeze_mode = "none"  # set by set_load_freeze, re-applied by set_stage below
+        freeze_mode = getattr(conf, 'escnn_load_freeze', 'none')
+        loading_weights = bool(getattr(conf, 'load_escnn_weights_tag', ''))
+        # Bypass only applies from scratch (no loaded weights): scale/fc2 are skipped in forward().
+        # When loading weights the frozen layers contribute their loaded values as before.
+        self._bypass_scale = (not loading_weights) and freeze_mode in (
+            "scale", "last_conv_only", "first_conv_only", "all")
+        self._bypass_fc2 = (not loading_weights) and freeze_mode in (
+            "second_conv", "scale_only", "last_conv_only", "first_conv_only", "first_conv_and_scale", "all")
+        self.set_load_freeze(freeze_mode)
 
     def set_stage(self, stage: str):
         assert stage in ["base", "film", "scale_only"]
@@ -180,33 +189,47 @@ class ESCNNDetector(nn.Module):
                     p.requires_grad = False
             if self.scale is not None:
                 self.scale.requires_grad = False
+        elif self._load_freeze_mode == "first_conv_and_scale":
+            for m in [self.fc2, self.fc3]:
+                for p in m.parameters():
+                    p.requires_grad = False
+            # fc1 and scale stay trainable (set_stage('base') already enabled them)
         elif self._load_freeze_mode == "all":
             for p in self.parameters():
                 p.requires_grad = False
 
     def set_load_freeze(self, mode: str):
         """
-        Controls which parameters stay trainable after loading weights saved from a
-        previous run (transfer-learning second run). mode:
-          'none'           - train everything (fc1, fc2, fc3, scale, FiLM)
-          'scale'          - freeze only the elementwise scale
-          'first_conv'     - freeze only fc1 (the first conv layer)
-          'second_conv'    - freeze only fc2 (the second conv layer)
-          'last_conv'      - freeze only fc3 (the last conv layer, producing the LLRs)
-          'scale_only'     - freeze everything except the elementwise scale
-          'last_conv_only' - freeze everything except fc3
-          'first_conv_only'- freeze everything except fc1
-          'all'            - freeze everything (pure zero-shot transfer test)
+        Controls which parameters stay trainable. Applied both at construction (from
+        conf.escnn_load_freeze, so it works even without loading weights) and again
+        after loading saved weights for transfer learning.
+
+        For scale / fc2: sets bypass flags so they are skipped entirely in forward()
+        rather than contributing a frozen random transformation.
+        For fc1 / fc3: freezes parameters (random init when called at construction,
+        loaded weights when called after loading).
+
+          'none'               - train everything
+          'scale'              - bypass scale
+          'first_conv'         - freeze fc1
+          'second_conv'        - bypass fc2
+          'last_conv'          - freeze fc3
+          'scale_only'         - bypass scale+fc2, freeze fc1+fc3
+          'last_conv_only'     - bypass scale+fc2, freeze fc1  (only fc3 trains)
+          'first_conv_only'    - bypass scale+fc2, freeze fc3  (only fc1 trains)
+          'first_conv_and_scale' - bypass fc2, freeze fc3  (fc1 and scale train)
+          'all'                - bypass scale+fc2, freeze fc1+fc3
         """
         assert mode in ["none", "scale", "first_conv", "second_conv", "last_conv",
-                         "scale_only", "last_conv_only", "first_conv_only", "all"]
+                         "scale_only", "last_conv_only", "first_conv_only",
+                         "first_conv_and_scale", "all"]
         self._load_freeze_mode = mode
         for p in self.fc1.parameters():
             p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "first_conv")
         for p in self.fc2.parameters():
-            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "second_conv", "first_conv_only")
+            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "second_conv", "first_conv_only", "first_conv_and_scale")
         for p in self.fc3.parameters():
-            p.requires_grad = mode not in ("all", "last_conv", "scale_only", "first_conv_only")
+            p.requires_grad = mode not in ("all", "last_conv", "scale_only", "first_conv_only", "first_conv_and_scale")
         if self.scale is not None:
             self.scale.requires_grad = mode not in ("all", "scale", "last_conv_only", "first_conv_only")
         for film in (self.film1, self.film2):
@@ -233,7 +256,7 @@ class ESCNNDetector(nn.Module):
         else:
             cond_vec = None
         # ---------- original scaling logic ---------------
-        if conf.scale_input:
+        if conf.scale_input and not self._bypass_scale:
             rx = rx_prob
             # (B, C, H) -> flatten C*H
             rx_flattened = rx.reshape(rx.shape[0], rx.shape[1] * rx.shape[2], 1).squeeze(-1)
@@ -251,16 +274,16 @@ class ESCNNDetector(nn.Module):
         if self.dropout1 is not None:
             out1 = self.dropout1(out1)
 
-        # Second conv + activation
-        out2 = self.fc2(out1)
-
-        # FiLM after second conv
-        if conf.use_film and self.stage == "film":
-            out2 = self.film2(out2, cond_vec)
-
-        out2 = self.activation2(out2)
-        if self.dropout2 is not None:
-            out2 = self.dropout2(out2)
+        # Second conv + activation (bypassed when fc2 is init-frozen)
+        if not self._bypass_fc2:
+            out2 = self.fc2(out1)
+            if conf.use_film and self.stage == "film":
+                out2 = self.film2(out2, cond_vec)
+            out2 = self.activation2(out2)
+            if self.dropout2 is not None:
+                out2 = self.dropout2(out2)
+        else:
+            out2 = out1
 
         # Final conv head (LLRs) + sigmoid
         llrs = self.fc3(out2)

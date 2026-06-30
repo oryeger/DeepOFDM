@@ -1846,7 +1846,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_read=' + conf.load_escnn_weights_tag
             freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
-                            'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco', 'all': 'a'}
+                            'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
+                            'first_conv_and_scale': 'fc1sc', 'all': 'a'}
             title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag

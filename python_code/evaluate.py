@@ -384,6 +384,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_ber_sphere = []
     total_bler_sphere = []
     total_bler_deeprx = []
+    total_nll_lmmse = []
+    total_nll_deeprx = []
+    total_nll_sphere = []
+    total_nll_deepsic_list = [[] for _ in range(iterations)]
+    total_nll_deepsicmb_list = [[] for _ in range(iterations)]
+    total_nll_deepstag_list = [[] for _ in range(iterations * 2)]
+    total_nll_mhsa_list = [[] for _ in range(iterations)]
+    total_nll_jointllr_list = [[] for _ in range(iterations)]
+    total_nll_e2e_list = [[] for _ in range(iters_e2e_disp)]
 
 
     SNR_range = list(range(conf.snr, conf.snr + conf.num_snrs, conf.snr_step))
@@ -463,8 +472,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             desired_snr = snr_override if snr_override >= 0 else conf.snr
             weights_matches = [p for p in all_tag_matches if f'_SNR={desired_snr}_' in os.path.basename(p)]
             if not weights_matches:
-                available_snrs = sorted({re.search(r'_SNR=([^_]+)_', os.path.basename(p)).group(1)
-                                          for p in all_tag_matches if re.search(r'_SNR=([^_]+)_', os.path.basename(p))})
+                available_snrs = sorted({
+                    os.path.basename(p).split('_SNR=')[1].split('_')[0]
+                    for p in all_tag_matches if '_SNR=' in os.path.basename(p)})
                 raise FileNotFoundError(
                     f"No saved ESCNN weights for tag '{conf.load_escnn_weights_tag}' at SNR={desired_snr}. "
                     f"Available SNRs for this tag: {available_snrs}. Set load_escnn_weights_snr_override to pick one explicitly.")
@@ -1690,49 +1700,72 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             total_ber_deeprx.append(ber_deeprx)
             total_ber_lmmse.append(ber_lmmse)
             total_ber_sphere.append(ber_sphere)
+
+            # --- NLL per block (for all detectors) ---
+            _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
+            def _nll(mat):
+                v = calc_llr_nll(mat)
+                return v.get('fitted', v.get('consistent', None)) if v else None
+            nll_lmmse = _nll(llrs_mat_lmmse)
+            nll_deeprx = _nll(llrs_mat_deeprx) if run_deeprx else None
+            nll_sphere = _nll(llrs_mat_sphere) if run_sphere else None
+            nll_deepsic  = [_nll(llrs_mat_deepsic_list[i])  for i in range(iterations)] if run_deepsic else []
+            nll_deepsicmb= [_nll(llrs_mat_deepsicmb_list[i]) for i in range(iterations)] if conf.run_deepsicmb else []
+            nll_deepstag = [_nll(llrs_mat_deepstag_list[i]) for i in range(iterations*2)] if conf.run_deepstag else []
+            nll_mhsa     = [_nll(llrs_mat_mhsa_list[i])    for i in range(iterations)] if run_mhsa else []
+            nll_jointllr = [_nll(llrs_mat_jointllr_list[i]) for i in range(iterations)] if conf.run_jointllr else []
+            nll_e2e      = [_nll(llrs_mat_e2e_list[i])      for i in range(iters_e2e_disp)] if conf.run_e2e else []
+            total_nll_lmmse.append(nll_lmmse)
+            total_nll_deeprx.append(nll_deeprx)
+            total_nll_sphere.append(nll_sphere)
+            for i in range(iterations):
+                if run_deepsic:       total_nll_deepsic_list[i].append(nll_deepsic[i])
+                if conf.run_deepsicmb: total_nll_deepsicmb_list[i].append(nll_deepsicmb[i])
+                if run_mhsa:          total_nll_mhsa_list[i].append(nll_mhsa[i])
+                if conf.run_jointllr:  total_nll_jointllr_list[i].append(nll_jointllr[i])
+            for i in range(iterations * 2):
+                if conf.run_deepstag: total_nll_deepstag_list[i].append(nll_deepstag[i])
+            for i in range(iters_e2e_disp):
+                if conf.run_e2e:      total_nll_e2e_list[i].append(nll_e2e[i])
+
+            def _val(nll_val, ber_val):
+                return float(nll_val) if (_use_nll and nll_val is not None) else float(ber_val)
+
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            if getattr(conf, 'llr_nll_mode', 'none') != 'none' and nll_list[iterations - 1] is not None:
-                print(f'current ESCNN: {block_ind, float(nll_list[iterations - 1]), mi}')
-            else:
-                print(f'current ESCNN: {block_ind, float(ber_list[iterations - 1]), mi}')
+            print(f'current ESCNN: {block_ind, _val(nll_list[iterations - 1], ber_list[iterations - 1]), mi}')
             if conf.mcs > -1:
                 print(f'current ESCNN BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
             if conf.run_e2e:
-                print(f'curr DeepSICe2e: {block_ind, float(ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
+                print(f'curr DeepSICe2e: {block_ind, _val(nll_e2e[iters_e2e_disp-1], ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if run_deeprx:
-                print(f'current DeepRx: {block_ind, ber_deeprx.item(), mi_deeprx}')
+                print(f'current DeepRx: {block_ind, _val(nll_deeprx, ber_deeprx.item()), mi_deeprx}')
                 if conf.mcs > -1:
                     print(f'current DeepRx BLER: {block_ind, float(bler_deeprx), mi_deeprx}')
-
             if conf.run_tdfdcnn:
-                print(f'current TDFDCNN: {block_ind, float(ber_tdfdcnn_list[iterations - 1])}')
+                print(f'current TDFDCNN: {block_ind, _val(nll_list[iterations-1], ber_tdfdcnn_list[iterations - 1])}')
                 if conf.mcs > -1:
                     print(f'current DeepSIC BLER: {block_ind, float(bler_tdfdcnn_list[iterations - 1])}')
-
             if run_deepsic:
-                print(f'current DeepSIC: {block_ind, float(ber_deepsic_list[iterations - 1]), mi_deepsic}')
+                print(f'current DeepSIC: {block_ind, _val(nll_deepsic[iterations-1], ber_deepsic_list[iterations - 1]), mi_deepsic}')
                 if conf.mcs > -1:
                     print(f'current DeepSIC BLER: {block_ind, float(bler_deepsic_list[iterations - 1]), mi_deepsic}')
             if run_mhsa:
-                print(f'current MHSA: {block_ind, float(ber_mhsa_list[iterations - 1])}')
+                print(f'current MHSA: {block_ind, _val(nll_mhsa[iterations-1], ber_mhsa_list[iterations - 1])}')
                 if conf.mcs > -1:
                     print(f'current MHSA BLER: {block_ind, float(bler_mhsa_list[iterations - 1])}')
             if conf.run_jointllr:
-                print(f'current JointLLR: {block_ind, float(ber_jointllr_list[iterations - 1])}')
+                print(f'current JointLLR: {block_ind, _val(nll_jointllr[iterations-1], ber_jointllr_list[iterations - 1])}')
                 if conf.mcs > -1:
                     print(f'current JointLLR BLER: {block_ind, float(bler_jointllr_list[iterations - 1])}')
-
             if conf.run_deepsicmb:
-                print(f'current DeepSICMB: {block_ind, float(ber_deepsicmb_list[iterations - 1])}')
+                print(f'current DeepSICMB: {block_ind, _val(nll_deepsicmb[iterations-1], ber_deepsicmb_list[iterations - 1])}')
             if conf.run_deepstag:
-                print(f'current DeepSTAG: {block_ind, float(ber_deepstag_list[iterations * 2 - 1])}')
-            print(f'current lmmse: {block_ind, float(ber_lmmse), mi_lmmse}')
-
+                print(f'current DeepSTAG: {block_ind, _val(nll_deepstag[iterations*2-1], ber_deepstag_list[iterations * 2 - 1])}')
+            print(f'current lmmse: {block_ind, _val(nll_lmmse, ber_lmmse), mi_lmmse}')
             if conf.mcs > -1:
                 print(f'current lmmse BLER: {block_ind, float(bler_lmmse), mi_lmmse}')
-
             if run_sphere:
-                print(f'current sphere: {block_ind, ber_sphere.item(), mi_sphere}')
+                print(f'current sphere: {block_ind, _val(nll_sphere, ber_sphere.item()), mi_sphere}')
                 if conf.mcs > -1:
                     print(f'current sphere BLER: {block_ind, float(bler_sphere), mi_sphere}')
 
@@ -1821,15 +1854,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                ber_list[iteration],
                                                ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
 
+        _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
         data = {
             "SNR_range": SNR_range[:len(total_ber_lmmse)],
-            "total_ber_lmmse": total_ber_lmmse,
-            "total_ber_deeprx": total_ber_deeprx,
-            "total_ber_sphere": total_ber_sphere,
+            "total_ber_lmmse": total_nll_lmmse if _use_nll else total_ber_lmmse,
+            "total_ber_deeprx": total_nll_deeprx if _use_nll else total_ber_deeprx,
+            "total_ber_sphere": total_nll_sphere if _use_nll else total_ber_sphere,
         }
-
-        # Add total_ber (or total_nll when llr_nll_mode is active) with suffix _1, _2, ...
-        _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
         for i in range(conf.iterations):
             if _use_nll:
                 data[f"total_nll_{i + 1}"] = total_nll_list[i]
@@ -1838,23 +1869,28 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         if conf.run_e2e:
             for i in range(iters_e2e_disp):
-                data[f"total_ber_e2e_{i + 1}"] = total_ber_e2e_list[i]
+                key = f"total_nll_e2e_{i+1}" if _use_nll else f"total_ber_e2e_{i+1}"
+                data[key] = total_nll_e2e_list[i] if _use_nll else total_ber_e2e_list[i]
 
         if run_deepsic:
             for i in range(conf.iterations):
-                data[f"total_ber_deepsic_{i + 1}"] = total_ber_deepsic_list[i]
+                key = f"total_nll_deepsic_{i+1}" if _use_nll else f"total_ber_deepsic_{i+1}"
+                data[key] = total_nll_deepsic_list[i] if _use_nll else total_ber_deepsic_list[i]
 
         if conf.run_deepsicmb:
             for i in range(conf.iterations):
-                data[f"total_ber_deepsicmb_{i + 1}"] = total_ber_deepsicmb_list[i]
+                key = f"total_nll_deepsicmb_{i+1}" if _use_nll else f"total_ber_deepsicmb_{i+1}"
+                data[key] = total_nll_deepsicmb_list[i] if _use_nll else total_ber_deepsicmb_list[i]
 
         if conf.run_deepstag:
             for i in range(conf.iterations):
-                data[f"total_ber_deepstag_{i + 1}"] = total_ber_deepstag_list[i]
+                key = f"total_nll_deepstag_{i+1}" if _use_nll else f"total_ber_deepstag_{i+1}"
+                data[key] = total_nll_deepstag_list[i] if _use_nll else total_ber_deepstag_list[i]
 
         if conf.run_mhsa:
             for i in range(conf.iterations):
-                data[f"total_ber_mhsa_{i + 1}"] = total_ber_mhsa_list[i]
+                key = f"total_nll_mhsa_{i+1}" if _use_nll else f"total_ber_mhsa_{i+1}"
+                data[key] = total_nll_mhsa_list[i] if _use_nll else total_ber_mhsa_list[i]
 
         if conf.run_tdfdcnn:
             for i in range(conf.iterations):
@@ -1862,7 +1898,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         if conf.run_jointllr:
             for i in range(conf.iterations):
-                data[f"total_ber_jointllr_{i + 1}"] = total_ber_jointllr_list[i]
+                key = f"total_nll_jointllr_{i+1}" if _use_nll else f"total_ber_jointllr_{i+1}"
+                data[key] = total_nll_jointllr_list[i] if _use_nll else total_ber_jointllr_list[i]
 
         df = pd.DataFrame(data)
 

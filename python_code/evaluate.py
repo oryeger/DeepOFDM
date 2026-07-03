@@ -143,12 +143,50 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
     return float(max(H_y - H_y_x, 0))
 
 
+def calc_llr_nll(llrs_mat) -> dict:
+    """Compute NLL of the LLR distribution under a symmetric 2-component Gaussian mixture.
+
+    Two variants controlled by conf.llr_nll_mode:
+      'consistent' : σ² = 2μ  (AWGN consistency condition)
+      'fitted'     : σ² estimated freely from the batch (no constraint)
+      'both'       : returns both
+
+    Returns a dict with keys 'consistent' and/or 'fitted', values are scalar NLL floats.
+    """
+    mode = getattr(conf, 'llr_nll_mode', 'none')
+    if mode == 'none':
+        return {}
+
+    if hasattr(llrs_mat, 'cpu'):
+        llrs_mat = llrs_mat.cpu()
+    llrs = np.asarray(llrs_mat).flatten().astype(np.float64)
+    mu = float(np.mean(np.abs(llrs)))
+
+    results = {}
+
+    if mode in ('consistent', 'both'):
+        sigma2 = 2.0 * mu
+        sigma = np.sqrt(sigma2)
+        log_p = np.log(0.5 * (np.exp(-0.5 * ((llrs - mu) / sigma) ** 2) +
+                               np.exp(-0.5 * ((llrs + mu) / sigma) ** 2)) / (sigma * np.sqrt(2 * np.pi)))
+        results['consistent'] = float(-np.mean(log_p))
+
+    if mode in ('fitted', 'both'):
+        sigma2 = max(float(np.var(llrs)) - mu ** 2, 1e-6)
+        sigma = np.sqrt(sigma2)
+        log_p = np.log(0.5 * (np.exp(-0.5 * ((llrs - mu) / sigma) ** 2) +
+                               np.exp(-0.5 * ((llrs + mu) / sigma) ** 2)) / (sigma * np.sqrt(2 * np.pi)) + 1e-300)
+        results['fitted'] = float(-np.mean(log_p))
+
+    return results
+
+
 def get_next_divisible(num, divisor):
     return (num + divisor - 1) // divisor * divisor
 
 
 def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples,
-                       val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration):
+                       val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration, nll_vals=None):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
     if detector == 'ESCNN' or detector == 'MHSA' or detector == 'FILM' or detector == 'TDFDCNN':
@@ -183,8 +221,15 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
         axes[1].set_xlabel('LLRs')
     axes[1].set_ylabel('#Values')
     axes[1].grid()
-    text = 'BER ' + detector + ':' + str(f"{ber:.4f}") + '\
-             BER lmmse:' + str(f"{ber_lmmse:.4f}")
+    if nll_vals:
+        parts = []
+        if 'consistent' in nll_vals:
+            parts.append(f"NLL(σ²=2μ): {nll_vals['consistent']:.3f}")
+        if 'fitted' in nll_vals:
+            parts.append(f"NLL(fitted): {nll_vals['fitted']:.3f}")
+        text = '  '.join(parts)
+    else:
+        text = 'BER ' + detector + ':' + str(f"{ber:.4f}") + '  BER lmmse:' + str(f"{ber_lmmse:.4f}")
     fig.text(0.15, 0.02, text, ha="left", va="center", fontsize=8)
     plt.tight_layout()
     plt.show()
@@ -320,6 +365,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         iters_e2e_disp = iters_e2e
 
     total_ber_list = [[] for _ in range(iterations)]
+    total_nll_list = [[] for _ in range(iterations)]
     total_bler_list = [[] for _ in range(iterations)]
     total_ber_e2e_list = [[] for _ in range(iters_e2e_disp)]
     total_ber_deepsic_list = [[] for _ in range(iterations)]
@@ -1590,10 +1636,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 mi_sphere = 0
 
             ber_list = [None] * iterations
+            nll_list = [None] * iterations
             for iteration in range(iterations):
                 # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
                 ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
+                nll_vals_block = calc_llr_nll(llrs_mat_list[iteration])
+                nll_list[iteration] = nll_vals_block.get('fitted', nll_vals_block.get('consistent', None))
+                total_nll_list[iteration].append(nll_list[iteration])
 
             ber_e2e_list = [None] * iters_e2e_disp
             for iteration in range(iters_e2e_disp):
@@ -1641,7 +1691,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             total_ber_lmmse.append(ber_lmmse)
             total_ber_sphere.append(ber_sphere)
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
-            print(f'current ESCNN: {block_ind, float(ber_list[iterations - 1]), mi}')
+            if getattr(conf, 'llr_nll_mode', 'none') != 'none' and nll_list[iterations - 1] is not None:
+                print(f'current ESCNN: {block_ind, float(nll_list[iterations - 1]), mi}')
+            else:
+                print(f'current ESCNN: {block_ind, float(ber_list[iterations - 1]), mi}')
             if conf.mcs > -1:
                 print(f'current ESCNN BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
             if conf.run_e2e:
@@ -1688,19 +1741,19 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         fig_lmmse = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                        torch.from_numpy(llrs_mat_lmmse),
                                        snr_cur, "lmmse", 0, train_samples, val_samples, mod_text, cfo_str, ber_lmmse,
-                                       ber_lmmse, 0)
-
+                                       ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_lmmse))
 
         if run_sphere:
             fig_sphere = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                            torch.from_numpy(llrs_mat_sphere),
                                            snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str,
-                                           ber_sphere, ber_lmmse, 0)
+                                           ber_sphere, ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_sphere))
 
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur,
                                             "DeepRx", 3,
-                                            train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0)
+                                            train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0,
+                                            nll_vals=calc_llr_nll(llrs_mat_deeprx))
         if conf.run_tdcnn:
             fig_tdcnn = plot_loss_and_LLRs(train_loss_vect_tdcnn, val_loss_vect_tdcnn, torch.zeros_like(llrs_mat_list[0]), snr_cur,
                                             "TDCNN", 3,
@@ -1711,58 +1764,62 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                "ESCNN",
                                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                                ber_list[iteration],
-                                               ber_lmmse, iteration)
+                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
 
         if run_deepsic:
             for iteration in range(iterations):
                 fig_deepsic = plot_loss_and_LLRs(train_loss_vect_deepsic, val_loss_vect_deepsic,
                                                  llrs_mat_deepsic_list[iteration], snr_cur, "DeepSIC", 3,
                                                  train_samples, val_samples, mod_text, cfo_str,
-                                                 ber_deepsic_list[iteration], ber_lmmse, conf.iterations)
+                                                 ber_deepsic_list[iteration], ber_lmmse, conf.iterations,
+                                                 nll_vals=calc_llr_nll(llrs_mat_deepsic_list[iteration]))
         if run_mhsa:
             for iteration in range(iterations):
                 fig_mhsa = plot_loss_and_LLRs(train_loss_vect_mhsa, val_loss_vect_mhsa, llrs_mat_mhsa_list[iteration],
                                               snr_cur, "MHSA", 3,
                                               train_samples, val_samples, mod_text, cfo_str, ber_mhsa_list[iteration],
-                                              ber_lmmse, conf.iterations)
+                                              ber_lmmse, conf.iterations, nll_vals=calc_llr_nll(llrs_mat_mhsa_list[iteration]))
 
         if conf.run_jointllr:
             for iteration in range(iterations):
                 fig_jointllr = plot_loss_and_LLRs(train_loss_vect_jointllr, val_loss_vect_jointllr, llrs_mat_jointllr_list[iteration],
                                               snr_cur, "JointLLR", conf.kernel_size,
                                               train_samples, val_samples, mod_text, cfo_str, ber_jointllr_list[iteration],
-                                              ber_lmmse, iteration)
+                                              ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_jointllr_list[iteration]))
 
         if conf.run_deepsicmb:
             for iteration in range(iterations):
                 fig_deepsicmb = plot_loss_and_LLRs(train_loss_vect_deepsicmb, val_loss_vect_deepsicmb,
                                                    llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
                                                    train_samples, val_samples, mod_text, cfo_str,
-                                                   ber_deepsicmb_list[iteration], ber_lmmse, conf.iterations)
+                                                   ber_deepsicmb_list[iteration], ber_lmmse, conf.iterations,
+                                                   nll_vals=calc_llr_nll(llrs_mat_deepsicmb_list[iteration]))
         if conf.run_deepstag:
             for iteration in range(iterations * 2):
                 fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag,
                                                   llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
                                                   train_samples, val_samples, mod_text, cfo_str,
-                                                  ber_deepstag_list[iteration], ber_lmmse, conf.iterations)
+                                                  ber_deepstag_list[iteration], ber_lmmse, conf.iterations,
+                                                  nll_vals=calc_llr_nll(llrs_mat_deepstag_list[iteration]))
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
                 fig_e2e = plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration],
                                              snr_cur,
                                              "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text,
                                              cfo_str,
-                                             ber_e2e_list[iteration], ber_lmmse, iteration)
+                                             ber_e2e_list[iteration], ber_lmmse, iteration,
+                                             nll_vals=calc_llr_nll(llrs_mat_e2e_list[iteration]))
         for iteration in range(iterations):
             fig_escnn = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
                                              conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                              ber_list[iteration],
-                                             ber_lmmse, iteration)
+                                             ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
             if conf.use_film:
                 fig_film = plot_loss_and_LLRs(train_loss_vect_film, val_loss_vect_film, llrs_mat_list[iteration], snr_cur,
                                                "FILM",
                                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                                ber_list[iteration],
-                                               ber_lmmse, iteration)
+                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
 
         data = {
             "SNR_range": SNR_range[:len(total_ber_lmmse)],
@@ -1771,9 +1828,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             "total_ber_sphere": total_ber_sphere,
         }
 
-        # Add total_ber from total_ber_list with suffix _1, _2, ...
+        # Add total_ber (or total_nll when llr_nll_mode is active) with suffix _1, _2, ...
+        _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
         for i in range(conf.iterations):
-            data[f"total_ber_{i + 1}"] = total_ber_list[i]
+            if _use_nll:
+                data[f"total_nll_{i + 1}"] = total_nll_list[i]
+            else:
+                data[f"total_ber_{i + 1}"] = total_ber_list[i]
 
         if conf.run_e2e:
             for i in range(iters_e2e_disp):

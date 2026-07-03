@@ -1,5 +1,5 @@
 snr: 14
-cur_str: qhist
+cur_str: qhhhist
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -82,9 +82,9 @@ separate_pilots: True
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: ''  # eee812 Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
+load_escnn_weights_tag: 'eee812'  # eee812 Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
-escnn_load_freeze: 'none'  # 'none', 'scale', 'first_conv', 'second_conv', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
+escnn_load_freeze: 'none'  # 'none', 'scale', 'first_conv', 'second_conv', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale', 'all'
 
 
 # general

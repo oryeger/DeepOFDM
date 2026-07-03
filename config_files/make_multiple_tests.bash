@@ -10,9 +10,9 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-seeds=(123)
-snrs=($(seq -15 20))
-cfos=(0 0.3 0.4)
+seeds=(42)
+snrs=($(seq 0 30))
+cfos=(0 0.15)
 
 clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
@@ -22,7 +22,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100)
+epochs_vals=(150)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -30,6 +30,8 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
+  'first_conv_only'
+  'first_conv_and_scale_only'
 )
 
 increase_prime_modulation_vals=(False)
@@ -41,12 +43,12 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
 )
 
-channel_model_vals=('N')
+channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(10000)
-mcs_vals=(4)
+pilot_size_vals=(20000)
+mcs_vals=(28)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -178,6 +180,7 @@ for seed in "${seeds[@]}"; do
                                                     scale_only)     freeze_tag="frscaleonly" ;;
                                                     last_conv_only) freeze_tag="frlastconvonly" ;;
                                                     first_conv_only) freeze_tag="frfirstconvonly" ;;
+                                                    first_conv_and_scale_only) freeze_tag="frfirstconvandscaleonly" ;;
                                                     *)
                                                       echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                       exit 1
@@ -257,4 +260,3 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
-

@@ -1843,12 +1843,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         corr_level = getattr(conf, 'spatial_correlation', 'none')
         title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
                                                      code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
+        freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
+                        'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
+                        'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_read=' + conf.load_escnn_weights_tag
-            freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
-                            'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
-                            'first_conv_and_scale': 'fc1sc', 'all': 'a'}
-            title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
+        title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)

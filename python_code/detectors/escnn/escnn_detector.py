@@ -113,7 +113,7 @@ class ESCNNDetector(nn.Module):
         self._bypass_scale = (not loading_weights) and freeze_mode in (
             "scale", "last_conv_only", "first_conv_only", "all")
         self._bypass_fc2 = (not loading_weights) and freeze_mode in (
-            "second_conv", "scale_only", "last_conv_only", "first_conv_only", "first_conv_and_scale", "all")
+            "second_conv", "scale_only", "last_conv_only", "first_conv_only", "first_conv_and_scale_only", "all")
         self.set_load_freeze(freeze_mode)
 
     def set_stage(self, stage: str):
@@ -189,7 +189,7 @@ class ESCNNDetector(nn.Module):
                     p.requires_grad = False
             if self.scale is not None:
                 self.scale.requires_grad = False
-        elif self._load_freeze_mode == "first_conv_and_scale":
+        elif self._load_freeze_mode == "first_conv_and_scale_only":
             for m in [self.fc2, self.fc3]:
                 for p in m.parameters():
                     p.requires_grad = False
@@ -217,19 +217,19 @@ class ESCNNDetector(nn.Module):
           'scale_only'         - bypass scale+fc2, freeze fc1+fc3
           'last_conv_only'     - bypass scale+fc2, freeze fc1  (only fc3 trains)
           'first_conv_only'    - bypass scale+fc2, freeze fc3  (only fc1 trains)
-          'first_conv_and_scale' - bypass fc2, freeze fc3  (fc1 and scale train)
+          'first_conv_and_scale_only' - bypass fc2, freeze fc3  (fc1 and scale train)
           'all'                - bypass scale+fc2, freeze fc1+fc3
         """
         assert mode in ["none", "scale", "first_conv", "second_conv", "last_conv",
                          "scale_only", "last_conv_only", "first_conv_only",
-                         "first_conv_and_scale", "all"]
+                         "first_conv_and_scale_only", "all"]
         self._load_freeze_mode = mode
         for p in self.fc1.parameters():
             p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "first_conv")
         for p in self.fc2.parameters():
-            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "second_conv", "first_conv_only", "first_conv_and_scale")
+            p.requires_grad = mode not in ("all", "scale_only", "last_conv_only", "second_conv", "first_conv_only", "first_conv_and_scale_only")
         for p in self.fc3.parameters():
-            p.requires_grad = mode not in ("all", "last_conv", "scale_only", "first_conv_only", "first_conv_and_scale")
+            p.requires_grad = mode not in ("all", "last_conv", "scale_only", "first_conv_only", "first_conv_and_scale_only")
         if self.scale is not None:
             self.scale.requires_grad = mode not in ("all", "scale", "last_conv_only", "first_conv_only")
         for film in (self.film1, self.film2):

@@ -143,13 +143,16 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
     return float(max(H_y - H_y_x, 0))
 
 
-def calc_llr_nll(llrs_mat) -> dict:
+def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
     """Compute NLL of the LLR distribution under a symmetric 2-component Gaussian mixture.
 
     Two variants controlled by conf.llr_nll_mode:
       'consistent' : σ² = 2μ  (AWGN consistency condition)
       'fitted'     : σ² estimated freely from the batch (no constraint)
       'both'       : returns both
+
+    fixed_mu: if provided, use as the GMM component mean instead of estimating from data.
+              When None, μ is estimated as E[|ℓ|] from the batch.
 
     Returns a dict with keys 'consistent' and/or 'fitted', values are scalar NLL floats.
     """
@@ -160,7 +163,7 @@ def calc_llr_nll(llrs_mat) -> dict:
     if hasattr(llrs_mat, 'cpu'):
         llrs_mat = llrs_mat.cpu()
     llrs = np.asarray(llrs_mat).flatten().astype(np.float64)
-    mu = float(np.mean(np.abs(llrs)))
+    mu = float(fixed_mu) if fixed_mu is not None else float(np.mean(np.abs(llrs)))
 
     results = {}
 
@@ -442,6 +445,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     for snr_cur in SNR_range:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment} =====", flush=True)
         ber_sum = np.zeros(iterations)
+        post_eq_sinr_sum = 0.0
+        post_eq_sinr_count = 0
         ber_sum_e2e = np.zeros(iters_e2e_disp)
         ber_sum_tdfdcnn = np.zeros(iterations)
         ber_sum_deeprx = 0
@@ -734,6 +739,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                 # Regular CE
                 equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                post_eq_sinr_sum += float(postEqSINR.mean().item())
+                post_eq_sinr_count += 1
                 LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
                            detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
                 LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
@@ -1646,12 +1653,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 mi_sphere = 0
 
             ber_list = [None] * iterations
+            mean_sinr = post_eq_sinr_sum / max(post_eq_sinr_count, 1)
             nll_list = [None] * iterations
             for iteration in range(iterations):
                 # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
                 ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
-                nll_vals_block = calc_llr_nll(llrs_mat_list[iteration])
+                nll_vals_block = calc_llr_nll(llrs_mat_list[iteration], fixed_mu=mean_sinr)
                 nll_list[iteration] = nll_vals_block.get('fitted', nll_vals_block.get('consistent', None))
                 total_nll_list[iteration].append(nll_list[iteration])
 
@@ -1704,7 +1712,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # --- NLL per block (for all detectors) ---
             _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
             def _nll(mat):
-                v = calc_llr_nll(mat)
+                v = calc_llr_nll(mat, fixed_mu=mean_sinr)
                 return v.get('fitted', v.get('consistent', None)) if v else None
             nll_lmmse = _nll(llrs_mat_lmmse)
             nll_deeprx = _nll(llrs_mat_deeprx) if run_deeprx else None
@@ -1770,23 +1778,24 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     print(f'current sphere BLER: {block_ind, float(bler_sphere), mi_sphere}')
 
         cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
+        nll_fixed_mu = post_eq_sinr_sum / max(post_eq_sinr_count, 1)
 
         fig_lmmse = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                        torch.from_numpy(llrs_mat_lmmse),
                                        snr_cur, "lmmse", 0, train_samples, val_samples, mod_text, cfo_str, ber_lmmse,
-                                       ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_lmmse))
+                                       ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_lmmse, fixed_mu=nll_fixed_mu))
 
         if run_sphere:
             fig_sphere = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                            torch.from_numpy(llrs_mat_sphere),
                                            snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str,
-                                           ber_sphere, ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_sphere))
+                                           ber_sphere, ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_sphere, fixed_mu=nll_fixed_mu))
 
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur,
                                             "DeepRx", 3,
                                             train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0,
-                                            nll_vals=calc_llr_nll(llrs_mat_deeprx))
+                                            nll_vals=calc_llr_nll(llrs_mat_deeprx, fixed_mu=nll_fixed_mu))
         if conf.run_tdcnn:
             fig_tdcnn = plot_loss_and_LLRs(train_loss_vect_tdcnn, val_loss_vect_tdcnn, torch.zeros_like(llrs_mat_list[0]), snr_cur,
                                             "TDCNN", 3,
@@ -1797,7 +1806,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                "ESCNN",
                                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                                ber_list[iteration],
-                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
+                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu))
 
         if run_deepsic:
             for iteration in range(iterations):
@@ -1805,20 +1814,20 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                  llrs_mat_deepsic_list[iteration], snr_cur, "DeepSIC", 3,
                                                  train_samples, val_samples, mod_text, cfo_str,
                                                  ber_deepsic_list[iteration], ber_lmmse, conf.iterations,
-                                                 nll_vals=calc_llr_nll(llrs_mat_deepsic_list[iteration]))
+                                                 nll_vals=calc_llr_nll(llrs_mat_deepsic_list[iteration], fixed_mu=nll_fixed_mu))
         if run_mhsa:
             for iteration in range(iterations):
                 fig_mhsa = plot_loss_and_LLRs(train_loss_vect_mhsa, val_loss_vect_mhsa, llrs_mat_mhsa_list[iteration],
                                               snr_cur, "MHSA", 3,
                                               train_samples, val_samples, mod_text, cfo_str, ber_mhsa_list[iteration],
-                                              ber_lmmse, conf.iterations, nll_vals=calc_llr_nll(llrs_mat_mhsa_list[iteration]))
+                                              ber_lmmse, conf.iterations, nll_vals=calc_llr_nll(llrs_mat_mhsa_list[iteration], fixed_mu=nll_fixed_mu))
 
         if conf.run_jointllr:
             for iteration in range(iterations):
                 fig_jointllr = plot_loss_and_LLRs(train_loss_vect_jointllr, val_loss_vect_jointllr, llrs_mat_jointllr_list[iteration],
                                               snr_cur, "JointLLR", conf.kernel_size,
                                               train_samples, val_samples, mod_text, cfo_str, ber_jointllr_list[iteration],
-                                              ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_jointllr_list[iteration]))
+                                              ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_jointllr_list[iteration], fixed_mu=nll_fixed_mu))
 
         if conf.run_deepsicmb:
             for iteration in range(iterations):
@@ -1826,14 +1835,14 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                    llrs_mat_deepsicmb_list[iteration], snr_cur, "DeepSICMB", 3,
                                                    train_samples, val_samples, mod_text, cfo_str,
                                                    ber_deepsicmb_list[iteration], ber_lmmse, conf.iterations,
-                                                   nll_vals=calc_llr_nll(llrs_mat_deepsicmb_list[iteration]))
+                                                   nll_vals=calc_llr_nll(llrs_mat_deepsicmb_list[iteration], fixed_mu=nll_fixed_mu))
         if conf.run_deepstag:
             for iteration in range(iterations * 2):
                 fig_deepstag = plot_loss_and_LLRs(train_loss_vect_deepstag, val_loss_vect_deepstag,
                                                   llrs_mat_deepstag_list[iteration], snr_cur, "DeepSTAG", 3,
                                                   train_samples, val_samples, mod_text, cfo_str,
                                                   ber_deepstag_list[iteration], ber_lmmse, conf.iterations,
-                                                  nll_vals=calc_llr_nll(llrs_mat_deepstag_list[iteration]))
+                                                  nll_vals=calc_llr_nll(llrs_mat_deepstag_list[iteration], fixed_mu=nll_fixed_mu))
         if conf.run_e2e:
             for iteration in range(iters_e2e_disp):
                 fig_e2e = plot_loss_and_LLRs(train_loss_vect_e2e, val_loss_vect_e2e, llrs_mat_e2e_list[iteration],
@@ -1841,18 +1850,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                              "DeepSICe2e", conf.kernel_size, train_samples, val_samples, mod_text,
                                              cfo_str,
                                              ber_e2e_list[iteration], ber_lmmse, iteration,
-                                             nll_vals=calc_llr_nll(llrs_mat_e2e_list[iteration]))
+                                             nll_vals=calc_llr_nll(llrs_mat_e2e_list[iteration], fixed_mu=nll_fixed_mu))
         for iteration in range(iterations):
             fig_escnn = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
                                              conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                              ber_list[iteration],
-                                             ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
+                                             ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu))
             if conf.use_film:
                 fig_film = plot_loss_and_LLRs(train_loss_vect_film, val_loss_vect_film, llrs_mat_list[iteration], snr_cur,
                                                "FILM",
                                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                                ber_list[iteration],
-                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration]))
+                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu))
 
         _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
         data = {
@@ -1862,35 +1871,27 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             "total_ber_sphere": total_nll_sphere if _use_nll else total_ber_sphere,
         }
         for i in range(conf.iterations):
-            if _use_nll:
-                data[f"total_nll_{i + 1}"] = total_nll_list[i]
-            else:
-                data[f"total_ber_{i + 1}"] = total_ber_list[i]
+            data[f"total_ber_{i + 1}"] = total_nll_list[i] if _use_nll else total_ber_list[i]
 
         if conf.run_e2e:
             for i in range(iters_e2e_disp):
-                key = f"total_nll_e2e_{i+1}" if _use_nll else f"total_ber_e2e_{i+1}"
-                data[key] = total_nll_e2e_list[i] if _use_nll else total_ber_e2e_list[i]
+                data[f"total_ber_e2e_{i+1}"] = total_nll_e2e_list[i] if _use_nll else total_ber_e2e_list[i]
 
         if run_deepsic:
             for i in range(conf.iterations):
-                key = f"total_nll_deepsic_{i+1}" if _use_nll else f"total_ber_deepsic_{i+1}"
-                data[key] = total_nll_deepsic_list[i] if _use_nll else total_ber_deepsic_list[i]
+                data[f"total_ber_deepsic_{i+1}"] = total_nll_deepsic_list[i] if _use_nll else total_ber_deepsic_list[i]
 
         if conf.run_deepsicmb:
             for i in range(conf.iterations):
-                key = f"total_nll_deepsicmb_{i+1}" if _use_nll else f"total_ber_deepsicmb_{i+1}"
-                data[key] = total_nll_deepsicmb_list[i] if _use_nll else total_ber_deepsicmb_list[i]
+                data[f"total_ber_deepsicmb_{i+1}"] = total_nll_deepsicmb_list[i] if _use_nll else total_ber_deepsicmb_list[i]
 
         if conf.run_deepstag:
             for i in range(conf.iterations):
-                key = f"total_nll_deepstag_{i+1}" if _use_nll else f"total_ber_deepstag_{i+1}"
-                data[key] = total_nll_deepstag_list[i] if _use_nll else total_ber_deepstag_list[i]
+                data[f"total_ber_deepstag_{i+1}"] = total_nll_deepstag_list[i] if _use_nll else total_ber_deepstag_list[i]
 
         if conf.run_mhsa:
             for i in range(conf.iterations):
-                key = f"total_nll_mhsa_{i+1}" if _use_nll else f"total_ber_mhsa_{i+1}"
-                data[key] = total_nll_mhsa_list[i] if _use_nll else total_ber_mhsa_list[i]
+                data[f"total_ber_mhsa_{i+1}"] = total_nll_mhsa_list[i] if _use_nll else total_ber_mhsa_list[i]
 
         if conf.run_tdfdcnn:
             for i in range(conf.iterations):
@@ -1898,8 +1899,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         if conf.run_jointllr:
             for i in range(conf.iterations):
-                key = f"total_nll_jointllr_{i+1}" if _use_nll else f"total_ber_jointllr_{i+1}"
-                data[key] = total_nll_jointllr_list[i] if _use_nll else total_ber_jointllr_list[i]
+                data[f"total_ber_jointllr_{i+1}"] = total_nll_jointllr_list[i] if _use_nll else total_ber_jointllr_list[i]
 
         df = pd.DataFrame(data)
 

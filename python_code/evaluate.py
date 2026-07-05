@@ -36,6 +36,7 @@ import pandas as pd
 from python_code.channel.channel_dataset import ChannelModelDataset
 from scipy.stats import entropy
 from scipy.interpolate import interp1d
+from scipy.special import expit as _sigmoid
 
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.detectors.sphere.sphere_16qam_evenbits import Sphere16qamEvenbits
@@ -143,6 +144,42 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
     return float(max(H_y - H_y_x, 0))
 
 
+def calc_gfmi(llrs_mat) -> float:
+    """Blind (genie-free) per-bit MI estimator from LLRs alone.
+
+    Uses the EXIT-chart identity (ten Brink / Hagenauer): under the consistency
+    assumption p(L|b=1) = e^L * p(L|b=0), the MI equals
+
+        I = 1 - (1/N) * sum_n [ log2(1 + exp(-|L_n|))
+                                + (|L_n| / ln2) * sigmoid(-|L_n|) ]
+
+    Requires only the LLRs — no knowledge of transmitted bits.
+
+    CAVEAT (consistency assumption): the metric never checks LLR signs, so it
+    overestimates MI for confidently-wrong (miscalibrated) detectors.
+    """
+    if hasattr(llrs_mat, 'cpu'):
+        llrs_mat = llrs_mat.cpu()
+    a = np.abs(np.asarray(llrs_mat).flatten().astype(np.float64))
+
+    finite_mask = np.isfinite(a)
+    n_bad = int(np.sum(~finite_mask))
+    if n_bad:
+        import warnings
+        warnings.warn(f'calc_gfmi: ignoring {n_bad} non-finite LLR(s)', RuntimeWarning, stacklevel=2)
+        a = a[finite_mask]
+
+    if a.size == 0:
+        return 0.0
+
+    # log2(1 + exp(-a)) — numerically safe via log1p; for large a this → 0
+    term1 = np.log1p(np.exp(-a)) / np.log(2)
+    # (a / ln2) * sigmoid(-a) = (a / ln2) / (1 + exp(a))
+    term2 = (a / np.log(2)) * _sigmoid(-a)
+
+    return float(np.clip(1.0 - np.mean(term1 + term2), 0.0, 1.0))
+
+
 def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
     """Compute NLL under a symmetric 2-component Gaussian mixture.
 
@@ -161,6 +198,9 @@ def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
     mode = getattr(conf, 'llr_nll_mode', 'none')
     if mode == 'none':
         return {}
+
+    if mode == 'gfmi':
+        return {'gfmi': calc_gfmi(llrs_mat)}
 
     # Strip μ-source suffix to get the σ² mode
     sigma_mode = mode.replace('_genie', '').replace('_postsinr', '')  # 'fitted' or 'consistent'
@@ -1673,13 +1713,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     mean_sinr_db = 10 * np.log10(max(mean_sinr, 1e-30))
                     _mu_src = 'genie' if _use_genie else 'postsinr'
                     print(f'[NLL mu] genie={mu_genie:.2f} ({mu_genie_db:.1f}dB)  postEqSINR={mu_postsinr:.2f} ({mu_postsinr_db:.1f}dB)  using={mean_sinr:.2f} ({mean_sinr_db:.1f}dB) ({_mu_src})')
+            _use_nll = _nll_mode != 'none'
+            def _nll(mat):
+                v = calc_llr_nll(mat, fixed_mu=mean_sinr)
+                return v.get('fitted', v.get('consistent', v.get('gfmi', None))) if v else None
+
             nll_list = [None] * iterations
             for iteration in range(iterations):
                 # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
                 ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
-                nll_vals_block = calc_llr_nll(llrs_mat_list[iteration], fixed_mu=mean_sinr)
-                nll_list[iteration] = nll_vals_block.get('fitted', nll_vals_block.get('consistent', None))
+                nll_list[iteration] = _nll(llrs_mat_list[iteration])
                 total_nll_list[iteration].append(nll_list[iteration])
 
             ber_e2e_list = [None] * iters_e2e_disp
@@ -1729,10 +1773,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             total_ber_sphere.append(ber_sphere)
 
             # --- NLL per block (for all detectors) ---
-            _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
-            def _nll(mat):
-                v = calc_llr_nll(mat, fixed_mu=mean_sinr)
-                return v.get('fitted', v.get('consistent', None)) if v else None
             nll_lmmse = _nll(llrs_mat_lmmse)
             nll_deeprx = _nll(llrs_mat_deeprx) if run_deeprx else None
             nll_sphere = _nll(llrs_mat_sphere) if run_sphere else None
@@ -1969,7 +2009,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag
         _nll_short = {'none': '0', 'fitted_data': 'fd', 'fitted_postsinr': 'fp', 'fitted_genie': 'fg',
-                      'consistent_data': 'cd', 'consistent_postsinr': 'cp', 'consistent_genie': 'cg'}
+                      'consistent_data': 'cd', 'consistent_postsinr': 'cp', 'consistent_genie': 'cg',
+                      'gfmi': 'gf'}
         _nll_tag = _nll_short.get(getattr(conf, 'llr_nll_mode', 'none'), '0')
         title_string = title_string + '_nll=' + _nll_tag
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)

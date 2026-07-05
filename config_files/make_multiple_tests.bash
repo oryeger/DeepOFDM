@@ -10,9 +10,9 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-seeds=(42)
-snrs=($(seq 0 30))
-cfos=(0 0.15)
+seeds=(123)
+snrs=($(seq -15 20))
+cfos=(0 0.3 0.4)
 
 clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
@@ -22,7 +22,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(150)
+epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -30,8 +30,16 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
-  'first_conv_only'
-  'first_conv_and_scale_only'
+)
+
+llr_nll_mode_vals=(
+  'none'
+  'fitted_data'
+  'fitted_postsinr'
+  'fitted_genie'
+  'consistent_data'
+  'consistent_postsinr'
+  'consistent_genie'
 )
 
 increase_prime_modulation_vals=(False)
@@ -43,12 +51,12 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
 )
 
-channel_model_vals=('C')
+channel_model_vals=('N')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)
-mcs_vals=(28)
+pilot_size_vals=(10000)
+mcs_vals=(4)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -180,16 +188,30 @@ for seed in "${seeds[@]}"; do
                                                     scale_only)     freeze_tag="frscaleonly" ;;
                                                     last_conv_only) freeze_tag="frlastconvonly" ;;
                                                     first_conv_only) freeze_tag="frfirstconvonly" ;;
-                                                    first_conv_and_scale_only) freeze_tag="frfirstconvandscaleonly" ;;
                                                     *)
                                                       echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                       exit 1
                                                       ;;
                                                   esac
 
+                                                  for llr_nll_mode in "${llr_nll_mode_vals[@]}"; do
+                                                    case "$llr_nll_mode" in
+                                                      none)                  nlltag="nll0" ;;
+                                                      fitted_data)           nlltag="nllfd" ;;
+                                                      fitted_postsinr)       nlltag="nllfp" ;;
+                                                      fitted_genie)          nlltag="nllfg" ;;
+                                                      consistent_data)       nlltag="nllcd" ;;
+                                                      consistent_postsinr)   nlltag="nllcp" ;;
+                                                      consistent_genie)      nlltag="nllcg" ;;
+                                                      *)
+                                                        echo "ERROR: Unknown llr_nll_mode: $llr_nll_mode" >&2
+                                                        exit 1
+                                                        ;;
+                                                    esac
+
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -217,10 +239,12 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
                                                         -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
+                                                        -e "s/^llr_nll_mode:.*/llr_nll_mode: '$llr_nll_mode'/" \
                                                         "$input_file" > "$out_file"
 
                                                     all_config_files+=("$out_file")
                                                     ((total_count++))
+                                                  done
                                                   done
                                                 done
                                               done

@@ -79,7 +79,7 @@ iters_e2e: 1
 no_probs: False
 no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
-llr_nll_mode: 'fitted'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2μ), 'fitted' (NLL with free σ²), 'both'
+llr_nll_mode: 'fitted_postsinr'  # 'none' | 'fitted_data' | 'fitted_postsinr' | 'fitted_genie' | 'consistent_data' | 'consistent_postsinr' | 'consistent_genie'
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 

@@ -144,21 +144,26 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
 
 
 def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
-    """Compute NLL of the LLR distribution under a symmetric 2-component Gaussian mixture.
+    """Compute NLL under a symmetric 2-component Gaussian mixture.
 
-    Two variants controlled by conf.llr_nll_mode:
-      'consistent' : σ² = 2μ  (AWGN consistency condition)
-      'fitted'     : σ² estimated freely from the batch (no constraint)
-      'both'       : returns both
+    llr_nll_mode encodes both the σ² handling and the μ source:
+      'none'                  - disabled
+      'fitted_data'           - σ² free, μ estimated from batch (E[|ℓ|])
+      'fitted_postsinr'       - σ² free, μ from postEqSINR
+      'fitted_genie'          - σ² free, μ from genie SNR × array gain
+      'consistent_data'       - σ²=2μ, μ estimated from batch
+      'consistent_postsinr'   - σ²=2μ, μ from postEqSINR
+      'consistent_genie'      - σ²=2μ, μ from genie SNR × array gain
 
-    fixed_mu: if provided, use as the GMM component mean instead of estimating from data.
-              When None, μ is estimated as E[|ℓ|] from the batch.
-
-    Returns a dict with keys 'consistent' and/or 'fitted', values are scalar NLL floats.
+    fixed_mu: pre-computed μ (postEqSINR or genie) passed in by the caller.
+    Returns a dict with keys 'consistent' and/or 'fitted'.
     """
     mode = getattr(conf, 'llr_nll_mode', 'none')
     if mode == 'none':
         return {}
+
+    # Strip μ-source suffix to get the σ² mode
+    sigma_mode = mode.replace('_genie', '').replace('_postsinr', '')  # 'fitted' or 'consistent'
 
     if hasattr(llrs_mat, 'cpu'):
         llrs_mat = llrs_mat.cpu()
@@ -167,14 +172,14 @@ def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
 
     results = {}
 
-    if mode in ('consistent', 'both'):
+    if sigma_mode == 'consistent':
         sigma2 = 2.0 * mu
-        sigma = np.sqrt(sigma2)
+        sigma = np.sqrt(max(sigma2, 1e-6))
         log_p = np.log(0.5 * (np.exp(-0.5 * ((llrs - mu) / sigma) ** 2) +
-                               np.exp(-0.5 * ((llrs + mu) / sigma) ** 2)) / (sigma * np.sqrt(2 * np.pi)))
+                               np.exp(-0.5 * ((llrs + mu) / sigma) ** 2)) / (sigma * np.sqrt(2 * np.pi)) + 1e-300)
         results['consistent'] = float(-np.mean(log_p))
 
-    if mode in ('fitted', 'both'):
+    if sigma_mode == 'fitted':
         sigma2 = max(float(np.var(llrs)) - mu ** 2, 1e-6)
         sigma = np.sqrt(sigma2)
         log_p = np.log(0.5 * (np.exp(-0.5 * ((llrs - mu) / sigma) ** 2) +
@@ -1653,7 +1658,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 mi_sphere = 0
 
             ber_list = [None] * iterations
-            mean_sinr = post_eq_sinr_sum / max(post_eq_sinr_count, 1)
+            mu_postsinr = post_eq_sinr_sum / max(post_eq_sinr_count, 1)
+            mu_genie = (10 ** (snr_cur / 10.0)) * conf.n_ants
+            _nll_mode = getattr(conf, 'llr_nll_mode', 'none')
+            _use_genie = _nll_mode.endswith('_genie')
+            _use_data = _nll_mode.endswith('_data')
+            mean_sinr = None if _use_data else (mu_genie if _use_genie else mu_postsinr)
+            if _nll_mode != 'none':
+                mu_genie_db = 10 * np.log10(max(mu_genie, 1e-30))
+                mu_postsinr_db = 10 * np.log10(max(mu_postsinr, 1e-30))
+                if _use_data:
+                    print(f'[NLL mu] genie={mu_genie:.2f} ({mu_genie_db:.1f}dB)  postEqSINR={mu_postsinr:.2f} ({mu_postsinr_db:.1f}dB)  using=data (estimated per detector)')
+                else:
+                    mean_sinr_db = 10 * np.log10(max(mean_sinr, 1e-30))
+                    _mu_src = 'genie' if _use_genie else 'postsinr'
+                    print(f'[NLL mu] genie={mu_genie:.2f} ({mu_genie_db:.1f}dB)  postEqSINR={mu_postsinr:.2f} ({mu_postsinr_db:.1f}dB)  using={mean_sinr:.2f} ({mean_sinr_db:.1f}dB) ({_mu_src})')
             nll_list = [None] * iterations
             for iteration in range(iterations):
                 # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
@@ -1778,7 +1797,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     print(f'current sphere BLER: {block_ind, float(bler_sphere), mi_sphere}')
 
         cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
-        nll_fixed_mu = post_eq_sinr_sum / max(post_eq_sinr_count, 1)
+        nll_fixed_mu = None if _use_data else (mu_genie if _use_genie else mu_postsinr)
 
         fig_lmmse = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
                                        torch.from_numpy(llrs_mat_lmmse),
@@ -1949,6 +1968,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag
+        _nll_short = {'none': '0', 'fitted_data': 'fd', 'fitted_postsinr': 'fp', 'fitted_genie': 'fg',
+                      'consistent_data': 'cd', 'consistent_postsinr': 'cp', 'consistent_genie': 'cg'}
+        _nll_tag = _nll_short.get(getattr(conf, 'llr_nll_mode', 'none'), '0')
+        title_string = title_string + '_nll=' + _nll_tag
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
@@ -1981,52 +2004,34 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             df_mi.to_csv(_long_path(file_path_mi), index=False)
 
         if snr_cur in conf.save_loss_plot_snr:
-            title_string_cur = "escnn_" + title_string
-            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_escnn.savefig(_long_path(file_path))
-            if conf.use_film:
-                title_string_cur = "film_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_film.savefig(_long_path(file_path))
-
-            title_string_cur = "lmmse_" + title_string
-            file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-            fig_lmmse.savefig(_long_path(file_path))
-
-            if run_deepsic:
-                title_string_cur = "deepsic_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsic.savefig(_long_path(file_path))
-            if run_mhsa:
-                title_string_cur = "mhsa_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_mhsa.savefig(_long_path(file_path))
-            if conf.run_deepsicmb:
-                title_string_cur = "deepsicmb_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepsicmb.savefig(_long_path(file_path))
-            if conf.run_deepstag:
-                title_string_cur = "deepstag_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deepstag.savefig(_long_path(file_path))
-            if run_deeprx:
-                title_string_cur = "deeprx_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_deeprx.savefig(_long_path(file_path))
-            if conf.run_tdcnn:
-                title_string_cur = "tdcnn_" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_tdcnn.savefig(_long_path(file_path))
-
-            if conf.run_e2e:
-                title_string_cur = "e2e" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_e2e.savefig(_long_path(file_path))
-
-            if conf.run_tdfdcnn:
-                title_string_cur = "tdfdcnn" + title_string
-                file_path = os.path.abspath(os.path.join(output_dir, title_string_cur) + ".jpg")
-                fig_tdfdcnn.savefig(_long_path(file_path))
+            print(f'[JPG] saving plots for SNR={snr_cur} to {output_dir}', flush=True)
+            try:
+                for _fig, _prefix in [
+                    (fig_escnn, "escnn_"),
+                    (fig_lmmse, "lmmse_"),
+                ] + ([(fig_film, "film_")] if conf.use_film else []) + (
+                    [(fig_deepsic, "deepsic_")] if run_deepsic else []
+                ) + (
+                    [(fig_mhsa, "mhsa_")] if run_mhsa else []
+                ) + (
+                    [(fig_deepsicmb, "deepsicmb_")] if conf.run_deepsicmb else []
+                ) + (
+                    [(fig_deepstag, "deepstag_")] if conf.run_deepstag else []
+                ) + (
+                    [(fig_deeprx, "deeprx_")] if run_deeprx else []
+                ) + (
+                    [(fig_tdcnn, "tdcnn_")] if conf.run_tdcnn else []
+                ) + (
+                    [(fig_e2e, "e2e")] if conf.run_e2e else []
+                ) + (
+                    [(fig_tdfdcnn, "tdfdcnn")] if conf.run_tdfdcnn else []
+                ):
+                    file_path = os.path.abspath(os.path.join(output_dir, _prefix + title_string) + ".jpg")
+                    print(f'[JPG] saving {_prefix}{title_string[:40]}...', flush=True)
+                    _fig.savefig(_long_path(file_path))
+                print(f'[JPG] all plots saved.', flush=True)
+            except Exception as _e:
+                print(f'[JPG] ERROR: {_e}', flush=True)
 
     if conf.save_llrs:
         llr_h5_file.close()

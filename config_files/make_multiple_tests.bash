@@ -40,6 +40,7 @@ llr_nll_mode_vals=(
   'consistent_data'
   'consistent_postsinr'
   'consistent_genie'
+  'gfmi'
 )
 
 increase_prime_modulation_vals=(False)
@@ -203,6 +204,7 @@ for seed in "${seeds[@]}"; do
                                                       consistent_data)       nlltag="nllcd" ;;
                                                       consistent_postsinr)   nlltag="nllcp" ;;
                                                       consistent_genie)      nlltag="nllcg" ;;
+                                                      gfmi)                  nlltag="nllgf" ;;
                                                       *)
                                                         echo "ERROR: Unknown llr_nll_mode: $llr_nll_mode" >&2
                                                         exit 1

@@ -18,6 +18,9 @@ from scipy.io import savemat
 
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
+# Set to True when the BER CSV contains GFMI values (llr_nll_mode='gfmi').
+# Switches the BER panel to a linear y-axis, labels it "GFMI", and disables log-space gap filling.
+PLOT_BER_AS_GFMI = True
 # seeds = [123, 17, 41, 58, 1011, 1809, 3008, 1806, 912, 1505, 1807, 1109]
 # For 0.4:
 seeds = [123, 17, 41, 58, 1011, 3008, 1806, 912, 1807, 1109, 42]
@@ -399,8 +402,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         if plot_type == "BER":
             search_pattern = r"SNR=(-?\d+)"
             target_y = 0.01
-            ylabel_cur = "BER"
-            use_log_interp_for_missing = True
+            ylabel_cur = "GFMI" if PLOT_BER_AS_GFMI else "BER"
+            use_log_interp_for_missing = not PLOT_BER_AS_GFMI
         elif plot_type == "BLER":
             search_pattern = r"_SNR=(-?\d+)_bler\.csv$"
             target_y = 0.1
@@ -771,92 +774,98 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             ber_lmmse = avg("ber_lmmse", use_log_interp=use_log_interp_for_missing)
             ber_sphere = avg("ber_sphere", use_log_interp=use_log_interp_for_missing)
 
+            def _plot(y, *args, **kwargs):
+                if PLOT_BER_AS_GFMI and plot_type == "BER":
+                    ax.plot(*args, y, **kwargs)
+                else:
+                    ax.semilogy(*args, y, **kwargs)
+
             snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, target_y)
-            ax.semilogy(snrs, ber_1, linestyle=dashes[0], marker=markers[0], color="g",
-                        label=f"ESCNN1 @ {round(100 * target_y)}% = {snr_target_1}")
+            lbl1 = "ESCNN1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"ESCNN1 @ {round(100 * target_y)}% = {snr_target_1}"
+            _plot(ber_1, snrs, linestyle=dashes[0], marker=markers[0], color="g", label=lbl1)
 
             if plot_all_escnn:
                 snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, target_y)
-                ax.semilogy(snrs, ber_2, linestyle=dashes[1], marker=markers[1], color="g",
-                            label=f"ESCNN2 @ {round(100 * target_y)}% = {snr_target_2}")
+                lbl2 = "ESCNN2" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"ESCNN2 @ {round(100 * target_y)}% = {snr_target_2}"
+                _plot(ber_2, snrs, linestyle=dashes[1], marker=markers[1], color="g", label=lbl2)
 
                 snr_target_3 = _safe_interp_x_to_y(ber_3, snrs, target_y)
-                ax.semilogy(snrs, ber_3, linestyle=dashes[2], marker=markers[2], color="g",
-                            label=f"ESCNN3 @ {round(100 * target_y)}% = {snr_target_3}")
+                lbl3 = "ESCNN3" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"ESCNN3 @ {round(100 * target_y)}% = {snr_target_3}"
+                _plot(ber_3, snrs, linestyle=dashes[2], marker=markers[2], color="g", label=lbl3)
 
             joint_arr = np.asarray(ber_jointllr_1, dtype=float)
             if np.isfinite(joint_arr).any() and not np.all(joint_arr[np.isfinite(joint_arr)] == 0):
                 snr_target_joint = _safe_interp_x_to_y(ber_jointllr_1, snrs, target_y)
-                ax.semilogy(snrs, ber_jointllr_1, linestyle="-", marker=markers[5], color="b",
-                            label=f"JointLLR1 @ {round(100 * target_y)}% = {snr_target_joint}")
+                lbl_joint = "JointLLR1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"JointLLR1 @ {round(100 * target_y)}% = {snr_target_joint}"
+                _plot(ber_jointllr_1, snrs, linestyle="-", marker=markers[5], color="b", label=lbl_joint)
 
             snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, target_y)
-            ax.semilogy(snrs, ber_lmmse, linestyle=dashes[4], marker=markers[4], color="r",
-                        label=f"LMMSE @ {round(100 * target_y)}% = {snr_target_lmmse}")
+            lbl_lmmse = "LMMSE" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"LMMSE @ {round(100 * target_y)}% = {snr_target_lmmse}"
+            _plot(ber_lmmse, snrs, linestyle=dashes[4], marker=markers[4], color="r", label=lbl_lmmse)
 
             if show_sphere:
                 sphere_arr = np.asarray(ber_sphere, dtype=float)
                 if np.isfinite(sphere_arr).any() and not np.all(sphere_arr[np.isfinite(sphere_arr)] == 0):
                     snr_target_sphere = _safe_interp_x_to_y(ber_sphere, snrs, target_y)
-                    ax.semilogy(snrs, ber_sphere, linestyle=dashes[4], marker=markers[4], color="brown",
-                                label=f"Sphere @ {round(100 * target_y)}% = {snr_target_sphere}")
+                    lbl_sphere = "Sphere" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"Sphere @ {round(100 * target_y)}% = {snr_target_sphere}"
+                    _plot(ber_sphere, snrs, linestyle=dashes[4], marker=markers[4], color="brown", label=lbl_sphere)
 
             ber_deepsic_1 = avg("ber_deepsic_1", use_log_interp=use_log_interp_for_missing)
             deepsic_arr = np.asarray(ber_deepsic_1, dtype=float)
             if np.isfinite(deepsic_arr).any() and not np.all(deepsic_arr[np.isfinite(deepsic_arr)] == 0):
                 snr_target_deepsic = _safe_interp_x_to_y(ber_deepsic_1, snrs, target_y)
-                ax.semilogy(snrs, ber_deepsic_1, linestyle=dashes[0], marker=markers[0], color="purple",
-                            label=f"DeepSIC1 @ {round(100 * target_y)}% = {snr_target_deepsic}")
+                lbl_ds = "DeepSIC1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSIC1 @ {round(100 * target_y)}% = {snr_target_deepsic}"
+                _plot(ber_deepsic_1, snrs, linestyle=dashes[0], marker=markers[0], color="purple", label=lbl_ds)
 
             if plot_all_escnn:
                 ber_deepsic_2 = avg("ber_deepsic_2", use_log_interp=use_log_interp_for_missing)
                 deepsic2_arr = np.asarray(ber_deepsic_2, dtype=float)
                 if np.isfinite(deepsic2_arr).any() and not np.all(deepsic2_arr[np.isfinite(deepsic2_arr)] == 0):
                     snr_target_deepsic2 = _safe_interp_x_to_y(ber_deepsic_2, snrs, target_y)
-                    ax.semilogy(snrs, ber_deepsic_2, linestyle=dashes[1], marker=markers[1], color="purple",
-                                label=f"DeepSIC2 @ {round(100 * target_y)}% = {snr_target_deepsic2}")
+                    lbl_ds2 = "DeepSIC2" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSIC2 @ {round(100 * target_y)}% = {snr_target_deepsic2}"
+                    _plot(ber_deepsic_2, snrs, linestyle=dashes[1], marker=markers[1], color="purple", label=lbl_ds2)
 
                 ber_deepsic_3 = avg("ber_deepsic_3", use_log_interp=use_log_interp_for_missing)
                 deepsic3_arr = np.asarray(ber_deepsic_3, dtype=float)
                 if np.isfinite(deepsic3_arr).any() and not np.all(deepsic3_arr[np.isfinite(deepsic3_arr)] == 0):
                     snr_target_deepsic3 = _safe_interp_x_to_y(ber_deepsic_3, snrs, target_y)
-                    ax.semilogy(snrs, ber_deepsic_3, linestyle=dashes[2], marker=markers[2], color="purple",
-                                label=f"DeepSIC3 @ {round(100 * target_y)}% = {snr_target_deepsic3}")
+                    lbl_ds3 = "DeepSIC3" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSIC3 @ {round(100 * target_y)}% = {snr_target_deepsic3}"
+                    _plot(ber_deepsic_3, snrs, linestyle=dashes[2], marker=markers[2], color="purple", label=lbl_ds3)
 
             ber_deeprx = avg("ber_deeprx", use_log_interp=use_log_interp_for_missing)
             deeprx_arr = np.asarray(ber_deeprx, dtype=float)
             if np.isfinite(deeprx_arr).any() and not np.all(deeprx_arr[np.isfinite(deeprx_arr)] == 0):
                 snr_target_deeprx = _safe_interp_x_to_y(ber_deeprx, snrs, target_y)
-                ax.semilogy(snrs, ber_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan",
-                            label=f"DeepRx @ {round(100 * target_y)}% = {snr_target_deeprx}")
+                lbl_drx = "DeepRx" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepRx @ {round(100 * target_y)}% = {snr_target_deeprx}"
+                _plot(ber_deeprx, snrs, linestyle=dashes[3], marker=markers[3], color="cyan", label=lbl_drx)
 
             ber_mhsa_1 = avg("ber_mhsa_1", use_log_interp=use_log_interp_for_missing)
             mhsa_arr = np.asarray(ber_mhsa_1, dtype=float)
             if np.isfinite(mhsa_arr).any() and not np.all(mhsa_arr[np.isfinite(mhsa_arr)] == 0):
                 snr_target_mhsa = _safe_interp_x_to_y(ber_mhsa_1, snrs, target_y)
-                ax.semilogy(snrs, ber_mhsa_1, linestyle=dashes[0], marker=markers[0], color="orange",
-                            label=f"MHSA1 @ {round(100 * target_y)}% = {snr_target_mhsa}")
+                lbl_mhsa = "MHSA1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"MHSA1 @ {round(100 * target_y)}% = {snr_target_mhsa}"
+                _plot(ber_mhsa_1, snrs, linestyle=dashes[0], marker=markers[0], color="orange", label=lbl_mhsa)
 
             ber_tdfdcnn_1 = avg("ber_tdfdcnn_1", use_log_interp=use_log_interp_for_missing)
             tdfdcnn_arr = np.asarray(ber_tdfdcnn_1, dtype=float)
             if np.isfinite(tdfdcnn_arr).any() and not np.all(tdfdcnn_arr[np.isfinite(tdfdcnn_arr)] == 0):
                 snr_target_tdfdcnn = _safe_interp_x_to_y(ber_tdfdcnn_1, snrs, target_y)
-                ax.semilogy(snrs, ber_tdfdcnn_1, linestyle=dashes[1], marker=markers[1], color="olive",
-                            label=f"TDFDCNN1 @ {round(100 * target_y)}% = {snr_target_tdfdcnn}")
+                lbl_tdf = "TDFDCNN1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"TDFDCNN1 @ {round(100 * target_y)}% = {snr_target_tdfdcnn}"
+                _plot(ber_tdfdcnn_1, snrs, linestyle=dashes[1], marker=markers[1], color="olive", label=lbl_tdf)
 
             ber_deepsicmb_1 = avg("ber_deepsicmb_1", use_log_interp=use_log_interp_for_missing)
             deepsicmb_arr = np.asarray(ber_deepsicmb_1, dtype=float)
             if np.isfinite(deepsicmb_arr).any() and not np.all(deepsicmb_arr[np.isfinite(deepsicmb_arr)] == 0):
                 snr_target_deepsicmb = _safe_interp_x_to_y(ber_deepsicmb_1, snrs, target_y)
-                ax.semilogy(snrs, ber_deepsicmb_1, linestyle=dashes[2], marker=markers[2], color="magenta",
-                            label=f"DeepSIC-MB1 @ {round(100 * target_y)}% = {snr_target_deepsicmb}")
+                lbl_mb = "DeepSIC-MB1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSIC-MB1 @ {round(100 * target_y)}% = {snr_target_deepsicmb}"
+                _plot(ber_deepsicmb_1, snrs, linestyle=dashes[2], marker=markers[2], color="magenta", label=lbl_mb)
 
             ber_deepstag_1 = avg("ber_deepstag_1", use_log_interp=use_log_interp_for_missing)
             deepstag_arr = np.asarray(ber_deepstag_1, dtype=float)
             if np.isfinite(deepstag_arr).any() and not np.all(deepstag_arr[np.isfinite(deepstag_arr)] == 0):
                 snr_target_deepstag = _safe_interp_x_to_y(ber_deepstag_1, snrs, target_y)
-                ax.semilogy(snrs, ber_deepstag_1, linestyle=dashes[3], marker=markers[5], color="teal",
-                            label=f"DeepSTAG1 @ {round(100 * target_y)}% = {snr_target_deepstag}")
+                lbl_stag = "DeepSTAG1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSTAG1 @ {round(100 * target_y)}% = {snr_target_deepstag}"
+                _plot(ber_deepstag_1, snrs, linestyle=dashes[3], marker=markers[5], color="teal", label=lbl_stag)
 
             if plot_type == "BLER":
                 bler_avg_curves = {
@@ -885,7 +894,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
-            ax.set_yscale("log")
+            if not (PLOT_BER_AS_GFMI and plot_type == "BER"):
+                ax.set_yscale("log")
             ax.grid(True)
             ax.legend()
 

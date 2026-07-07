@@ -10,9 +10,9 @@ input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
-seeds=(123)
-snrs=($(seq -15 20))
-cfos=(0 0.3 0.4)
+seeds=(123 42)
+snrs=($(seq -10 20))
+cfos=(0 0.4)
 
 clip_percentage_in_tx_vals=(35)
 use_film_vals=(False)
@@ -26,7 +26,7 @@ epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-3)
+learning_rate_vals=(5.0e-3 5.0e-4 5.0e-5)
 
 escnn_load_freeze_vals=(
   'none'
@@ -34,14 +34,9 @@ escnn_load_freeze_vals=(
 
 llr_nll_mode_vals=(
   'none'
-  'fitted_data'
-  'fitted_postsinr'
-  'fitted_genie'
-  'consistent_data'
-  'consistent_postsinr'
-  'consistent_genie'
   'gfmi'
 )
+
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -189,6 +184,7 @@ for seed in "${seeds[@]}"; do
                                                     scale_only)     freeze_tag="frscaleonly" ;;
                                                     last_conv_only) freeze_tag="frlastconvonly" ;;
                                                     first_conv_only) freeze_tag="frfirstconvonly" ;;
+                                                    first_conv_and_scale_only) freeze_tag="frfirstconvandscaleonly" ;; 
                                                     *)
                                                       echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                       exit 1
@@ -204,8 +200,8 @@ for seed in "${seeds[@]}"; do
                                                       consistent_data)       nlltag="nllcd" ;;
                                                       consistent_postsinr)   nlltag="nllcp" ;;
                                                       consistent_genie)      nlltag="nllcg" ;;
-                                                      gfmi)                  nlltag="nllgf" ;;
-                                                      *)
+                                                      gfmi)                  nlltag="nllgf" ;;                                                      
+						      *)
                                                         echo "ERROR: Unknown llr_nll_mode: $llr_nll_mode" >&2
                                                         exit 1
                                                         ;;
@@ -286,3 +282,4 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+

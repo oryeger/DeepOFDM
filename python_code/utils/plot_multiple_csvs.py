@@ -18,9 +18,9 @@ from scipy.io import savemat
 
 # 🔧 Configuration
 CSV_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
-# Set to True when the BER CSV contains GFMI values (llr_nll_mode='gfmi').
+# Auto-detected inside plot_csvs() from filenames: True when any file has nll=<nonzero>.
 # Switches the BER panel to a linear y-axis, labels it "GFMI", and disables log-space gap filling.
-PLOT_BER_AS_GFMI = True
+PLOT_BER_AS_GFMI = True  # fallback default; overridden per-call
 # seeds = [123, 17, 41, 58, 1011, 1809, 3008, 1806, 912, 1505, 1807, 1109]
 # For 0.4:
 seeds = [123, 17, 41, 58, 1011, 3008, 1806, 912, 1807, 1109, 42]
@@ -353,6 +353,19 @@ def _fill_all_missing_points(snrs, values, use_log_interp=True):
     return y, filled_positions
 
 
+def _has_nonzero_nll(filenames):
+    """Return True if any filename contains nll=<nonzero value>."""
+    for f in filenames:
+        m = re.search(r'nll=([^_,\s]+)', os.path.basename(f), re.IGNORECASE)
+        if m:
+            try:
+                if float(m.group(1)) != 0:
+                    return True
+            except ValueError:
+                pass
+    return False
+
+
 def plot_csvs(filter_pattern=None, plot_all_iters=False):
     """
     Plot BER/BLER/MI from CSV files in CSV_DIR.
@@ -369,6 +382,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         all_files = sorted(glob.glob(os.path.join(CSV_DIR, "*.csv")))
 
     print(f"[INFO] Found {len(all_files)} files matching pattern.")
+    PLOT_BER_AS_GFMI = _has_nonzero_nll(all_files)
+    print(f"[INFO] PLOT_BER_AS_GFMI = {PLOT_BER_AS_GFMI}")
 
     pat_upper = (filter_pattern or "").upper()
     show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper

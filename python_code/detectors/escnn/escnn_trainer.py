@@ -1,4 +1,5 @@
 
+import math
 from datetime import datetime
 from typing import List
 
@@ -236,12 +237,25 @@ class ESCNNTrainer(Trainer):
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor, mask: torch.Tensor = None) -> torch.Tensor:
         """
-        Cross Entropy loss - distribution over states versus the gt state label.
-        `mask` (same shape as tx) excludes bits forced constant by lower-order
-        pilot thirds (see pilot_third_bit_mask) from the loss.
+        Loss dispatched by conf.training_loss:
+          'bce'  - BCEWithLogitsLoss (sigmoid applied internally); uses tx and mask.
+          'gfmi' - Blind EXIT-MI loss: minimises 1-GFMI = mean binary entropy of |L|.
+                   Accepts but ignores tx (kept for signature compatibility).
+                   Mask is still applied so constant pilot bits are excluded.
         """
         est_rs = est.squeeze(-1)
-        elementwise_loss = self.criterion(input=est_rs, target=tx)
+        loss_mode = getattr(conf, 'training_loss', 'bce')
+
+        if loss_mode == 'gfmi':
+            a = est_rs.abs()
+            # log2(1 + exp(-|L|))  — numerically safe; → 0 for large |L|
+            term1 = torch.log1p(torch.exp(-a)) / math.log(2)
+            # (|L| / ln2) * sigmoid(-|L|)  — → 0 for large |L|
+            term2 = (a / math.log(2)) * torch.sigmoid(-a)
+            elementwise_loss = term1 + term2  # = 1 - per-bit GFMI contribution; minimise
+        else:
+            elementwise_loss = self.criterion(input=est_rs, target=tx)
+
         if mask is None:
             return elementwise_loss.mean()
         mask = mask.to(elementwise_loss.dtype)

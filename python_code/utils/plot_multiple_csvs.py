@@ -362,7 +362,7 @@ def _has_nonzero_nll(filenames):
                 if float(m.group(1)) != 0:
                     return True
             except ValueError:
-                pass
+                return True  # non-numeric (e.g. 'gfmi') counts as nonzero
     return False
 
 

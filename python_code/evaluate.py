@@ -315,19 +315,14 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     if conf.mcs > -1:
         title_string = title_string + f'_R={code_rate:.2f}'
     title_string = title_string + '_PDR_' + str(pilot_data_ratio)
-    title_string = title_string + '_ONV_' + str(conf.override_noise_var)
     title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
     title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
     title_string = title_string + '_b' + str(conf.batch_size)
-    title_string = title_string + '_es=' + str(int(getattr(conf, 'early_stopping_patience', -1)))
-    title_string = title_string + '_do=' + str(getattr(conf, 'escnn_dropout', 0.0))
-    title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
     title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
     title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
     title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
     title_string = title_string + '_bf=' + str(conf.block_length_factor)
     title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-    title_string = title_string + '_' + conf.cur_str
     return title_string
 
 
@@ -2013,6 +2008,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                       'gfmi': 'gf'}
         _nll_tag = _nll_short.get(getattr(conf, 'llr_nll_mode', 'none'), '0')
         title_string = title_string + '_nll=' + _nll_tag
+        _tl_short = {'gfmi': 'gf', 'bce': 'bce'}
+        _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
+        title_string = title_string + '_tl=' + _tl_tag
+        title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')

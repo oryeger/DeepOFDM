@@ -777,7 +777,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
-            ax.set_ylim(top=1.0)
+            ax.set_ylim(0.0, 1.0)
             ax.grid(True)
             ax.legend()
 
@@ -909,7 +909,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
-            if not (PLOT_BER_AS_GFMI and plot_type == "BER"):
+            if PLOT_BER_AS_GFMI and plot_type == "BER":
+                ax.set_ylim(0.0, 1.0)
+            else:
                 ax.set_yscale("log")
             ax.grid(True)
             ax.legend()

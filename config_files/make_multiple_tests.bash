@@ -26,17 +26,19 @@ epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-3 5.0e-4 5.0e-5)
+learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
 )
 
 llr_nll_mode_vals=(
-  'none'
   'gfmi'
 )
 
+training_loss_vals=(
+  'gfmi'
+)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -47,7 +49,7 @@ which_augment_vals=(
   'AUGMENT_LMMSE'
 )
 
-channel_model_vals=('N')
+channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
@@ -200,16 +202,26 @@ for seed in "${seeds[@]}"; do
                                                       consistent_data)       nlltag="nllcd" ;;
                                                       consistent_postsinr)   nlltag="nllcp" ;;
                                                       consistent_genie)      nlltag="nllcg" ;;
-                                                      gfmi)                  nlltag="nllgf" ;;                                                      
+                                                      gfmi)                  nlltag="nllgf" ;;
 						      *)
                                                         echo "ERROR: Unknown llr_nll_mode: $llr_nll_mode" >&2
                                                         exit 1
                                                         ;;
                                                     esac
 
+                                                  for training_loss in "${training_loss_vals[@]}"; do
+                                                    case "$training_loss" in
+                                                      gfmi) tltag="tlgf" ;;
+                                                      bce)  tltag="tlbce" ;;
+                                                      *)
+                                                        echo "ERROR: Unknown training_loss: $training_loss" >&2
+                                                        exit 1
+                                                        ;;
+                                                    esac
+
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -238,12 +250,14 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
                                                         -e "s/^llr_nll_mode:.*/llr_nll_mode: '$llr_nll_mode'/" \
+                                                        -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         "$input_file" > "$out_file"
 
                                                     all_config_files+=("$out_file")
                                                     ((total_count++))
                                                   done
-                                                  done
+                                                  done  # training_loss
+                                                  done  # llr_nll_mode
                                                 done
                                               done
                                             done
@@ -282,4 +296,5 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+
 

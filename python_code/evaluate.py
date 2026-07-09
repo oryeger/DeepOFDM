@@ -195,7 +195,7 @@ def calc_llr_nll(llrs_mat, fixed_mu=None) -> dict:
     fixed_mu: pre-computed μ (postEqSINR or genie) passed in by the caller.
     Returns a dict with keys 'consistent' and/or 'fitted'.
     """
-    mode = getattr(conf, 'llr_nll_mode', 'none')
+    mode = getattr(conf, 'llr_nll_mode', 'none') or 'none'
     if mode == 'none':
         return {}
 

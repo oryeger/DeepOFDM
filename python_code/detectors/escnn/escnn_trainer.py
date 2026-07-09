@@ -111,8 +111,12 @@ class ESCNNTrainer(Trainer):
 
         stopped_early = False
         last_epoch = epochs
+        _log_hb = (getattr(conf, 'training_loss', 'bce') == 'gfmi'
+                   and getattr(conf, 'beta_gfmi', 0.0) > 0.0)
+
         for epoch in range(epochs):
             epoch_loss = 0.0
+            epoch_hb = 0.0
             num_batches = 0
 
             # Mini-batch training
@@ -138,9 +142,12 @@ class ESCNNTrainer(Trainer):
                 self.optimizer.step()
 
                 epoch_loss += loss.item()
+                if _log_hb:
+                    epoch_hb += self._calc_h_marginal(llrs_cur, batch_mask_cur)
                 num_batches += 1
 
             avg_train_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
+            avg_train_hb = epoch_hb / num_batches if num_batches > 0 else 0.0
             train_loss_vect.append(avg_train_loss)
 
             # Calculate validation loss
@@ -148,11 +155,18 @@ class ESCNNTrainer(Trainer):
                 rx_prob_val_device = rx_prob_val.to(DEVICE)
                 _, llrs_val = single_model(rx_prob_val_device)
                 if first_half_flag:
-                    val_loss = self._calculate_loss(llrs_val[:, 0::2, :, :], tx_val[:, 0::2, :].to(DEVICE),
-                                                     mask_val[:, 0::2, :].to(DEVICE))
+                    llrs_val_cur = llrs_val[:, 0::2, :, :]
+                    mask_val_cur = mask_val[:, 0::2, :].to(DEVICE)
+                    val_loss = self._calculate_loss(llrs_val_cur, tx_val[:, 0::2, :].to(DEVICE), mask_val_cur)
                 else:
-                    val_loss = self._calculate_loss(llrs_val, tx_val.to(DEVICE), mask_val.to(DEVICE))
+                    llrs_val_cur = llrs_val
+                    mask_val_cur = mask_val.to(DEVICE)
+                    val_loss = self._calculate_loss(llrs_val_cur, tx_val.to(DEVICE), mask_val_cur)
                 val_loss_vect.append(val_loss.item())
+                val_hb = self._calc_h_marginal(llrs_val_cur, mask_val_cur) if _log_hb else None
+
+            def _hb_suffix(train_hb, v_hb):
+                return f" Hb(q̄): train={train_hb:.4f} val={v_hb:.4f}"
 
             if es_enabled:
                 cur_val = val_loss.item()
@@ -167,6 +181,8 @@ class ESCNNTrainer(Trainer):
                         last_epoch = epoch + 1
                         if log_enabled:
                             msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f} best_val={best_val_loss:.4f}"
+                            if _log_hb:
+                                msg += _hb_suffix(avg_train_hb, val_hb)
                             print(msg, flush=True)
                         break
 
@@ -174,6 +190,8 @@ class ESCNNTrainer(Trainer):
                 msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f}"
                 if es_enabled:
                     msg += f" best_val={best_val_loss:.4f}"
+                if _log_hb:
+                    msg += _hb_suffix(avg_train_hb, val_hb)
                 print(msg, flush=True)
 
         if not stopped_early:
@@ -235,6 +253,19 @@ class ESCNNTrainer(Trainer):
                 val_loss_vect = val_loss_vect + val_loss_cur
         return train_loss_vect , val_loss_vect
 
+    @staticmethod
+    def _calc_h_marginal(est: torch.Tensor, mask: torch.Tensor = None) -> float:
+        """H_b(q_bar) where q_bar = mean(sigmoid(L)) over non-pilot bits. Diagnostic only."""
+        est_rs = est.squeeze(-1)
+        q = torch.sigmoid(est_rs)
+        if mask is not None:
+            q = q[mask.bool()]
+        q_bar = q.mean()
+        eps = 1e-7
+        h = -(q_bar * torch.log2(q_bar.clamp(min=eps))
+              + (1.0 - q_bar) * torch.log2((1.0 - q_bar).clamp(min=eps)))
+        return h.item()
+
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor, mask: torch.Tensor = None) -> torch.Tensor:
         """
         Loss dispatched by conf.training_loss:
@@ -252,14 +283,29 @@ class ESCNNTrainer(Trainer):
             term1 = torch.log1p(torch.exp(-a)) / math.log(2)
             # (|L| / ln2) * sigmoid(-|L|)  — → 0 for large |L|
             term2 = (a / math.log(2)) * torch.sigmoid(-a)
-            elementwise_loss = term1 + term2  # = 1 - per-bit GFMI contribution; minimise
+            elementwise_loss = term1 + term2  # = H_b(sigma(|L|)), the per-bit GFMI term
         else:
             elementwise_loss = self.criterion(input=est_rs, target=tx)
 
         if mask is None:
-            return elementwise_loss.mean()
-        mask = mask.to(elementwise_loss.dtype)
-        return (elementwise_loss * mask).sum() / mask.sum().clamp(min=1.0)
+            l0 = elementwise_loss.mean()
+            q_flat = torch.sigmoid(est_rs)
+        else:
+            mask = mask.to(elementwise_loss.dtype)
+            l0 = (elementwise_loss * mask).sum() / mask.sum().clamp(min=1.0)
+            q_flat = torch.sigmoid(est_rs[mask.bool()])
+
+        # Marginal-entropy penalty (Sec 3.1): L1 = L0 - beta * H_b(q_bar)
+        # Forces batch-average soft bit toward 0.5, preventing all-same-sign collapse.
+        # Only active for gfmi loss; beta_gfmi=0 disables it.
+        beta = getattr(conf, 'beta_gfmi', 0.0) if loss_mode == 'gfmi' else 0.0
+        if beta > 0.0:
+            q_bar = q_flat.mean()
+            eps = 1e-7
+            h_marginal = -(q_bar * torch.log2(q_bar.clamp(min=eps))
+                           + (1.0 - q_bar) * torch.log2((1.0 - q_bar).clamp(min=eps)))
+            return l0 - beta * h_marginal
+        return l0
 
     @staticmethod
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:

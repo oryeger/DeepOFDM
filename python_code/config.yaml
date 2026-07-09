@@ -81,6 +81,7 @@ no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclus
 calc_mi: True
 llr_nll_mode: 'none'  # 'none' | 'fitted_data' | 'fitted_postsinr' | 'fitted_genie' | 'consistent_data' | 'consistent_postsinr' | 'consistent_genie' | 'gfmi'
 training_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, no transmitted bits used)
+beta_gfmi: 0.0  # marginal-entropy penalty weight (Sec 3.1): L1 = L0 - beta*H_b(q_bar). 0=disabled, 1=full IM
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 

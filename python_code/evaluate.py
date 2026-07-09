@@ -482,6 +482,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         llr_h5_path = base_dir / f"llrs_tmp_{conf.cur_str}.h5"
         llr_h5_file = h5py.File(llr_h5_path, "w")
 
+    _saved_weights_tag = None  # captured when save_escnn_weights=True; returned to caller
+
     for snr_cur in SNR_range:
         print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment} =====", flush=True)
         ber_sum = np.zeros(iterations)
@@ -1060,6 +1062,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                                    iterations, code_rate if conf.mcs > -1 else None,
                                                                    pilot_data_ratio, corr_level)
                     weights_tag = _escnn_weights_tag(weights_suffix + '_s=' + str(conf.channel_seed))
+                    _saved_weights_tag = weights_tag
                     weights_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad', 'weights'))
                     os.makedirs(_long_path(weights_dir), exist_ok=True)
                     weights_filename = f"{weights_suffix}_s={conf.channel_seed}_SNR={conf.snr}_{weights_tag}.pt"
@@ -2011,6 +2014,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         _tl_short = {'gfmi': 'gf', 'bce': 'bce'}
         _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
         title_string = title_string + '_tl=' + _tl_tag
+        _beta = getattr(conf, 'beta_gfmi', 0.0)
+        title_string = title_string + '_bg=' + str(_beta)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string
@@ -2257,7 +2262,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     # print(escnn_trainer.detector[0][0].shared_backbone.fc.weight)
     # print(escnn_trainer.detector[1][0].instance_heads[0].fc1.weight[0])
 
-    return total_ber_list
+    return total_ber_list, _saved_weights_tag
 
 
 if __name__ == '__main__':

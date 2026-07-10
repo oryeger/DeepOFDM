@@ -1,5 +1,5 @@
 snr: 14
-cur_str: abcc
+cur_str: drrift
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -78,7 +78,7 @@ no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclus
 calc_mi: True
 llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2μ), 'fitted' (NLL with free σ²), 'both'
 training_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, no transmitted bits used)
-beta_gfmi: 0.0  # marginal-entropy penalty weight (Sec 3.1): L1 = L0 - beta*H_b(q_bar). 0=disabled, 1=full IM
+beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi and tent. 0=disabled
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 

@@ -111,8 +111,8 @@ class ESCNNTrainer(Trainer):
 
         stopped_early = False
         last_epoch = epochs
-        _log_hb = (getattr(conf, 'training_loss', 'bce') == 'gfmi'
-                   and getattr(conf, 'beta_gfmi', 0.0) > 0.0)
+        _log_hb = (getattr(conf, 'training_loss', 'bce') in ('gfmi', 'tent')
+                   and getattr(conf, 'beta_balance', 0.0) > 0.0)
 
         for epoch in range(epochs):
             epoch_loss = 0.0
@@ -284,6 +284,14 @@ class ESCNNTrainer(Trainer):
             # (|L| / ln2) * sigmoid(-|L|)  — → 0 for large |L|
             term2 = (a / math.log(2)) * torch.sigmoid(-a)
             elementwise_loss = term1 + term2  # = H_b(sigma(|L|)), the per-bit GFMI term
+        elif loss_mode == 'tent':
+            # Prediction-entropy minimization (TENT, Wang et al. 2021).
+            # H_b(sigma(L)) in bits via Bernoulli(logits=L).entropy(), which uses
+            # softplus internally — stable at large |L|, no explicit sigmoid-then-log.
+            # Algebraic equivalence: minimising tent == maximising GFMI
+            # (same optimum, opposite sign convention; GFMI wraps as 1 - mean(H_b)).
+            # The beta balance term below has no GFMI counterpart.
+            elementwise_loss = torch.distributions.Bernoulli(logits=est_rs).entropy() / math.log(2)
         else:
             elementwise_loss = self.criterion(input=est_rs, target=tx)
 
@@ -295,10 +303,13 @@ class ESCNNTrainer(Trainer):
             l0 = (elementwise_loss * mask).sum() / mask.sum().clamp(min=1.0)
             q_flat = torch.sigmoid(est_rs[mask.bool()])
 
-        # Marginal-entropy penalty (Sec 3.1): L1 = L0 - beta * H_b(q_bar)
-        # Forces batch-average soft bit toward 0.5, preventing all-same-sign collapse.
-        # Only active for gfmi loss; beta_gfmi=0 disables it.
-        beta = getattr(conf, 'beta_gfmi', 0.0) if loss_mode == 'gfmi' else 0.0
+        # Marginal-entropy balance term: loss -= beta * H_b(q_bar)
+        # Maximises marginal entropy to push q_bar toward 0.5, preventing
+        # all-same-sign collapse. Each loss mode reads its own beta key.
+        if loss_mode in ('gfmi', 'tent'):
+            beta = getattr(conf, 'beta_balance', 0.0)
+        else:
+            beta = 0.0
         if beta > 0.0:
             q_bar = q_flat.mean()
             eps = 1e-7

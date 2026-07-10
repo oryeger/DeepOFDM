@@ -12,7 +12,7 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123)
 snrs=($(seq -10 20))
-cfos=(0 0.4)
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -30,20 +30,18 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
-  'first_conv_only'
 )
 
 
 llr_nll_mode_vals=(
   'gfmi'
-  'none'
 )
 
 training_loss_vals=(
   'gfmi'
 )
 
-beta_gfmi_vals=(0 0.25 0.5 1)
+beta_balance_vals=(0)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -51,7 +49,7 @@ spatial_correlation_vals=('low')
 batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_LMMSE'
+  'NO_AUGMENT'
 )
 
 channel_model_vals=('C')
@@ -219,18 +217,19 @@ for seed in "${seeds[@]}"; do
                                                     case "$training_loss" in
                                                       gfmi) tltag="tlgf" ;;
                                                       bce)  tltag="tlbce" ;;
+                                                      tent) tltag="tltent" ;;
                                                       *)
                                                         echo "ERROR: Unknown training_loss: $training_loss" >&2
                                                         exit 1
                                                         ;;
                                                     esac
 
-                                                  for beta_gfmi in "${beta_gfmi_vals[@]}"; do
-                                                    bgtag="bg${beta_gfmi//./p}"
+                                                  for beta_balance in "${beta_balance_vals[@]}"; do
+                                                    bbtag="bb${beta_balance//./p}"
 
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bgtag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -260,13 +259,13 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
                                                         -e "s/^llr_nll_mode:.*/llr_nll_mode: '$llr_nll_mode'/" \
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
-                                                        -e "s/^beta_gfmi:.*/beta_gfmi: $beta_gfmi/" \
+                                                        -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         "$input_file" > "$out_file"
 
                                                     all_config_files+=("$out_file")
                                                     ((total_count++))
                                                   done
-                                                  done  # beta_gfmi
+                                                  done  # beta_balance
                                                   done  # training_loss
                                                   done  # llr_nll_mode
                                                 done
@@ -307,6 +306,7 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+
 
 
 

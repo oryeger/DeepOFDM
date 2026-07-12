@@ -12,6 +12,7 @@ import tensorflow as tf
 
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.crc_wrapper import CRC5GCodec
+from python_code.coding.pilot_coding import encode_pilots
 from python_code.utils.probs_utils import skip_indices
 
 
@@ -45,6 +46,11 @@ class MIMOChannel:
             codec = LDPC5GCodec(k=(ldpc_k+crc_length), n=ldpc_n)
             crc = CRC5GCodec(crc_length)
             tx_pilots = self._bits_generator.integers(0, 2, size=(self._pilot_length, n_users, num_res))
+            # The 64QAM pilot-mix feature below overwrites pilot bits with 1s,
+            # which would destroy codewords — so coded pilots require mix == 0.
+            if getattr(conf, 'encode_pilots', False) and conf.make_64QAM_16QAM_percentage == 0:
+                tx_pilots = encode_pilots(self._bits_generator, self._pilot_length,
+                                          num_res, n_users, codec, crc, ldpc_k, ldpc_n)
             tx_data_coded = np.zeros((n_users , data_length*num_res))
             num_slots = int(np.floor(data_length*num_res/ldpc_n))
             remainder = (data_length * num_res) % ldpc_n

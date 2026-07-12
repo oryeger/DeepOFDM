@@ -4,7 +4,7 @@ num_snrs: 1
 n_ants: 8
 snr_step: 1
 n_users: 4
-mcs: 4
+mcs: 2
 mod_pilot: -1
 block_length_factor: 3
 num_res: 4
@@ -15,7 +15,7 @@ iqmm_phase: 0 # in degrees
 epochs: 2
 iterations: 1
 pilot_size: 100
-batch_size: 1024
+batch_size: -1
 shuffle: False
 shuffle_augment_priors: False
 shuffle_augment_seed: 15  # Seed for shuffle_augment_priors (-1 = random each run)
@@ -80,8 +80,11 @@ no_probs: False
 no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
 llr_nll_mode: 'none'  # 'none' | 'fitted_data' | 'fitted_postsinr' | 'fitted_genie' | 'consistent_data' | 'consistent_postsinr' | 'consistent_genie' | 'gfmi'
-training_loss: 'tent'  # 'bce' | 'gfmi' (blind EXIT-MI) | 'tent' (prediction-entropy minimization)
-beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi and tent. 0=disabled
+training_loss: 'tsyn'  # 'bce' | 'gfmi' (blind EXIT-MI) | 'tent' (prediction-entropy minimization) | 'tsyn' (tent + LDPC syndrome anchor)
+beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
+tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
+tsyn_punctured_fallback: False  # tsyn: estimate punctured-bit soft values (single detached VN update) and use all checks, instead of restricting to checks untouched by punctured positions
+encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 

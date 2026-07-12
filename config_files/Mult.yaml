@@ -78,7 +78,10 @@ no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclus
 calc_mi: True
 llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2μ), 'fitted' (NLL with free σ²), 'both'
 training_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, no transmitted bits used)
-beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi and tent. 0=disabled
+beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
+tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
+tsyn_punctured_fallback: False  # tsyn: estimate punctured-bit soft values (single detached VN update) and use all checks, instead of restricting to checks untouched by punctured positions
+encode_pilots: False  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 

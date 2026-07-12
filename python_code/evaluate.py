@@ -2011,11 +2011,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                       'gfmi': 'gf'}
         _nll_tag = _nll_short.get(getattr(conf, 'llr_nll_mode', 'none'), '0')
         title_string = title_string + '_nll=' + _nll_tag
-        _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent'}
+        _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}
         _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
         title_string = title_string + '_tl=' + _tl_tag
         _beta = getattr(conf, 'beta_balance', 0.0)
         title_string = title_string + '_bb=' + str(_beta)
+        _tw = getattr(conf, 'tw', 0.5)
+        title_string = title_string + '_tw=' + str(_tw)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string

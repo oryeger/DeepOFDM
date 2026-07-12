@@ -19,8 +19,12 @@ except ImportError:
 
 import tensorflow as tf
 import numpy as np
-from sionna.fec.ldpc.encoding import LDPC5GEncoder
-from sionna.fec.ldpc.decoding import LDPC5GDecoder
+try:
+    from sionna.fec.ldpc.encoding import LDPC5GEncoder
+    from sionna.fec.ldpc.decoding import LDPC5GDecoder
+except ImportError:  # Sionna >= 1.0 moved FEC under sionna.phy
+    from sionna.phy.fec.ldpc.encoding import LDPC5GEncoder
+    from sionna.phy.fec.ldpc.decoding import LDPC5GDecoder
 
 
 class LDPC5GCodec:

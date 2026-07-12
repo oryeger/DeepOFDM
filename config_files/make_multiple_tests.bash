@@ -43,6 +43,8 @@ training_loss_vals=(
 
 beta_balance_vals=(0)
 
+tw_vals=(0.5)
+
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
 
@@ -218,6 +220,7 @@ for seed in "${seeds[@]}"; do
                                                       gfmi) tltag="tlgf" ;;
                                                       bce)  tltag="tlbce" ;;
                                                       tent) tltag="tltent" ;;
+                                                      tsyn) tltag="tltsyn" ;;
                                                       *)
                                                         echo "ERROR: Unknown training_loss: $training_loss" >&2
                                                         exit 1
@@ -227,9 +230,12 @@ for seed in "${seeds[@]}"; do
                                                   for beta_balance in "${beta_balance_vals[@]}"; do
                                                     bbtag="bb${beta_balance//./p}"
 
+                                                  for tw in "${tw_vals[@]}"; do
+                                                    twtag="tw${tw//./p}"
+
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -260,11 +266,13 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^llr_nll_mode:.*/llr_nll_mode: '$llr_nll_mode'/" \
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
+                                                        -e "s/^tw:.*/tw: $tw/" \
                                                         "$input_file" > "$out_file"
 
                                                     all_config_files+=("$out_file")
                                                     ((total_count++))
                                                   done
+                                                  done  # tw
                                                   done  # beta_balance
                                                   done  # training_loss
                                                   done  # llr_nll_mode

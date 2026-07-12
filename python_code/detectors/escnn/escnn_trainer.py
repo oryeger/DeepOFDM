@@ -10,9 +10,10 @@ from torch.utils.data import DataLoader, TensorDataset
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
+from python_code.coding.mcs_table import get_mcs
 from python_code.detectors.escnn.escnn_detector import ESCNNDetector
 from python_code.detectors.trainer import Trainer
-from python_code.utils.constants import HALF, TRAIN_PERCENTAGE
+from python_code.utils.constants import HALF, TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
@@ -63,9 +64,15 @@ class ESCNNTrainer(Trainer):
             bit_mask = pilot_third_bit_mask(tx_reshaped.shape[0], num_bits)
             loss_mask = bit_mask.unsqueeze(-1).expand_as(tx_reshaped)
 
+        # tsyn: codeword windows start at symbol 0, so every region the loss
+        # sees must begin on a slot boundary (NUM_SYMB_PER_SLOT symbols).
+        _slot_align = (getattr(conf, 'training_loss', 'bce') == 'tsyn')
+
         # Restrict to primary detector's validation portion only
         if getattr(conf, 'escnn_use_primary_val_only', False):
             primary_train_samples = rx_prob.shape[0] // 2
+            if _slot_align:
+                primary_train_samples -= primary_train_samples % NUM_SYMB_PER_SLOT
             rx_prob = rx_prob[primary_train_samples:]
             tx_reshaped = tx_reshaped[primary_train_samples:]
             loss_mask = loss_mask[primary_train_samples:]
@@ -81,6 +88,8 @@ class ESCNNTrainer(Trainer):
 
         # Split into train and validation sets
         train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
+        if _slot_align:
+            train_samples -= train_samples % NUM_SYMB_PER_SLOT
         rx_prob_train = rx_prob[:train_samples]
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]
@@ -111,12 +120,17 @@ class ESCNNTrainer(Trainer):
 
         stopped_early = False
         last_epoch = epochs
-        _log_hb = (getattr(conf, 'training_loss', 'bce') in ('gfmi', 'tent')
+        _log_hb = (getattr(conf, 'training_loss', 'bce') in ('gfmi', 'tent', 'tsyn')
                    and getattr(conf, 'beta_balance', 0.0) > 0.0)
+        _log_tsyn = getattr(conf, 'training_loss', 'bce') == 'tsyn'
 
         for epoch in range(epochs):
             epoch_loss = 0.0
             epoch_hb = 0.0
+            epoch_tent = 0.0
+            epoch_synd = 0.0
+            epoch_sat = 0.0
+            num_synd_batches = 0
             num_batches = 0
 
             # Mini-batch training
@@ -144,6 +158,14 @@ class ESCNNTrainer(Trainer):
                 epoch_loss += loss.item()
                 if _log_hb:
                     epoch_hb += self._calc_h_marginal(llrs_cur, batch_mask_cur)
+                if _log_tsyn:
+                    st = getattr(self, '_tsyn_stats', None)
+                    if st is not None:
+                        epoch_tent += st['l_tent']
+                        if st['l_synd'] is not None:
+                            epoch_synd += st['l_synd']
+                            epoch_sat += st['sat']
+                            num_synd_batches += 1
                 num_batches += 1
 
             avg_train_loss = epoch_loss / num_batches if num_batches > 0 else 0.0
@@ -164,9 +186,22 @@ class ESCNNTrainer(Trainer):
                     val_loss = self._calculate_loss(llrs_val_cur, tx_val.to(DEVICE), mask_val_cur)
                 val_loss_vect.append(val_loss.item())
                 val_hb = self._calc_h_marginal(llrs_val_cur, mask_val_cur) if _log_hb else None
+                val_tsyn = dict(getattr(self, '_tsyn_stats', {})) if _log_tsyn else None
 
             def _hb_suffix(train_hb, v_hb):
                 return f" Hb(q̄): train={train_hb:.4f} val={v_hb:.4f}"
+
+            def _tsyn_suffix():
+                # Raw components logged separately: their scales are not
+                # comparable (grid entropy vs check log-penalty) — needed for tw tuning.
+                s = f" tent={epoch_tent / max(num_batches, 1):.4f}"
+                if num_synd_batches > 0:
+                    s += (f" synd={epoch_synd / num_synd_batches:.4f}"
+                          f" sat={epoch_sat / num_synd_batches:.3f}")
+                if val_tsyn and val_tsyn.get('l_synd') is not None:
+                    s += (f" val_synd={val_tsyn['l_synd']:.4f}"
+                          f" val_sat={val_tsyn['sat']:.3f}")
+                return s
 
             if es_enabled:
                 cur_val = val_loss.item()
@@ -183,6 +218,8 @@ class ESCNNTrainer(Trainer):
                             msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f} best_val={best_val_loss:.4f}"
                             if _log_hb:
                                 msg += _hb_suffix(avg_train_hb, val_hb)
+                            if _log_tsyn:
+                                msg += _tsyn_suffix()
                             print(msg, flush=True)
                         break
 
@@ -192,6 +229,8 @@ class ESCNNTrainer(Trainer):
                     msg += f" best_val={best_val_loss:.4f}"
                 if _log_hb:
                     msg += _hb_suffix(avg_train_hb, val_hb)
+                if _log_tsyn:
+                    msg += _tsyn_suffix()
                 print(msg, flush=True)
 
         if not stopped_early:
@@ -273,6 +312,8 @@ class ESCNNTrainer(Trainer):
           'gfmi' - Blind EXIT-MI loss: minimises 1-GFMI = mean binary entropy of |L|.
                    Accepts but ignores tx (kept for signature compatibility).
                    Mask is still applied so constant pilot bits are excluded.
+          'tsyn' - tw * L_tent + (1-tw) * L_synd, where L_synd is a soft LDPC
+                   syndrome penalty over the batch's codeword LLRs.
         """
         est_rs = est.squeeze(-1)
         loss_mode = getattr(conf, 'training_loss', 'bce')
@@ -284,13 +325,14 @@ class ESCNNTrainer(Trainer):
             # (|L| / ln2) * sigmoid(-|L|)  — → 0 for large |L|
             term2 = (a / math.log(2)) * torch.sigmoid(-a)
             elementwise_loss = term1 + term2  # = H_b(sigma(|L|)), the per-bit GFMI term
-        elif loss_mode == 'tent':
+        elif loss_mode in ('tent', 'tsyn'):
             # Prediction-entropy minimization (TENT, Wang et al. 2021).
             # H_b(sigma(L)) in bits via Bernoulli(logits=L).entropy(), which uses
             # softplus internally — stable at large |L|, no explicit sigmoid-then-log.
             # Algebraic equivalence: minimising tent == maximising GFMI
             # (same optimum, opposite sign convention; GFMI wraps as 1 - mean(H_b)).
             # The beta balance term below has no GFMI counterpart.
+            # tsyn reuses this exact tent term unchanged as its L_tent component.
             elementwise_loss = torch.distributions.Bernoulli(logits=est_rs).entropy() / math.log(2)
         else:
             elementwise_loss = self.criterion(input=est_rs, target=tx)
@@ -303,10 +345,30 @@ class ESCNNTrainer(Trainer):
             l0 = (elementwise_loss * mask).sum() / mask.sum().clamp(min=1.0)
             q_flat = torch.sigmoid(est_rs[mask.bool()])
 
+        if loss_mode == 'tsyn':
+            # NOTE: the two terms deliberately average over different bit sets —
+            # L_tent over the full rate-matched detector grid, L_synd over the
+            # code blocks (mother-codeword checks). This is intentional.
+            l_tent = l0
+            tw = float(getattr(conf, 'tw', 0.5))
+            synd_out = self._syndrome_component(est_rs)
+            if synd_out is None:
+                self._tsyn_stats = {'l_tent': float(l_tent.detach()), 'l_synd': None, 'sat': None}
+            else:
+                l_synd, sat = synd_out
+                l0 = tw * l_tent + (1.0 - tw) * l_synd
+                if tw >= 1.0 and not getattr(self, '_tsyn_equiv_checked', False):
+                    # tw=1 must reproduce training_loss='tent' exactly (first batch only)
+                    diff = abs(float((l0 - l_tent).detach()))
+                    assert diff < 1e-6, f"tsyn(tw=1) != tent: |diff|={diff:.3e}"
+                    self._tsyn_equiv_checked = True
+                self._tsyn_stats = {'l_tent': float(l_tent.detach()),
+                                    'l_synd': float(l_synd.detach()), 'sat': sat}
+
         # Marginal-entropy balance term: loss -= beta * H_b(q_bar)
         # Maximises marginal entropy to push q_bar toward 0.5, preventing
-        # all-same-sign collapse. Each loss mode reads its own beta key.
-        if loss_mode in ('gfmi', 'tent'):
+        # all-same-sign collapse. Orthogonal to the tsyn mixing above.
+        if loss_mode in ('gfmi', 'tent', 'tsyn'):
             beta = getattr(conf, 'beta_balance', 0.0)
         else:
             beta = 0.0
@@ -317,6 +379,82 @@ class ESCNNTrainer(Trainer):
                            + (1.0 - q_bar) * torch.log2((1.0 - q_bar).clamp(min=eps)))
             return l0 - beta * h_marginal
         return l0
+
+    def _tsyn_warn_once(self, key: str, msg: str):
+        if not hasattr(self, '_tsyn_warned'):
+            self._tsyn_warned = set()
+        if key not in self._tsyn_warned:
+            print(f"[tsyn] WARNING: {msg}", flush=True)
+            self._tsyn_warned.add(key)
+
+    def _get_syndrome_helper(self):
+        """Lazily build/cache the SyndromeLoss for the current LDPC configuration
+        (same k/n construction as evaluate.py's LDPC5GCodec)."""
+        if int(getattr(conf, 'mcs', -1)) <= -1:
+            return None
+        qm, code_rate = get_mcs(conf.mcs)
+        ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * int(qm))
+        ldpc_k = int(ldpc_n * code_rate)
+        crc_length = 24 if ldpc_k > 3824 else 16
+        key = (ldpc_k + crc_length, ldpc_n)
+        if getattr(self, '_synd_key', None) != key:
+            from python_code.coding.syndrome_loss import SyndromeLoss
+            self._synd = SyndromeLoss(
+                k=key[0], n=key[1], device=DEVICE,
+                punctured_fallback=bool(getattr(conf, 'tsyn_punctured_fallback', False)))
+            self._synd_key = key
+            self._synd_qm = int(qm)
+        return self._synd
+
+    def _syndrome_component(self, est_rs: torch.Tensor):
+        """L_synd on the batch grid, tapped in decoder-input stream order.
+
+        The per-user LLR grid (batch, num_bits, num_res) flattened in natural
+        order equals the per-user LDPC decoder input stream that evaluate.py
+        builds (symbol-major, then bit-in-symbol, then RE), so consecutive
+        ldpc_n-bit windows are codewords — provided the batch preserves symbol
+        order and spans whole slots. Returns (loss, hard_satisfaction) or None
+        when the syndrome term cannot be formed for this batch.
+        """
+        helper = self._get_syndrome_helper()
+        if helper is None:
+            self._tsyn_warn_once('mcs', "training_loss='tsyn' needs conf.mcs > -1 (LDPC); "
+                                        "syndrome term disabled, falling back to pure tent.")
+            return None
+        if not getattr(conf, 'encode_pilots', False) or conf.make_64QAM_16QAM_percentage != 0:
+            self._tsyn_warn_once('encode_pilots', "pilot region is not LDPC-coded (needs "
+                                 "encode_pilots: True and make_64QAM_16QAM_percentage: 0); "
+                                 "L_synd would measure nonexistent code structure. "
+                                 "Syndrome term disabled, falling back to pure tent.")
+            return None
+        if getattr(conf, 'shuffle', False) or getattr(conf, 'shuffle_augment_priors', False):
+            self._tsyn_warn_once('shuffle', "shuffle/shuffle_augment_priors scramble symbol order, "
+                                            "breaking codeword alignment; syndrome term disabled.")
+            return None
+        bs = int(getattr(conf, 'batch_size', 0))
+        if bs > 0 and bs % NUM_SYMB_PER_SLOT != 0:
+            self._tsyn_warn_once('batch_align', f"batch_size={bs} is not a multiple of "
+                                 f"NUM_SYMB_PER_SLOT={NUM_SYMB_PER_SLOT}, so mini-batches start "
+                                 f"mid-codeword; syndrome term disabled. Use batch_size <= 0 "
+                                 f"(full batch) or a multiple of {NUM_SYMB_PER_SLOT}.")
+            return None
+        if est_rs.dim() != 3 or est_rs.shape[1] != self._synd_qm:
+            self._tsyn_warn_once('shape', f"LLR grid shape {tuple(est_rs.shape)} does not match "
+                                          f"qm={self._synd_qm} bits/symbol (first_half or pilot "
+                                          f"modulation mismatch); syndrome term disabled.")
+            return None
+        stream = est_rs.reshape(-1)
+        num_slots = int(stream.numel() // helper.n)
+        if num_slots == 0:
+            self._tsyn_warn_once('slots', f"batch too small for one codeword "
+                                          f"({stream.numel()} < {helper.n} bits); syndrome term "
+                                          f"disabled. Use batch_size <= 0 or a multiple of "
+                                          f"{NUM_SYMB_PER_SLOT} symbols.")
+            return None
+        slots = stream[:num_slots * helper.n].reshape(num_slots, helper.n)
+        l_synd = helper.loss(slots)
+        sat = helper.hard_satisfaction(slots.detach())
+        return l_synd, sat
 
     @staticmethod
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:

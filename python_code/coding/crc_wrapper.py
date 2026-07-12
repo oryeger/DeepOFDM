@@ -18,7 +18,10 @@ except ImportError:
         os.system("pip install sionna >/dev/null 2>&1")
     import sionna
 
-from sionna.fec.crc import CRCEncoder, CRCDecoder
+try:
+    from sionna.fec.crc import CRCEncoder, CRCDecoder
+except ImportError:  # Sionna >= 1.0 moved FEC under sionna.phy
+    from sionna.phy.fec.crc import CRCEncoder, CRCDecoder
 
 
 class CRC5GCodec:

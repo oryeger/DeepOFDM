@@ -1,4 +1,4 @@
-snr: 10
+snr: -5
 cur_str: trasfer_mod
 num_snrs: 1
 n_ants: 8
@@ -29,7 +29,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [40]
+save_loss_plot_snr: [-5, 10, 40]
 use_film: False
 scale_input: True
 escnn_dropout: 0.0

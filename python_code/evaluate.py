@@ -485,7 +485,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     _saved_weights_tag = None  # captured when save_escnn_weights=True; returned to caller
 
     for snr_cur in SNR_range:
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment} =====", flush=True)
+        _tl_banner = getattr(conf, 'training_loss', 'bce')
+        _banner_loss_tag = f" | tl={_tl_banner}"
+        if _tl_banner == 'tsyn':
+            _banner_loss_tag += f" tw={getattr(conf, 'tw', 0.5)}"
+        if _tl_banner in ('gfmi', 'tent', 'tsyn'):
+            _banner_loss_tag += f" bb={getattr(conf, 'beta_balance', 0.0)}"
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment}{_banner_loss_tag} =====", flush=True)
         ber_sum = np.zeros(iterations)
         post_eq_sinr_sum = 0.0
         post_eq_sinr_count = 0
@@ -2025,9 +2031,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         # Windows MAX_PATH (260 chars) trips on these long titles; \\?\ prefix bypasses it.
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
         df.to_csv(_long_path(file_path), index=False)
+        print(f"[CSV] wrote {file_path}", flush=True)
         if conf.mcs > -1:
             file_path_bler = os.path.abspath(os.path.join(output_dir, title_string) + "_bler.csv")
             df_bler.to_csv(_long_path(file_path_bler), index=False)
+            print(f"[CSV] wrote {file_path_bler}", flush=True)
 
         if conf.calc_mi:
             data_mi = {
@@ -2049,6 +2057,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             df_mi = pd.DataFrame(data_mi)
             file_path_mi = os.path.abspath(os.path.join(output_dir, title_string) + "_mi.csv")
             df_mi.to_csv(_long_path(file_path_mi), index=False)
+            print(f"[CSV] wrote {file_path_mi}", flush=True)
 
         if snr_cur in conf.save_loss_plot_snr:
             print(f'[JPG] saving plots for SNR={snr_cur} to {output_dir}', flush=True)

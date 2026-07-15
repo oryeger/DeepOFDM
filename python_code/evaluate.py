@@ -100,8 +100,12 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_use
     tx_data_for_mi = tx_data.flatten()
 
     if (llr_for_mi.shape[0] > 50000) & (tx_data_for_mi.shape[0] > 50000):
-        tx_data_for_mi = tx_data_for_mi[:50000]
-        llr_for_mi = llr_for_mi[:50000]
+        # Evenly-spaced subsample across the whole flattened (bit_time, user, re)
+        # range, not a contiguous prefix — a prefix here only covers the first
+        # ~1-5% of the block in time (bit_time is the outer/slowest axis).
+        idx = np.linspace(0, tx_data_for_mi.shape[0] - 1, 50000).round().astype(np.int64)
+        tx_data_for_mi = tx_data_for_mi[idx]
+        llr_for_mi = llr_for_mi[idx]
 
     # H_y calculation
     H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.1)
@@ -132,8 +136,12 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
     tx_flat = np.asarray(tx_aligned).flatten()
 
     if llr_flat.shape[0] > 50000:
-        llr_flat = llr_flat[:50000]
-        tx_flat = tx_flat[:50000]
+        # Evenly-spaced subsample across the whole flattened (user, bit) range,
+        # not a contiguous prefix — tx_aligned/llr_aligned are (n_users, total_bits)
+        # with user as the OUTER axis, so a prefix here only ever covers user 0.
+        idx = np.linspace(0, tx_flat.shape[0] - 1, 50000).round().astype(np.int64)
+        llr_flat = llr_flat[idx]
+        tx_flat = tx_flat[idx]
 
     H_y = entropy_with_bin_width(llr_flat, 0.1)
     zero_idx = np.where(tx_flat == 0)[0]
@@ -294,7 +302,8 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     (SNR is also deliberately excluded from the hash tag, so the same tag is produced
     regardless of which SNR a model was trained at).
     """
-    title_string = (chan_text + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
+    _cdi = getattr(conf, 'channel_drift_index', 0)
+    title_string = (chan_text + f'_sp={conf.speed}_cdi={_cdi}' + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
         conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                     'cfo=' + str(conf.cfo) + ' scs' + ', Epo=' + str(epochs) + ', it=' + str(
                 iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(

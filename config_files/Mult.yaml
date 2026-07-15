@@ -1,5 +1,5 @@
 snr: 14
-cur_str: drrift
+cur_str: aug2kl
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -26,7 +26,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [19]
+save_loss_plot_snr: [-5, 0, 5, 19]
 use_film: False
 scale_input: True
 escnn_dropout: 0.0
@@ -44,6 +44,7 @@ plot_genie: False
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
 speed: 0 # in m/s
+channel_drift_index: 0  # TDL channel slot-offset
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
@@ -81,14 +82,14 @@ training_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, 
 beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
 tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
 tsyn_punctured_fallback: False  # tsyn: estimate punctured-bit soft values (single detached VN update) and use all checks, instead of restricting to checks untouched by punctured positions
-encode_pilots: False  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
+encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: '7aa9ab'  # d36fd7 (QPSK Flat) 7aa9ab (TDLC 123) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123) Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
+load_escnn_weights_tag: ''  # d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 123) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123) Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'all'
 

@@ -45,9 +45,16 @@ if gpus:
 tf.get_logger().setLevel('ERROR')
 
 import numpy as np
-from sionna.channel.tr38901 import TDL
-from sionna.channel import cir_to_time_channel, time_lag_discrete_time_channel
-from sionna.channel import ApplyTimeChannel
+try:
+    from sionna.channel.tr38901 import TDL
+    from sionna.channel import cir_to_time_channel, time_lag_discrete_time_channel
+    from sionna.channel import ApplyTimeChannel
+    _sn_config = sionna.config
+except ImportError:  # Sionna >= 1.0 moved channel/config under sionna.phy
+    from sionna.phy.channel.tr38901 import TDL
+    from sionna.phy.channel import cir_to_time_channel, time_lag_discrete_time_channel
+    from sionna.phy.channel import ApplyTimeChannel
+    from sionna.phy import config as _sn_config
 from typing import Tuple
 
 
@@ -119,7 +126,7 @@ class TDLChannel:
     @staticmethod
     def conv_cir(y_in: np.ndarray, conv_size: int, noise_var: float, num_slots: int, external_channel: tf.Tensor, seed: int) -> Tuple[np.ndarray, tf.Tensor]:
         # Set random seed for reproducibility
-        sionna.config.seed = seed
+        _sn_config.seed = seed
 
         # Get spatial correlation matrices if configured
         spatial_corr_level = getattr(conf, 'spatial_correlation', 'none')
@@ -157,8 +164,16 @@ class TDLChannel:
         l_tot = l_max-l_min+1
 
         if tf.size(external_channel) == 0:
-            cir = tdl(conv_size, num_time_samples+l_tot-1, bandwidth)
-            h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
+            drift_index = getattr(conf, 'channel_drift_index', 0)
+            if drift_index:
+                from python_code.channel.sionna.TDL_drift import generate_drift_channel
+                h_time = generate_drift_channel(tdl_params, num_time_samples + l_tot - 1, bandwidth,
+                                                seed=seed, channel_drift_index=drift_index,
+                                                num_samples_per_slot=NUM_SAMPLES_PER_SLOT,
+                                                batch_size=conv_size)
+            else:
+                cir = tdl(conv_size, num_time_samples+l_tot-1, bandwidth)
+                h_time = cir_to_time_channel(bandwidth, *cir, l_min, l_max, normalize=True)
             if conf.plot_channel:
                 colors = ['g', 'r', 'k', 'b', 'c', 'm', 'orange', 'purple']
                 n_rx_ant = h_time.shape[2]

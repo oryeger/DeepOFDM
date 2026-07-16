@@ -12,7 +12,7 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123)
 snrs=($(seq -10 20))
-cfos=(0.0 0.4)
+cfos=(0.0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -30,12 +30,9 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
+  'all'
 )
 
-
-llr_nll_mode_vals=(
-  'none'
-)
 
 training_loss_vals=(
   'tsyn'
@@ -43,9 +40,9 @@ training_loss_vals=(
 
 beta_balance_vals=(0)
 
-tw_vals=(0.0 0.5 1.0)
+tw_vals=(0.0 1.0)
 
-channel_drift_index_vals=(1 15 100)
+channel_drift_index_vals=(0 1 3 5 10)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -61,11 +58,11 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(10000)
-mcs_vals=(2 4)
+mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(4)
+n_users_vals=(1)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
@@ -201,22 +198,6 @@ for seed in "${seeds[@]}"; do
                                                   esac
 
 
-                                                  for llr_nll_mode in "${llr_nll_mode_vals[@]}"; do
-                                                    case "$llr_nll_mode" in
-                                                      none)              nlltag="nll0" ;;
-                                                      gfmi)              nlltag="nllgf" ;;
-                                                      fitted_data)       nlltag="nllfd" ;;
-                                                      fitted_postsinr)   nlltag="nllfp" ;;
-                                                      fitted_genie)      nlltag="nllfg" ;;
-                                                      consistent_data)   nlltag="nllcd" ;;
-                                                      consistent_postsinr) nlltag="nllcp" ;;
-                                                      consistent_genie)  nlltag="nllcg" ;;
-                                                      *)
-                                                        echo "ERROR: Unknown llr_nll_mode: $llr_nll_mode" >&2
-                                                        exit 1
-                                                        ;;
-                                                    esac
-
                                                   for training_loss in "${training_loss_vals[@]}"; do
                                                     case "$training_loss" in
                                                       gfmi) tltag="tlgf" ;;
@@ -268,7 +249,6 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
                                                         -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
-                                                        -e "s/^llr_nll_mode:.*/llr_nll_mode: '$llr_nll_mode'/" \
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         -e "s/^tw:.*/tw: $tw/" \
@@ -282,7 +262,6 @@ for seed in "${seeds[@]}"; do
                                                   done  # tw
                                                   done  # beta_balance
                                                   done  # training_loss
-                                                  done  # llr_nll_mode
                                                 done
                                               done
                                             done
@@ -321,6 +300,7 @@ config_line="config_files=(${quoted_files[*]})"
 echo "\"$config_line\""
 
 echo "Total configs generated: $total_count"
+
 
 
 

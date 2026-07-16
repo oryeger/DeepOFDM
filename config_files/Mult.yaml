@@ -1,5 +1,5 @@
 snr: 14
-cur_str: aug2kl
+cur_str: oneue
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -43,7 +43,7 @@ plot_genie: False
 
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
-speed: 0 # in m/s
+speed: 10 # in m/s
 channel_drift_index: 0  # TDL channel slot-offset
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
@@ -89,7 +89,7 @@ separate_pilots: True
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: ''  # d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 123) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123) Short tag (printed when saving) identifying which saved weights file to load before this run; '' = don't load (ordinary from-scratch run)
+load_escnn_weights_tag: '08ae06'  # d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'all'
 

@@ -38,7 +38,10 @@ mcs_data = [
     {"Index": 32, "Qm": 6, "Code Rate": 0.3},
     {"Index": 33, "Qm": 6, "Code Rate": 0.35},
     {"Index": 34, "Qm": 6, "Code Rate": 0.4},
-    {"Index": 35, "Qm": 4, "Code Rate": 0.7}
+    {"Index": 35, "Qm": 4, "Code Rate": 0.7},
+    {"Index": 36, "Qm": 2, "Code Rate": 0.72},
+    {"Index": 37, "Qm": 2, "Code Rate": 0.82},
+    {"Index": 38, "Qm": 2, "Code Rate": 0.92}
 ]
 
 # Convert to DataFrame

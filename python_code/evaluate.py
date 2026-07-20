@@ -571,7 +571,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
         pilot_chunk = int(pilot_size / num_bits_pilot)
 
-        data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT * 3)
+        if getattr(conf, 'data_size_override', -1) > 0:
+            data_size = get_next_divisible(conf.data_size_override, num_bits_data * NUM_SYMB_PER_SLOT * 3)
+        else:
+            data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT * 3)
 
 
         noise_var = 10 ** (-0.1 * snr_cur) * constellation_factor

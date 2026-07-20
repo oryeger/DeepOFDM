@@ -1,5 +1,5 @@
 snr: 14
-cur_str: six28
+cur_str: datalength
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -7,6 +7,7 @@ n_users: 4
 mcs: 28
 mod_pilot: -1
 block_length_factor: 3
+data_size_override: -1  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100

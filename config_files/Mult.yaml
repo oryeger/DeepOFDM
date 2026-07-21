@@ -1,5 +1,5 @@
 snr: 14
-cur_str: datalength
+cur_str: fallback3
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -7,7 +7,7 @@ n_users: 4
 mcs: 28
 mod_pilot: -1
 block_length_factor: 3
-data_size_override: -1  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
+data_size_override: 20000  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
@@ -82,7 +82,7 @@ llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2
 training_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, no transmitted bits used)
 beta_balance: 0.0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
 tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
-tsyn_punctured_fallback: False  # tsyn: estimate punctured-bit soft values (single detached VN update) and use all checks, instead of restricting to checks untouched by punctured positions
+tsyn_fallback_iters: 3 # tsyn only: number of erasure-peeling rounds for punctured bits in fallback mode. 0 = restricted mode (no fallback), 1 = today's single-pass behavior, >1 = iterate
 encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
@@ -90,7 +90,7 @@ separate_pilots: True
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: 'ca6cc0'  # d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
+load_escnn_weights_tag: '7aa9ab'  # d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'all'
 
@@ -109,3 +109,4 @@ log_sphere_every_symbols: 5000
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+

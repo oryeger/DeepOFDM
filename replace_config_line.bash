@@ -7,7 +7,8 @@ if [ $# -ne 1 ]; then
 fi
 
 new_line="$1"
-target_file="run_escnn_batch.bash"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+target_file="$script_dir/run_escnn_batch.bash"
 
 # Escape slashes for sed
 escaped_line=$(printf '%s\n' "$new_line" | sed 's/[&/\]/\\&/g')

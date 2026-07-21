@@ -27,10 +27,15 @@ transmitted LLR i sits at pre-filler position 2Z+i; after the filler block
 Punctured positions would contribute t=0 and silently zero out every check
 they touch, so by default the loss is restricted to checks whose support
 contains no punctured position (this covers both the first-2Z puncturing and
-the tail truncation). Optionally (punctured_fallback=True) the punctured
-bits' soft values are estimated with a single variable-node update from
-their neighbouring checks — detached from autograd — and the loss then runs
-over all checks.
+the tail truncation). Optionally (fallback_iters > 0) the punctured bits'
+soft values are estimated with an iterated, detached erasure-peeling
+procedure over their neighbouring checks, and the loss then runs over all
+checks. fallback_iters=1 is a single variable-node update (a check
+contributes a message to a punctured neighbour only if that neighbour is
+its one remaining unresolved factor); fallback_iters>1 repeats the update,
+so a bit resolved in one round can unlock checks for its neighbours in the
+next ("peeling"). The loop stops early at a fixpoint (a round that resolves
+nothing further) even if fallback_iters hasn't been reached.
 
 TODO: a min-sum variant of the check update would be the fixed-point-friendly
 kernel; not implemented for now.
@@ -52,12 +57,16 @@ def _import_encoder():
 class SyndromeLoss:
     LLR_CLAMP = 30.0
 
-    def __init__(self, k: int, n: int, device='cpu', punctured_fallback: bool = False,
+    def __init__(self, k: int, n: int, device='cpu', fallback_iters: int = 0,
                  filler_llr: float = 30.0):
         """
         k : information bits of the outer code (ldpc_k + crc_length, exactly as
             LDPC5GCodec is constructed in evaluate.py / mimo_channel_dataset).
         n : transmitted codeword bits (ldpc_n).
+        fallback_iters : 0 = restricted mode (no fallback); 1 = single detached
+            variable-node update (previous punctured_fallback=True behaviour);
+            >1 = iterated erasure-peeling over that many rounds (early-stops at
+            a fixpoint).
         """
         LDPC5GEncoder = _import_encoder()
         enc = LDPC5GEncoder(k, n)
@@ -71,7 +80,8 @@ class SyndromeLoss:
         self.n_ldpc = int(enc.n_ldpc)
         self.k_filler = self.k_ldpc - self.k
         self.filler_llr = float(filler_llr)
-        self.punctured_fallback = bool(punctured_fallback)
+        self.fallback_iters = int(fallback_iters)
+        self._fallback_rounds_logged = False
 
         # Inverse rate matching (rv=0), mirroring LDPC5GDecoder.call():
         # transmitted position i -> pre-filler 2Z+i -> +k_filler shift once past k.
@@ -108,16 +118,16 @@ class SyndromeLoss:
               f"({100.0 * frac:.1f}%)  [n={self.n}, n_ldpc={self.n_ldpc}, Z={self.z}, "
               f"k={self.k}, fillers={self.k_filler}, punctured={self._punctured_np.size}]",
               flush=True)
-        if self.num_usable == 0 and not self.punctured_fallback:
+        if self.num_usable == 0 and self.fallback_iters <= 0:
             # Restricted mode is vacuous (empty mean -> NaN). Short codes like the
             # project default (n=112) leave no check untouched by puncturing.
             print("[tsyn] no usable checks in restricted mode -> auto-enabling the "
-                  "punctured-bit fallback (single detached VN update, all checks).",
-                  flush=True)
-            self.punctured_fallback = True
-        elif frac < 0.20 and not self.punctured_fallback:
+                  "punctured-bit fallback (1 round; raise tsyn_fallback_iters for "
+                  "more erasure-peeling rounds).", flush=True)
+            self.fallback_iters = 1
+        elif frac < 0.20 and self.fallback_iters <= 0:
             print("[tsyn] WARNING: fewer than 20% of checks are usable; consider "
-                  "tsyn_punctured_fallback: True", flush=True)
+                  "tsyn_fallback_iters: 1 (or higher)", flush=True)
 
         keep = usable[rows]
         rows_u, cols_u = rows[keep], cols[keep]
@@ -171,49 +181,82 @@ class SyndromeLoss:
         return sign * torch.exp(sum_log)
 
     @torch.no_grad()
-    def _estimate_punctured_t(self, t: torch.Tensor) -> torch.Tensor:
-        """Single detached variable-node update for the punctured bits.
+    def _estimate_punctured_t(self, t: torch.Tensor, fallback_iters: int) -> torch.Tensor:
+        """Iterated, detached erasure-peeling for the punctured bits.
 
         For punctured bit v: L_v = sum_{j in M(v)} 2*artanh(prod_{i in N_j\\v} t_i).
-        A check with more than one zero factor contributes a 0 message.
-        Returns t with punctured positions replaced by tanh(L_v/2).
-        """
-        batch = t.shape[0]
-        te = t[:, self.edge_bit_all]                               # (B, E)
-        is_zero = (te.abs() < 1e-12)
-        zero_count = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
-        zero_count.index_add_(1, self.edge_check_all, is_zero.to(t.dtype))
-        te_nz = torch.where(is_zero, torch.ones_like(te), te)
-        log_abs = torch.log(te_nz.abs().clamp(min=1e-30))
-        sum_log = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
-        sum_log.index_add_(1, self.edge_check_all, log_abs)
-        neg = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
-        neg.index_add_(1, self.edge_check_all, (te_nz < 0).to(t.dtype))
-        nz_prod = (1.0 - 2.0 * torch.remainder(neg, 2.0)) * torch.exp(sum_log)
+        A check with more than one still-unresolved (zero) neighbour contributes
+        a 0 message. Each round recomputes zero_count/products from the current
+        t, so a bit resolved in round r keeps its fixed value and acts as a
+        normal nonzero factor for every other check it touches in round r+1 --
+        resolving one bit can unlock a check for its neighbours on the next
+        round. Already-resolved positions are never recomputed or overwritten
+        (only positions still exactly 0 at the start of a round are candidates),
+        so more rounds can only fill in more positions, never change or unfill
+        one. Stops early once a round resolves nothing further.
 
-        # Edges whose bit is punctured: message = nonzero-product of the check
-        # if that bit is the check's ONLY zero factor, else 0.
+        Returns t with punctured positions replaced by tanh(L_v/2) (unresolved
+        positions, if any remain, stay at their input value).
+        """
         punc_mask = torch.zeros(self.n_ldpc, dtype=torch.bool, device=t.device)
         punc_mask[self.punctured_idx] = True
-        edge_is_punc = punc_mask[self.edge_bit_all]
-        e_check = self.edge_check_all[edge_is_punc]
-        e_bit = self.edge_bit_all[edge_is_punc]
-        msg = nz_prod[:, e_check] * (zero_count[:, e_check] == 1.0).to(t.dtype)
-        msg = torch.atanh(msg.clamp(min=-1.0 + 1e-6, max=1.0 - 1e-6)) * 2.0
+        edge_punc_struct = punc_mask[self.edge_bit_all]            # (E,) fixed
 
-        llr_est = torch.zeros(batch, self.n_ldpc, device=t.device, dtype=t.dtype)
-        llr_est.index_add_(1, e_bit, msg)
+        batch = t.shape[0]
         t_out = t.clone()
-        t_out[:, self.punctured_idx] = torch.tanh(
-            llr_est[:, self.punctured_idx].clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
+        rounds_run = 0
+        n_rounds = max(int(fallback_iters), 0)
+        for _ in range(n_rounds):
+            rounds_run += 1
+            still_zero_before = t_out[:, self.punctured_idx].abs() < 1e-12   # (B, P)
+
+            te = t_out[:, self.edge_bit_all]                       # (B, E)
+            is_zero = (te.abs() < 1e-12)
+            zero_count = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
+            zero_count.index_add_(1, self.edge_check_all, is_zero.to(t.dtype))
+            te_nz = torch.where(is_zero, torch.ones_like(te), te)
+            log_abs = torch.log(te_nz.abs().clamp(min=1e-30))
+            sum_log = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
+            sum_log.index_add_(1, self.edge_check_all, log_abs)
+            neg = torch.zeros(batch, self.num_checks, device=t.device, dtype=t.dtype)
+            neg.index_add_(1, self.edge_check_all, (te_nz < 0).to(t.dtype))
+            nz_prod = (1.0 - 2.0 * torch.remainder(neg, 2.0)) * torch.exp(sum_log)
+
+            # Candidate edges: structurally punctured AND still zero for this
+            # batch element right now. This is a per-batch, per-round gate
+            # (not the fixed structural mask alone), since which bits remain
+            # unresolved diverges across the batch once round > 1.
+            msg = nz_prod[:, self.edge_check_all] * (zero_count[:, self.edge_check_all] == 1.0).to(t.dtype)
+            msg = torch.atanh(msg.clamp(min=-1.0 + 1e-6, max=1.0 - 1e-6)) * 2.0
+            gate = (is_zero & edge_punc_struct.unsqueeze(0)).to(t.dtype)
+            msg = msg * gate
+
+            llr_est = torch.zeros(batch, self.n_ldpc, device=t.device, dtype=t.dtype)
+            llr_est.index_add_(1, self.edge_bit_all, msg)
+            candidate = torch.tanh(
+                llr_est[:, self.punctured_idx].clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
+
+            t_out = t_out.clone()
+            t_out[:, self.punctured_idx] = torch.where(still_zero_before, candidate,
+                                                        t_out[:, self.punctured_idx])
+
+            still_zero_after = t_out[:, self.punctured_idx].abs() < 1e-12
+            if torch.equal(still_zero_after, still_zero_before):
+                break
+
+        if not self._fallback_rounds_logged:
+            status = 'fixpoint' if rounds_run < n_rounds else 'round budget exhausted'
+            print(f"[tsyn] fallback: erasure-peeling ran {rounds_run}/{n_rounds} "
+                  f"round(s) ({status})", flush=True)
+            self._fallback_rounds_logged = True
         return t_out
 
     def loss(self, llr_tx: torch.Tensor) -> torch.Tensor:
         """L_synd for a batch of transmitted-LLR codewords, shape (B, n)."""
         mother = self.map_to_mother(llr_tx)
         t = torch.tanh(mother.clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
-        if self.punctured_fallback:
-            t_punc = self._estimate_punctured_t(t.detach())
+        if self.fallback_iters > 0:
+            t_punc = self._estimate_punctured_t(t.detach(), self.fallback_iters)
             t = t.clone()
             t[:, self.punctured_idx] = t_punc[:, self.punctured_idx]
             p = self._check_products(t, self.edge_check_all, self.edge_bit_all, self.num_checks)
@@ -226,12 +269,13 @@ class SyndromeLoss:
         """Fraction of checks satisfied by the hard decisions (blind health metric).
 
         Restricted mode: usable checks only. Fallback mode: all checks, with
-        punctured bits filled by the single VN-update estimate (undetermined
-        punctured bits count as 0, so the metric is noisier there)."""
+        punctured bits filled by the erasure-peeling estimate (any positions
+        left undetermined after all rounds count as 0, so the metric is
+        noisier there)."""
         mother = self.map_to_mother(llr_tx)
         t = torch.tanh(mother.clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
-        if self.punctured_fallback:
-            t = self._estimate_punctured_t(t)
+        if self.fallback_iters > 0:
+            t = self._estimate_punctured_t(t, self.fallback_iters)
             bits = (t < 0).to(torch.long)    # classical: negative => bit 1
             edge_check, edge_bit, num_checks = self.edge_check_all, self.edge_bit_all, self.num_checks
         else:

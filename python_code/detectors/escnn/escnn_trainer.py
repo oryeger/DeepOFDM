@@ -401,7 +401,7 @@ class ESCNNTrainer(Trainer):
             from python_code.coding.syndrome_loss import SyndromeLoss
             self._synd = SyndromeLoss(
                 k=key[0], n=key[1], device=DEVICE,
-                punctured_fallback=bool(getattr(conf, 'tsyn_punctured_fallback', False)))
+                fallback_iters=int(getattr(conf, 'tsyn_fallback_iters', 0)))
             self._synd_key = key
             self._synd_qm = int(qm)
         return self._synd

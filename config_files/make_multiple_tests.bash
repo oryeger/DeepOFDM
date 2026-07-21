@@ -11,8 +11,8 @@ base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
 seeds=(123)
-snrs=($(seq 0 25))
-cfos=(0.0 0.1 0.15)
+snrs=($(seq -10 20))
+cfos=(0.2 0.3 0.4)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -30,7 +30,6 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'none'
-  'all'
 )
 
 
@@ -57,8 +56,8 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(10000)
-mcs_vals=(28)
+pilot_size_vals=(5000)
+mcs_vals=(36 37 38)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -292,17 +291,14 @@ done
 
 quoted_files=()
 for f in "${all_config_files[@]}"; do
-  safe_f=${f//\"/\\\"}
-  quoted_files+=("\\\"$safe_f\\\"")
+  quoted_files+=("\"$f\"")
 done
 
 config_line="config_files=(${quoted_files[*]})"
-echo "\"$config_line\""
+echo "$config_line"
 
 echo "Total configs generated: $total_count"
 
-
-
-
-
-
+# ---------------- Auto-update run_escnn_batch.bash ----------------
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+"$script_dir/../replace_config_line.bash" "$config_line"

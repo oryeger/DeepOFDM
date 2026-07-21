@@ -11,6 +11,9 @@ Covers (in order):
      the satisfaction rate.
   3. Project short-code config (n=112): zero usable checks -> auto-fallback;
      loss finite, codewords still score better than corrupted ones.
+  3b/3c. Iterated erasure-peeling (fallback_iters>1): more rounds only ever
+     resolve more punctured positions, never fewer/different (monotonicity),
+     and the loop early-stops once it hits a fixpoint.
   4. tw=1.0 reproduces training_loss='tent' exactly through the trainer.
   5. Filler positions are neutral: the filler LLR magnitude does not change
      the loss.
@@ -68,7 +71,7 @@ synd_syn = SyndromeLoss(k=SYN_LDPC_K + SYN_CRC, n=SYN_N, device='cpu')
 print('Test 1: mapping correctness on true codewords (restricted-check mode)')
 check('restricted mode has usable checks', synd_syn.num_usable > 0,
       f'{synd_syn.num_usable} usable')
-check('restricted mode is active (fallback not auto-enabled)', not synd_syn.punctured_fallback)
+check('restricted mode is active (fallback not auto-enabled)', synd_syn.fallback_iters == 0)
 llr_syn, u_crc_syn, cw_syn, decode_ok = make_codewords(SYN_LDPC_K, SYN_CRC, SYN_N, batch=8, rng=rng)
 check('decoder recovers info bits at high SNR', decode_ok)
 
@@ -127,7 +130,7 @@ crc_length = 24 if ldpc_k > 3824 else 16
 print(f'Test 3: project code config (qm={qm} ldpc_n={ldpc_n} ldpc_k={ldpc_k} crc={crc_length})')
 synd_prj = SyndromeLoss(k=ldpc_k + crc_length, n=ldpc_n, device='cpu')
 check('auto-fallback engaged on zero usable checks',
-      synd_prj.punctured_fallback or synd_prj.num_usable > 0)
+      synd_prj.fallback_iters > 0 or synd_prj.num_usable > 0)
 llr_prj, _, _, decode_ok_prj = make_codewords(ldpc_k, crc_length, ldpc_n, batch=8, rng=rng)
 check('decoder recovers info bits at high SNR (project code)', decode_ok_prj)
 loss_prj_clean = synd_prj.loss(llr_prj).item()
@@ -144,6 +147,53 @@ check(f'fallback loss detects corruption ({loss_prj_clean:.4f} -> {loss_prj_flip
       loss_prj_flip > loss_prj_clean + 0.01)
 check(f'fallback satisfaction drops ({sat_prj_clean:.4f} -> {sat_prj_flip:.4f})',
       sat_prj_flip < sat_prj_clean)
+
+# ---------------------------------------------------------------------------
+# Test 3b: iterating fallback_iters can only resolve more punctured positions,
+# never fewer or different (monotonicity) -- project's high-rate MCS28 config,
+# heavily punctured (61% of the mother codeword), so round 1 alone leaves most
+# checks with >=2 unresolved neighbours and later rounds have real work to do.
+# ---------------------------------------------------------------------------
+NUM_RES_HR, MCS_HR = 24, 28
+qm_hr, code_rate_hr = get_mcs(MCS_HR)
+qm_hr = int(qm_hr)
+ldpc_n_hr = int(NUM_RES_HR * NUM_SYMB_PER_SLOT * qm_hr)
+ldpc_k_hr = int(ldpc_n_hr * code_rate_hr)
+crc_hr = 24 if ldpc_k_hr > 3824 else 16
+print(f'Test 3b: iterated erasure-peeling monotonicity (qm={qm_hr} ldpc_n={ldpc_n_hr} '
+      f'ldpc_k={ldpc_k_hr} R={code_rate_hr}, high-rate/highly-punctured config)')
+synd_hr = SyndromeLoss(k=ldpc_k_hr + crc_hr, n=ldpc_n_hr, device='cpu', fallback_iters=1)
+llr_hr, _, _, decode_ok_hr = make_codewords(ldpc_k_hr, crc_hr, ldpc_n_hr, batch=4, rng=rng)
+check('decoder recovers info bits at high SNR (high-rate config)', decode_ok_hr)
+
+mother_hr = synd_hr.map_to_mother(llr_hr)
+t_hr = torch.tanh(mother_hr.clamp(-synd_hr.LLR_CLAMP, synd_hr.LLR_CLAMP) / 2.0)
+t1 = synd_hr._estimate_punctured_t(t_hr.clone(), 1)
+t3 = synd_hr._estimate_punctured_t(t_hr.clone(), 3)
+resolved1 = (t1[:, synd_hr.punctured_idx].abs() > 1e-12)
+resolved3 = (t3[:, synd_hr.punctured_idx].abs() > 1e-12)
+n1, n3 = int(resolved1.sum().item()), int(resolved3.sum().item())
+check(f'3-round fallback resolves at least as many punctured positions as 1-round '
+      f'({n3} >= {n1})', n3 >= n1)
+check(f'3-round fallback resolves strictly more on this highly-punctured config '
+      f'({n3} > {n1})', n3 > n1)
+check('1-round-resolved positions are a subset of 3-round-resolved (monotonic, never un-fills)',
+      bool(torch.equal(resolved3 & resolved1, resolved1)))
+check('values at 1-round-resolved positions are unchanged by extra rounds',
+      bool(torch.allclose(t1[:, synd_hr.punctured_idx][resolved1],
+                           t3[:, synd_hr.punctured_idx][resolved1])))
+
+# ---------------------------------------------------------------------------
+# Test 3c: early-stop-at-fixpoint. A much larger round budget must produce
+# exactly the same result as the smallest budget that already converged.
+# ---------------------------------------------------------------------------
+print('Test 3c: early-stop at fixpoint')
+t10 = synd_hr._estimate_punctured_t(t_hr.clone(), 10)
+resolved10 = (t10[:, synd_hr.punctured_idx].abs() > 1e-12)
+check('10-round fallback resolves no more than 3-round (already converged by round 3)',
+      int(resolved10.sum().item()) == n3)
+check('10-round output identical to 3-round output (fixpoint reached early)',
+      bool(torch.allclose(t10[:, synd_hr.punctured_idx], t3[:, synd_hr.punctured_idx])))
 
 # ---------------------------------------------------------------------------
 # Trainer-level tests need the conf singleton set up consistently.
@@ -164,7 +214,7 @@ conf.set_value('beta_balance', 0.0)
 conf.set_value('make_64QAM_16QAM_percentage', 0)
 conf.set_value('escnn_load_freeze', 'none')
 conf.set_value('load_escnn_weights_tag', '')
-conf.set_value('tsyn_punctured_fallback', False)
+conf.set_value('tsyn_fallback_iters', 0)
 conf.set_value('encode_pilots', True)   # syndrome term requires LDPC-coded pilots
 conf.set_value('batch_size', -1)
 

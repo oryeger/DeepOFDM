@@ -23,7 +23,7 @@ import torch
 from python_code import conf
 from python_code.utils.metrics import calculate_ber
 import matplotlib
-# matplotlib.use('Agg')
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
@@ -79,7 +79,8 @@ def entropy_with_bin_width(data, bin_width):
     return entropy(hist, base=2)  # Compute entropy
 
 
-def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_users: int, num_res: int) -> np.ndarray:
+def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_users: int, num_res: int,
+            user_idx: int = None) -> np.ndarray:
     # When make_64QAM_16QAM_percentage=50, the network outputs num_bits_pilot=6 LLRs/symbol
     # while tx_data is num_bits_data=4 (16-QAM). Mirror the BER-path slicing in
     # evaluate.py:969-979 / 1199-1205 so the reshape below sees num_bits_data columns.
@@ -96,8 +97,14 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_use
     llr_2 = llr_1.reshape(int(tx_data.shape[0] / num_bits_data), n_users, num_bits_data, num_res)
     llr_3 = llr_2.swapaxes(1, 2)
     llr_4 = llr_3.reshape(tx_data.shape[0], n_users, num_res)
-    llr_for_mi = llr_4.flatten()
-    tx_data_for_mi = tx_data.flatten()
+    if user_idx is not None:
+        # tx_data already has user on axis 1, same as llr_4 (tx_length == n_users,
+        # see mimo_channel_dataset.py), so both slice identically before flattening.
+        llr_for_mi = llr_4[:, user_idx, :].flatten()
+        tx_data_for_mi = tx_data[:, user_idx, :].flatten()
+    else:
+        llr_for_mi = llr_4.flatten()
+        tx_data_for_mi = tx_data.flatten()
 
     if (llr_for_mi.shape[0] > 50000) & (tx_data_for_mi.shape[0] > 50000):
         # Evenly-spaced subsample across the whole flattened (bit_time, user, re)
@@ -124,14 +131,20 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_use
     return mi
 
 
-def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray) -> float:
+def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray, user_idx: int = None) -> float:
     """Compute MI from LDPC-decoder-input LLRs and matching tx bits.
 
     Both inputs have shape (n_users, total_bits) and use the bit ordering that
     the LDPC decoder consumes — so any per-detector slice/flip must already be
     applied at the call site (it is, because that's how llr_all_res_* are built).
     Pure entropy estimation here, no convention surgery.
+
+    user_idx, when given, restricts the estimate to that single user (axis 0,
+    the outer axis of both inputs).
     """
+    if user_idx is not None:
+        tx_aligned = tx_aligned[user_idx:user_idx + 1]
+        llr_aligned = llr_aligned[user_idx:user_idx + 1]
     llr_flat = np.asarray(llr_aligned).flatten()
     tx_flat = np.asarray(tx_aligned).flatten()
 
@@ -439,6 +452,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_nll_lmmse = []
     total_nll_deeprx = []
     total_nll_sphere = []
+    # per-user BER/BLER (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere)
+    total_ber_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_bler_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_ber_deepsic_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_bler_deepsic_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_ber_lmmse_user = [[] for _ in range(n_users)]
+    total_bler_lmmse_user = [[] for _ in range(n_users)]
+    total_ber_deeprx_user = [[] for _ in range(n_users)]
+    total_bler_deeprx_user = [[] for _ in range(n_users)]
+    total_ber_sphere_user = [[] for _ in range(n_users)]
+    total_bler_sphere_user = [[] for _ in range(n_users)]
     total_nll_deepsic_list = [[] for _ in range(iterations)]
     total_nll_deepsicmb_list = [[] for _ in range(iterations)]
     total_nll_deepstag_list = [[] for _ in range(iterations * 2)]
@@ -454,6 +478,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
     total_mi_lmmse = []
     total_mi_sphere = []
     total_mi_deepsic_list = [[] for _ in range(iterations)]
+    # per-user MI (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere)
+    total_mi_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_mi_deepsic_user_lists = [[[] for _ in range(iterations)] for _ in range(n_users)]
+    total_mi_lmmse_user = [[] for _ in range(n_users)]
+    total_mi_deeprx_user = [[] for _ in range(n_users)]
+    total_mi_sphere_user = [[] for _ in range(n_users)]
     Final_SNR = conf.snr + conf.num_snrs - 1
 
     if mod_data == 2:
@@ -514,6 +544,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ber_sum_deepstag = np.zeros(iterations * 2)
         ber_sum_mhsa = np.zeros(iterations)
         ber_sum_jointllr = np.zeros(iterations)
+        # per-user BER (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere)
+        ber_sum_user = [np.zeros(iterations) for _ in range(n_users)]
+        ber_sum_deepsic_user = [np.zeros(iterations) for _ in range(n_users)]
+        ber_sum_lmmse_user = [0] * n_users
+        ber_sum_deeprx_user = [0] * n_users
+        ber_sum_sphere_user = [0] * n_users
 
         if conf.mod_pilot> 0:
             num_bits_pilot = int(np.log2(conf.mod_pilot))
@@ -1235,6 +1271,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                     ber_sum[iteration] += ber
 
+                    for u in range(n_users):
+                        ber_u = calculate_ber(detected_word_cur_re[:, u].unsqueeze(-1).cpu(),
+                                               target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                        ber_sum_user[u][iteration] += ber_u
+
                 if conf.run_e2e:
                     for iteration in range(iters_e2e_disp):
                         detected_word_cur_re_e2e = detected_word_e2e_list[iteration][:, :, re]
@@ -1285,6 +1326,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     else:
                         ber_deeprx = calculate_ber(detected_word_cur_re_deeprx.cpu(), target.cpu(), num_bits_data)
 
+                    for u in range(n_users):
+                        ber_deeprx_u = calculate_ber(detected_word_cur_re_deeprx[:, u].unsqueeze(-1).cpu(),
+                                                      target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                        ber_sum_deeprx_user[u] += ber_deeprx_u
+
                 if run_deepsic:
                     for iteration in range(iterations):
                         detected_word_cur_re_deepsic = detected_word_deepsic_list[iteration][:, :, re]
@@ -1302,6 +1348,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         else:
                             ber_deepsic = calculate_ber(detected_word_cur_re_deepsic.cpu(), target.cpu(), num_bits_data)
                         ber_sum_deepsic[iteration] += ber_deepsic
+
+                        for u in range(n_users):
+                            ber_deepsic_u = calculate_ber(detected_word_cur_re_deepsic[:, u].unsqueeze(-1).cpu(),
+                                                           target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                            ber_sum_deepsic_user[u][iteration] += ber_deepsic_u
 
                 if conf.run_deepsicmb:
                     for iteration in range(iterations):
@@ -1381,11 +1432,25 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         ber_sphere = calculate_ber(
                             torch.from_numpy(detected_word_sphere[:, conf.ber_on_one_user]).unsqueeze(-1),
                             target[:, conf.ber_on_one_user].unsqueeze(-1).cpu(), num_bits_data)
+                    ber_lmmse_user = [calculate_ber(torch.from_numpy(detected_word_lmmse[:, u]).unsqueeze(-1),
+                                                     target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                                      for u in range(n_users)]
+                    if run_sphere:
+                        ber_sphere_user = [calculate_ber(torch.from_numpy(detected_word_sphere[:, u]).unsqueeze(-1),
+                                                          target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                                           for u in range(n_users)]
                 else:
                     if not(conf.increase_prime_modulation):
                         ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse), target.cpu(), num_bits_data)
                         if run_sphere:
                             ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere), target.cpu(), num_bits_data)
+                        ber_lmmse_user = [calculate_ber(torch.from_numpy(detected_word_lmmse[:, u]).unsqueeze(-1),
+                                                         target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                                          for u in range(n_users)]
+                        if run_sphere:
+                            ber_sphere_user = [calculate_ber(torch.from_numpy(detected_word_sphere[:, u]).unsqueeze(-1),
+                                                              target[:, u].unsqueeze(-1).cpu(), num_bits_data)
+                                               for u in range(n_users)]
                     else:
                         if num_bits_pilot == 4:
                             indices = relevant_indices(target.shape[0], 2)
@@ -1405,12 +1470,23 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         ber_lmmse = calculate_ber(torch.from_numpy(detected_word_lmmse[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
                         if run_sphere:
                             ber_sphere = calculate_ber(torch.from_numpy(detected_word_sphere[indices,:]), target[indices,:].cpu(), num_bits_data_cur)
+                        ber_lmmse_user = [calculate_ber(torch.from_numpy(detected_word_lmmse[indices, u]).unsqueeze(-1),
+                                                         target[indices, u].unsqueeze(-1).cpu(), num_bits_data_cur)
+                                          for u in range(n_users)]
+                        if run_sphere:
+                            ber_sphere_user = [calculate_ber(torch.from_numpy(detected_word_sphere[indices, u]).unsqueeze(-1),
+                                                              target[indices, u].unsqueeze(-1).cpu(), num_bits_data_cur)
+                                               for u in range(n_users)]
 
                 if run_deeprx:
                     ber_sum_deeprx += ber_deeprx
                 ber_sum_lmmse += ber_lmmse
                 if run_sphere:
                     ber_sum_sphere += ber_sphere
+                for u in range(n_users):
+                    ber_sum_lmmse_user[u] += ber_lmmse_user[u]
+                    if run_sphere:
+                        ber_sum_sphere_user[u] += ber_sphere_user[u]
 
             # LDPC decoding
             bler_list = [None] * iterations
@@ -1536,10 +1612,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     crc_count_deepsic = 0
                     crc_count_mhsa = 0
                     crc_count_jointllr = 0
+                    crc_count_user = [0] * n_users
+                    crc_count_lmmse_user = [0] * n_users
+                    crc_count_sphere_user = [0] * n_users
+                    crc_count_deeprx_user = [0] * n_users
+                    crc_count_deepsic_user = [0] * n_users
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
                         crc_count += (~crc_out).numpy().astype(int).sum()
+                        for u in range(n_users):
+                            crc_count_user[u] += int(~crc_out[u])
                         if conf.run_tdfdcnn:
                             decodedwords_tdfdcnn = codec.decode(llr_all_res_tdfdcnn[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_tdfdcnn = crc.decode(decodedwords_tdfdcnn)
@@ -1548,19 +1631,27 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         decodedwords_lmmse = codec.decode(llr_all_res_lmmse[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_lmmse = crc.decode(decodedwords_lmmse)
                         crc_count_lmmse += (~crc_out_lmmse).numpy().astype(int).sum()
+                        for u in range(n_users):
+                            crc_count_lmmse_user[u] += int(~crc_out_lmmse[u])
                         if run_sphere:
                             decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_sphere = crc.decode(decodedwords_sphere)
                             crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
+                            for u in range(n_users):
+                                crc_count_sphere_user[u] += int(~crc_out_sphere[u])
                         if run_deeprx:
                             decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_deeprx = crc.decode(decodedwords_deeprx)
                             crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
+                            for u in range(n_users):
+                                crc_count_deeprx_user[u] += int(~crc_out_deeprx[u])
                         if run_deepsic:
                             decodedwords_deepsic = codec.decode(
                                 llr_all_res_deepsic[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_deepsic = crc.decode(decodedwords_deepsic)
                             crc_count_deepsic += (~crc_out_deepsic).numpy().astype(int).sum()
+                            for u in range(n_users):
+                                crc_count_deepsic_user[u] += int(~crc_out_deepsic[u])
                         if run_mhsa:
                             decodedwords_mhsa = codec.decode(llr_all_res_mhsa[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_mhsa = crc.decode(decodedwords_mhsa)
@@ -1571,6 +1662,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                             crc_count_jointllr += (~crc_out_jointllr).numpy().astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
+                    for u in range(n_users):
+                        total_bler_user_lists[u][iteration].append(crc_count_user[u] / num_slots)
 
                     if conf.run_tdfdcnn:
                         bler_tdfdcnn_list[iteration] = crc_count_tdfdcnn / (num_slots * n_users)
@@ -1582,9 +1675,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     if run_deepsic:
                         bler_deepsic_list[iteration] = crc_count_deepsic / (num_slots * n_users)
                         total_bler_deepsic_list[iteration].append(bler_deepsic_list[iteration])
+                        for u in range(n_users):
+                            total_bler_deepsic_user_lists[u][iteration].append(crc_count_deepsic_user[u] / num_slots)
                     else:
                         bler_deepsic_list[iteration] = 0
                         total_bler_deepsic_list[iteration].append(bler_deepsic_list[iteration])
+                        for u in range(n_users):
+                            total_bler_deepsic_user_lists[u][iteration].append(0)
 
                     if run_mhsa:
                         bler_mhsa_list[iteration] = crc_count_mhsa / (num_slots * n_users)
@@ -1603,19 +1700,29 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     if iteration == 0:
                         bler_lmmse = crc_count_lmmse / (num_slots * n_users)
                         total_bler_lmmse.append(bler_lmmse)
+                        for u in range(n_users):
+                            total_bler_lmmse_user[u].append(crc_count_lmmse_user[u] / num_slots)
                         if run_sphere:
                             bler_sphere = crc_count_sphere / (num_slots * n_users)
                             total_bler_sphere.append(bler_sphere)
+                            for u in range(n_users):
+                                total_bler_sphere_user[u].append(crc_count_sphere_user[u] / num_slots)
                         else:
                             bler_sphere = 0
                             total_bler_sphere.append(bler_sphere)
+                            for u in range(n_users):
+                                total_bler_sphere_user[u].append(0)
 
                         if run_deeprx:
                             bler_deeprx = crc_count_deeprx / (num_slots * n_users)
                             total_bler_deeprx.append(bler_deeprx)
+                            for u in range(n_users):
+                                total_bler_deeprx_user[u].append(crc_count_deeprx_user[u] / num_slots)
                         else:
                             bler_deeprx = 0
                             total_bler_deeprx.append(bler_deeprx)
+                            for u in range(n_users):
+                                total_bler_deeprx_user[u].append(0)
 
                     # MI from the same LLRs that go to the LDPC decoder.
                     # llr_all_res_* already have each detector's correct slice/flip applied.
@@ -1626,24 +1733,40 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
                         mi = calc_mi_from_ldpc(tx_aligned_for_ber, llr_all_res)
                         total_mi_list[iteration].append(mi)
+                        for u in range(n_users):
+                            mi_u = calc_mi_from_ldpc(tx_aligned_for_ber, llr_all_res, user_idx=u)
+                            total_mi_user_lists[u][iteration].append(mi_u)
 
                         if run_deepsic:
                             mi_deepsic = calc_mi_from_ldpc(tx_aligned, llr_all_res_deepsic)
                             total_mi_deepsic_list[iteration].append(mi_deepsic)
+                            for u in range(n_users):
+                                mi_deepsic_u = calc_mi_from_ldpc(tx_aligned, llr_all_res_deepsic, user_idx=u)
+                                total_mi_deepsic_user_lists[u][iteration].append(mi_deepsic_u)
 
                         if iteration == 0:
                             mi_lmmse = calc_mi_from_ldpc(tx_aligned, llr_all_res_lmmse)
                             total_mi_lmmse.append(mi_lmmse)
+                            for u in range(n_users):
+                                total_mi_lmmse_user[u].append(calc_mi_from_ldpc(tx_aligned, llr_all_res_lmmse, user_idx=u))
                             if run_sphere:
                                 mi_sphere = calc_mi_from_ldpc(tx_aligned, llr_all_res_sphere)
+                                for u in range(n_users):
+                                    total_mi_sphere_user[u].append(calc_mi_from_ldpc(tx_aligned, llr_all_res_sphere, user_idx=u))
                             else:
                                 mi_sphere = 0
+                                for u in range(n_users):
+                                    total_mi_sphere_user[u].append(0)
                             total_mi_sphere.append(mi_sphere)
                             if run_deeprx:
                                 mi_deeprx = calc_mi_from_ldpc(tx_aligned, llr_all_res_deeprx)
                                 total_mi_deeprx.append(mi_deeprx)
+                                for u in range(n_users):
+                                    total_mi_deeprx_user[u].append(calc_mi_from_ldpc(tx_aligned, llr_all_res_deeprx, user_idx=u))
                             else:
                                 mi_deeprx = 0
+                                for u in range(n_users):
+                                    total_mi_deeprx_user[u].append(0)
 
 
             else:
@@ -1655,10 +1778,17 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     total_bler_tdfdcnn_list[iteration].append(0)
                     total_bler_mhsa_list[iteration].append(0)
                     total_bler_jointllr_list[iteration].append(0)
+                    for u in range(n_users):
+                        total_bler_user_lists[u][iteration].append(0)
+                        total_bler_deepsic_user_lists[u][iteration].append(0)
                 bler_lmmse = 0
                 total_bler_lmmse.append(0)
                 total_bler_sphere.append(0)
                 total_bler_deeprx.append(0)
+                for u in range(n_users):
+                    total_bler_lmmse_user[u].append(0)
+                    total_bler_sphere_user[u].append(0)
+                    total_bler_deeprx_user[u].append(0)
 
             if conf.calc_mi:
                 if conf.mcs <= -1:
@@ -1670,24 +1800,40 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     for iteration in range(iterations):
                         mi = calc_mi(tx_data_for_ber.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res)
                         total_mi_list[iteration].append(mi)
+                        for u in range(n_users):
+                            mi_u = calc_mi(tx_data_for_ber.cpu(), llrs_mat_list[iteration].cpu(), num_bits_data, n_users, num_res, user_idx=u)
+                            total_mi_user_lists[u][iteration].append(mi_u)
                     if run_deeprx:
                         mi_deeprx = calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res)
                         total_mi_deeprx.append(mi_deeprx)
+                        for u in range(n_users):
+                            total_mi_deeprx_user[u].append(calc_mi(tx_data.cpu(), llrs_mat_deeprx.cpu(), num_bits_data, n_users, num_res, user_idx=u))
                     else:
                         mi_deeprx = 0
+                        for u in range(n_users):
+                            total_mi_deeprx_user[u].append(0)
                     if run_deepsic:
                         for iteration in range(iterations):
                             llrs_deepsic_4d = llrs_mat_deepsic_list[iteration].cpu().unsqueeze(-1)
                             mi_deepsic = calc_mi(tx_data.cpu(), llrs_deepsic_4d, num_bits_data, n_users, num_res)
                             total_mi_deepsic_list[iteration].append(mi_deepsic)
+                            for u in range(n_users):
+                                mi_deepsic_u = calc_mi(tx_data.cpu(), llrs_deepsic_4d, num_bits_data, n_users, num_res, user_idx=u)
+                                total_mi_deepsic_user_lists[u][iteration].append(mi_deepsic_u)
                     else:
                         mi_deepsic = 0
                     mi_lmmse = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_lmmse), num_bits_data, n_users, num_res)
                     total_mi_lmmse.append(mi_lmmse)
+                    for u in range(n_users):
+                        total_mi_lmmse_user[u].append(calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_lmmse), num_bits_data, n_users, num_res, user_idx=u))
                     if run_sphere:
                         mi_sphere = calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_sphere), num_bits_data, n_users, num_res)
+                        for u in range(n_users):
+                            total_mi_sphere_user[u].append(calc_mi(tx_data.cpu(), torch.tensor(llrs_mat_sphere), num_bits_data, n_users, num_res, user_idx=u))
                     else:
                         mi_sphere = 0
+                        for u in range(n_users):
+                            total_mi_sphere_user[u].append(0)
                     total_mi_sphere.append(mi_sphere)
                 else:
                     # mcs > -1: MI for LDPC detectors was computed inside the iteration loop
@@ -1739,6 +1885,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # ber_list[iteration] = ber_sum[iteration] / (num_res - 2*conf.kernel_size)
                 ber_list[iteration] = ber_sum[iteration] / num_res
                 total_ber_list[iteration].append(ber_list[iteration])
+                for u in range(n_users):
+                    total_ber_user_lists[u][iteration].append(ber_sum_user[u][iteration] / num_res)
                 nll_list[iteration] = _nll(llrs_mat_list[iteration])
                 total_nll_list[iteration].append(nll_list[iteration])
 
@@ -1761,6 +1909,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # ber_deepsic_list[iteration] = ber_sum_deepsic[iteration]  / (num_res - 2*conf.kernel_size)
                 ber_deepsic_list[iteration] = ber_sum_deepsic[iteration] / num_res
                 total_ber_deepsic_list[iteration].append(ber_deepsic_list[iteration])
+                for u in range(n_users):
+                    total_ber_deepsic_user_lists[u][iteration].append(ber_sum_deepsic_user[u][iteration] / num_res)
 
             ber_deepsicmb_list = [None] * iterations
             for iteration in range(iterations):
@@ -1787,6 +1937,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             total_ber_deeprx.append(ber_deeprx)
             total_ber_lmmse.append(ber_lmmse)
             total_ber_sphere.append(ber_sphere)
+            for u in range(n_users):
+                total_ber_lmmse_user[u].append(ber_sum_lmmse_user[u] / num_res)
+                if run_deeprx:
+                    total_ber_deeprx_user[u].append(ber_sum_deeprx_user[u] / num_res)
+                if run_sphere:
+                    total_ber_sphere_user[u].append(ber_sum_sphere_user[u] / num_res)
 
             # --- NLL per block (for all detectors) ---
             nll_lmmse = _nll(llrs_mat_lmmse)
@@ -1948,6 +2104,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         for i in range(conf.iterations):
             data[f"total_ber_{i + 1}"] = total_nll_list[i] if _use_nll else total_ber_list[i]
 
+        # per-user BER (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) — pure additions
+        for u in range(n_users):
+            data[f"total_ber_lmmse_user{u}"] = total_ber_lmmse_user[u]
+            if run_deeprx:
+                data[f"total_ber_deeprx_user{u}"] = total_ber_deeprx_user[u]
+            if run_sphere:
+                data[f"total_ber_sphere_user{u}"] = total_ber_sphere_user[u]
+        for i in range(conf.iterations):
+            for u in range(n_users):
+                data[f"total_ber_user{u}_{i + 1}"] = total_ber_user_lists[u][i]
+        if run_deepsic:
+            for i in range(conf.iterations):
+                for u in range(n_users):
+                    data[f"total_ber_deepsic_user{u}_{i + 1}"] = total_ber_deepsic_user_lists[u][i]
+
         if conf.run_e2e:
             for i in range(iters_e2e_disp):
                 data[f"total_ber_e2e_{i+1}"] = total_nll_e2e_list[i] if _use_nll else total_ber_e2e_list[i]
@@ -1988,9 +2159,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         for i in range(conf.iterations):
             data_bler[f"total_ber_{i + 1}"] = total_bler_list[i]
 
+        # per-user BLER (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) — pure additions
+        for u in range(n_users):
+            data_bler[f"total_ber_lmmse_user{u}"] = total_bler_lmmse_user[u]
+            if run_deeprx:
+                data_bler[f"total_ber_deeprx_user{u}"] = total_bler_deeprx_user[u]
+            if run_sphere:
+                data_bler[f"total_ber_sphere_user{u}"] = total_bler_sphere_user[u]
+        for i in range(conf.iterations):
+            for u in range(n_users):
+                data_bler[f"total_ber_user{u}_{i + 1}"] = total_bler_user_lists[u][i]
+
         if run_deepsic:
             for i in range(conf.iterations):
                 data_bler[f"total_ber_deepsic_{i + 1}"] = total_bler_deepsic_list[i]
+                for u in range(n_users):
+                    data_bler[f"total_ber_deepsic_user{u}_{i + 1}"] = total_bler_deepsic_user_lists[u][i]
 
         if conf.run_tdfdcnn:
             for i in range(conf.iterations):
@@ -2066,6 +2250,22 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             if conf.run_e2e:
                 for i in range(iters_e2e_disp):
                     data_mi[f"total_ber_e2e_{i + 1}"] = total_mi_e2e_list[i]
+
+            # per-user MI (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) — pure additions
+            for u in range(n_users):
+                data_mi[f"total_ber_lmmse_user{u}"] = total_mi_lmmse_user[u]
+                if run_sphere:
+                    data_mi[f"total_ber_sphere_user{u}"] = total_mi_sphere_user[u]
+                if run_deeprx:
+                    data_mi[f"total_ber_deeprx_user{u}"] = total_mi_deeprx_user[u]
+            for i in range(conf.iterations):
+                for u in range(n_users):
+                    data_mi[f"total_ber_user{u}_{i + 1}"] = total_mi_user_lists[u][i]
+            if run_deepsic:
+                for i in range(conf.iterations):
+                    for u in range(n_users):
+                        data_mi[f"total_ber_deepsic_user{u}_{i + 1}"] = total_mi_deepsic_user_lists[u][i]
+
             df_mi = pd.DataFrame(data_mi)
             file_path_mi = os.path.abspath(os.path.join(output_dir, title_string) + "_mi.csv")
             df_mi.to_csv(_long_path(file_path_mi), index=False)

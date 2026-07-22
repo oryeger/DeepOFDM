@@ -90,6 +90,26 @@ def _get_first_present(df, candidates):
     return None
 
 
+_USER_COL_RE = re.compile(r"^total_ber_(?:(?:lmmse|deeprx|sphere|deepsic)_)?user(\d+)(?:_\d+)?$")
+
+
+def _detect_n_users(all_files):
+    """Scan matched CSVs for total_ber_..._user{u}... columns (ESCNN, LMMSE,
+    DeepRx, DeepSIC, Sphere per-user metrics) and return how many user indices
+    are present (0 if these files predate per-user metrics)."""
+    max_u = -1
+    for f in all_files:
+        try:
+            cols = pd.read_csv(f, nrows=0).columns
+        except Exception:
+            continue
+        for col in cols:
+            m = _USER_COL_RE.match(col)
+            if m:
+                max_u = max(max_u, int(m.group(1)))
+    return max_u + 1
+
+
 def _safe_interp_x_to_y(x, y, x_target):
     """
     Interpolate y(x) safely after sorting x and dropping duplicates.
@@ -385,6 +405,10 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     PLOT_BER_AS_GFMI = _has_nonzero_nll(all_files)
     print(f"[INFO] PLOT_BER_AS_GFMI = {PLOT_BER_AS_GFMI}")
 
+    n_users_present = _detect_n_users(all_files)
+    if n_users_present:
+        print(f"[INFO] Per-user metrics detected for {n_users_present} user(s).")
+
     pat_upper = (filter_pattern or "").upper()
     show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper
 
@@ -586,6 +610,24 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 if "total_ber_sphere" in df.columns:
                     seed_snr_dict[seed][snr]["ber_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
 
+                # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
+                for u in range(n_users_present):
+                    col = f"total_ber_user{u}_1"
+                    if col in df.columns:
+                        seed_snr_dict[seed][snr][f"ber_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                    col = f"total_ber_lmmse_user{u}"
+                    if col in df.columns:
+                        seed_snr_dict[seed][snr][f"ber_lmmse_user{u}"] = _to_float_cell(df[col].iloc[0])
+                    col = f"total_ber_deeprx_user{u}"
+                    if col in df.columns:
+                        seed_snr_dict[seed][snr][f"ber_deeprx_user{u}"] = _to_float_cell(df[col].iloc[0])
+                    col = f"total_ber_sphere_user{u}"
+                    if col in df.columns:
+                        seed_snr_dict[seed][snr][f"ber_sphere_user{u}"] = _to_float_cell(df[col].iloc[0])
+                    col = f"total_ber_deepsic_user{u}_1"
+                    if col in df.columns:
+                        seed_snr_dict[seed][snr][f"ber_deepsic_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+
                 # ---- MI parsing ----
                 if plot_type == "MI":
                     if "total_ber_1" in df.columns:
@@ -618,6 +660,23 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                     mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                     if mi_joint_col is not None:
                         seed_snr_dict[seed][snr]["mi_jointllr_1"] = _to_float_cell(df[mi_joint_col].iloc[0])
+
+                    for u in range(n_users_present):
+                        col = f"total_ber_user{u}_1"
+                        if col in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                        col = f"total_ber_lmmse_user{u}"
+                        if col in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_lmmse_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        col = f"total_ber_deeprx_user{u}"
+                        if col in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_deeprx_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        col = f"total_ber_sphere_user{u}"
+                        if col in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_sphere_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        col = f"total_ber_deepsic_user{u}_1"
+                        if col in df.columns:
+                            seed_snr_dict[seed][snr][f"mi_deepsic_user{u}_1"] = _to_float_cell(df[col].iloc[0])
 
         snrs = _build_snr_grid(observed_snrs)
 
@@ -775,6 +834,39 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             if np.isfinite(mi_deeprx_arr).any() and not np.all(mi_deeprx_arr[np.isfinite(mi_deeprx_arr)] == 0):
                 ax.plot(snrs, mi_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan", label="DeepRx")
 
+            # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
+            for u in range(n_users_present):
+                mi_esc_u = _clip_mi(avg(f"mi_user{u}_1", use_log_interp=False))
+                arr = np.asarray(mi_esc_u, dtype=float)
+                if np.isfinite(arr).any():
+                    ax.plot(snrs, mi_esc_u, linestyle=(0, (1, 1)), marker=markers[u % len(markers)],
+                            color=plt.cm.tab10(u), label=f"ESCNN UE{u}")
+
+                mi_lmmse_u = _clip_mi(avg(f"mi_lmmse_user{u}", use_log_interp=False))
+                arr = np.asarray(mi_lmmse_u, dtype=float)
+                if np.isfinite(arr).any():
+                    ax.plot(snrs, mi_lmmse_u, linestyle=(0, (1, 1)), marker=markers[u % len(markers)],
+                            color=plt.cm.tab10(u), label=f"LMMSE UE{u}", alpha=0.6)
+
+                if show_sphere:
+                    mi_sphere_u = _clip_mi(avg(f"mi_sphere_user{u}", use_log_interp=False))
+                    arr = np.asarray(mi_sphere_u, dtype=float)
+                    if np.isfinite(arr).any():
+                        ax.plot(snrs, mi_sphere_u, linestyle=(0, (3, 1, 1, 1)), marker=markers[u % len(markers)],
+                                color=plt.cm.tab10(u), label=f"Sphere UE{u}", alpha=0.6)
+
+                mi_deeprx_u = _clip_mi(avg(f"mi_deeprx_user{u}", use_log_interp=False))
+                arr = np.asarray(mi_deeprx_u, dtype=float)
+                if np.isfinite(arr).any():
+                    ax.plot(snrs, mi_deeprx_u, linestyle=(0, (5, 1)), marker=markers[u % len(markers)],
+                            color=plt.cm.tab10(u), label=f"DeepRx UE{u}", alpha=0.6)
+
+                mi_deepsic_u = _clip_mi(avg(f"mi_deepsic_user{u}_1", use_log_interp=False))
+                arr = np.asarray(mi_deepsic_u, dtype=float)
+                if np.isfinite(arr).any() and not np.all(arr[np.isfinite(arr)] == 0):
+                    ax.plot(snrs, mi_deepsic_u, linestyle=(0, (1, 1, 3, 1)), marker=markers[u % len(markers)],
+                            color=plt.cm.tab10(u), label=f"DeepSIC UE{u}", alpha=0.6)
+
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.set_ylim(0.0, 1.0)
@@ -881,6 +973,28 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 snr_target_deepstag = _safe_interp_x_to_y(ber_deepstag_1, snrs, target_y)
                 lbl_stag = "DeepSTAG1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"DeepSTAG1 @ {round(100 * target_y)}% = {snr_target_deepstag}"
                 _plot(ber_deepstag_1, snrs, linestyle=dashes[3], marker=markers[5], color="teal", label=lbl_stag)
+
+            # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
+            def _plot_user(key, det_name, u, linestyle, zero_check=False, alpha=1.0):
+                y = avg(key, use_log_interp=use_log_interp_for_missing)
+                arr = np.asarray(y, dtype=float)
+                if not np.isfinite(arr).any():
+                    return
+                if zero_check and np.all(arr[np.isfinite(arr)] == 0):
+                    return
+                snr_target_u = _safe_interp_x_to_y(y, snrs, target_y)
+                lbl_u = f"{det_name} UE{u}" if PLOT_BER_AS_GFMI and plot_type == "BER" \
+                    else f"{det_name} UE{u} @ {round(100 * target_y)}% = {snr_target_u}"
+                _plot(y, snrs, linestyle=linestyle, marker=markers[u % len(markers)],
+                      color=plt.cm.tab10(u), label=lbl_u, alpha=alpha)
+
+            for u in range(n_users_present):
+                _plot_user(f"ber_user{u}_1", "ESCNN", u, (0, (1, 1)))
+                _plot_user(f"ber_lmmse_user{u}", "LMMSE", u, (0, (1, 1)), alpha=0.6)
+                if show_sphere:
+                    _plot_user(f"ber_sphere_user{u}", "Sphere", u, (0, (3, 1, 1, 1)), alpha=0.6)
+                _plot_user(f"ber_deeprx_user{u}", "DeepRx", u, (0, (5, 1)), alpha=0.6)
+                _plot_user(f"ber_deepsic_user{u}_1", "DeepSIC", u, (0, (1, 1, 3, 1)), zero_check=True, alpha=0.6)
 
             if plot_type == "BLER":
                 bler_avg_curves = {

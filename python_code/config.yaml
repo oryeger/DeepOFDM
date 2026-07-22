@@ -1,4 +1,4 @@
-snr: 40
+snr: 60
 cur_str: trasfer_mod
 num_snrs: 1
 n_ants: 8
@@ -8,7 +8,7 @@ mcs: 2
 mod_pilot: -1
 block_length_factor: 3
 data_size_override: -1  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
-num_res: 4
+num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
@@ -47,8 +47,8 @@ plot_genie: False
 
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
-speed: 1 # in m/s
-channel_drift_index: 15  # TDL channel slot-offset
+speed: 10 # in m/s
+channel_drift_index: 3  # TDL channel slot-offset
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
@@ -58,7 +58,7 @@ env_distance: 100.0           # BS-UT distance [m]
 env_indoor: False             # UE indoor state
 env_enable_pathloss: False    # apply pathloss (False for fair BER comparison)
 env_enable_shadow_fading: False  # apply shadow fading
-channel_seed: 42
+channel_seed: 123
 
 run_deeprx: False
 run_deepsic: False

@@ -1,4 +1,4 @@
-snr: 14
+snr: 60
 cur_str: fallback3
 num_snrs: 1
 n_ants: 8
@@ -45,7 +45,7 @@ plot_genie: False
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
 speed: 10 # in m/s
-channel_drift_index: 0  # TDL channel slot-offset
+channel_drift_index: 1  # TDL channel slot-offset
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)

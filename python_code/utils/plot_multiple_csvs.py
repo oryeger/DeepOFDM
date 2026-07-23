@@ -11,6 +11,7 @@ import matplotlib
 matplotlib.use("TkAgg")
 import matplotlib.pyplot as plt
 import re
+import colorsys
 from scipy.interpolate import interp1d
 import numpy as np
 from collections import defaultdict
@@ -100,7 +101,8 @@ def _detect_n_users(all_files):
     max_u = -1
     for f in all_files:
         try:
-            cols = pd.read_csv(f, nrows=0).columns
+            safe_f = "\\\\?\\" + os.path.abspath(f) if platform.system() == "Windows" else f
+            cols = pd.read_csv(safe_f, nrows=0).columns
         except Exception:
             continue
         for col in cols:
@@ -108,6 +110,41 @@ def _detect_n_users(all_files):
             if m:
                 max_u = max(max_u, int(m.group(1)))
     return max_u + 1
+
+
+# Per-user line styling for the per-user (UE) plot overlays: color stays tied
+# to the detector (same hue as that detector's pooled line), user index instead
+# varies lightness (same hue family, "shades of green"/"shades of red") and
+# linestyle (consistent across detectors, so "user 0" always reads as the same
+# dash pattern regardless of which detector it's plotted for).
+USER_LINESTYLES = ["-", (0, (5, 1)), (0, (1, 1)), (0, (3, 1, 1, 1)), (0, (3, 1, 1, 1, 1, 1))]
+
+
+def _user_shade(base_color, u, n_users_total):
+    """Return a shade of base_color for user index u: same hue, lightness
+    spread from light (u=0) to dark (u=n_users_total-1)."""
+    r, g, b = mpl.colors.to_rgb(base_color)
+    h, l, s = colorsys.rgb_to_hls(r, g, b)
+    n = max(n_users_total, 1)
+    frac = u / (n - 1) if n > 1 else 0.5
+    l_new = 0.72 - (0.72 - 0.32) * frac
+    return colorsys.hls_to_rgb(h, l_new, min(s * 1.15, 1.0))
+
+
+# Legend grouping: LMMSE entries (pooled + all UEs) first, then ESCNN entries
+# (pooled + all UEs), then everything else in whatever order it was plotted.
+def _grouped_legend(ax):
+    handles, labels = ax.get_legend_handles_labels()
+
+    def _group(label):
+        if label.startswith("LMMSE"):
+            return 0
+        if label.startswith("ESCNN"):
+            return 1
+        return 2
+
+    order = sorted(range(len(labels)), key=lambda i: _group(labels[i]))
+    ax.legend([handles[i] for i in order], [labels[i] for i in order])
 
 
 def _safe_interp_x_to_y(x, y, x_target):
@@ -421,6 +458,16 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         fig, axes = plt.subplots(1, 2, figsize=(15.6, 6.5))
         subplot_index = {"BER": 1, "BLER": 0}
 
+    # Second figure, same layout, dedicated to per-user (UE) lines only -- kept
+    # separate from the pooled/overall figure above so neither gets cluttered.
+    # Only created when per-user columns are actually present in the CSVs.
+    fig_ue, axes_ue = None, None
+    if n_users_present:
+        if mi_files_exist:
+            fig_ue, axes_ue = plt.subplots(1, 3, figsize=(21, 6.5))
+        else:
+            fig_ue, axes_ue = plt.subplots(1, 2, figsize=(15.6, 6.5))
+
     used_seeds_overall = set()
     title_source_file = None
 
@@ -437,6 +484,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
     for plot_type in plot_types:
         ax = axes[subplot_index[plot_type]]
+        ax_ue = axes_ue[subplot_index[plot_type]] if axes_ue is not None else None
 
         if plot_type == "BER":
             search_pattern = r"SNR=(-?\d+)"
@@ -808,7 +856,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 "mi_jointllr_1":  mi_jointllr_1,
             }
 
-            ax.plot(snrs, mi_1, linestyle=dashes[0], marker=markers[0], color="g", label="ESCNN1")
+            # Pooled ESCNN <-> ESCNN-UE0 swap their marker/linestyle (see the
+            # matching swap in the per-user loop below) -- only when showing
+            # ESCNN as a single line; with plot_all_iters the 1/2/3 markers
+            # still disambiguate iterations as before.
+            ax.plot(snrs, mi_1, linestyle=dashes[0] if plot_all_escnn else USER_LINESTYLES[0],
+                    marker=markers[0], color="g",
+                    label="ESCNN1" if plot_all_escnn else "ESCNN")
             if plot_all_escnn:
                 ax.plot(snrs, mi_2, linestyle=dashes[1], marker=markers[1], color="g", label="ESCNN2")
                 ax.plot(snrs, mi_3, linestyle=dashes[2], marker=markers[2], color="g", label="ESCNN3")
@@ -819,7 +873,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             mi_lmmse_arr = np.asarray(mi_lmmse, dtype=float)
             if np.isfinite(mi_lmmse_arr).any():
-                ax.plot(snrs, mi_lmmse, linestyle=dashes[4], marker=markers[4], color="r", label="LMMSE")
+                # Pooled LMMSE <-> LMMSE-UE0 swap their marker (linestyle is "-" either way).
+                ax.plot(snrs, mi_lmmse, linestyle=USER_LINESTYLES[0], marker=markers[0], color="r", label="LMMSE")
 
             if show_sphere:
                 mi_sphere_arr = np.asarray(mi_sphere, dtype=float)
@@ -835,43 +890,62 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 ax.plot(snrs, mi_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan", label="DeepRx")
 
             # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
+            # Color stays tied to the detector (same hue as its pooled line);
+            # user index varies lightness (shade) and linestyle instead.
             for u in range(n_users_present):
+                ls_u = USER_LINESTYLES[u % len(USER_LINESTYLES)]
+                marker_u = markers[u % len(markers)]
+                # UE0 swaps marker/linestyle with the pooled line (see above) for
+                # ESCNN and LMMSE specifically -- everything else uses the plain cycle.
+                ls_escnn_u = dashes[0] if u == 0 else ls_u
+                # "P" (bold filled plus) instead of thin "+" -- much easier to spot
+                # against gridlines/other thin strokes.
+                marker_escnn_u = "P" if u == 0 else marker_u
+                marker_lmmse_u = "P" if u == 0 else marker_u
+
                 mi_esc_u = _clip_mi(avg(f"mi_user{u}_1", use_log_interp=False))
                 arr = np.asarray(mi_esc_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax.plot(snrs, mi_esc_u, linestyle=(0, (1, 1)), marker=markers[u % len(markers)],
-                            color=plt.cm.tab10(u), label=f"ESCNN UE{u}")
+                    ax_ue.plot(snrs, mi_esc_u, linestyle=ls_escnn_u, marker=marker_escnn_u,
+                               color=_user_shade("g", u, n_users_present), label=f"ESCNN UE{u}")
 
                 mi_lmmse_u = _clip_mi(avg(f"mi_lmmse_user{u}", use_log_interp=False))
                 arr = np.asarray(mi_lmmse_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax.plot(snrs, mi_lmmse_u, linestyle=(0, (1, 1)), marker=markers[u % len(markers)],
-                            color=plt.cm.tab10(u), label=f"LMMSE UE{u}", alpha=0.6)
+                    ax_ue.plot(snrs, mi_lmmse_u, linestyle=ls_u, marker=marker_lmmse_u,
+                               color=_user_shade("r", u, n_users_present), label=f"LMMSE UE{u}")
 
                 if show_sphere:
                     mi_sphere_u = _clip_mi(avg(f"mi_sphere_user{u}", use_log_interp=False))
                     arr = np.asarray(mi_sphere_u, dtype=float)
                     if np.isfinite(arr).any():
-                        ax.plot(snrs, mi_sphere_u, linestyle=(0, (3, 1, 1, 1)), marker=markers[u % len(markers)],
-                                color=plt.cm.tab10(u), label=f"Sphere UE{u}", alpha=0.6)
+                        ax_ue.plot(snrs, mi_sphere_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                                   color=_user_shade("brown", u, n_users_present), label=f"Sphere UE{u}")
 
                 mi_deeprx_u = _clip_mi(avg(f"mi_deeprx_user{u}", use_log_interp=False))
                 arr = np.asarray(mi_deeprx_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax.plot(snrs, mi_deeprx_u, linestyle=(0, (5, 1)), marker=markers[u % len(markers)],
-                            color=plt.cm.tab10(u), label=f"DeepRx UE{u}", alpha=0.6)
+                    ax_ue.plot(snrs, mi_deeprx_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                               color=_user_shade("cyan", u, n_users_present), label=f"DeepRx UE{u}")
 
                 mi_deepsic_u = _clip_mi(avg(f"mi_deepsic_user{u}_1", use_log_interp=False))
                 arr = np.asarray(mi_deepsic_u, dtype=float)
                 if np.isfinite(arr).any() and not np.all(arr[np.isfinite(arr)] == 0):
-                    ax.plot(snrs, mi_deepsic_u, linestyle=(0, (1, 1, 3, 1)), marker=markers[u % len(markers)],
-                            color=plt.cm.tab10(u), label=f"DeepSIC UE{u}", alpha=0.6)
+                    ax_ue.plot(snrs, mi_deepsic_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                               color=_user_shade("purple", u, n_users_present), label=f"DeepSIC UE{u}")
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
             ax.set_ylim(0.0, 1.0)
             ax.grid(True)
-            ax.legend()
+            _grouped_legend(ax)
+
+            if ax_ue is not None:
+                ax_ue.set_xlabel("SNR (dB)")
+                ax_ue.set_ylabel(ylabel_cur)
+                ax_ue.set_ylim(0.0, 1.0)
+                ax_ue.grid(True)
+                _grouped_legend(ax_ue)
 
         else:
             ber_1 = avg("ber_1", use_log_interp=use_log_interp_for_missing)
@@ -881,15 +955,20 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             ber_lmmse = avg("ber_lmmse", use_log_interp=use_log_interp_for_missing)
             ber_sphere = avg("ber_sphere", use_log_interp=use_log_interp_for_missing)
 
-            def _plot(y, *args, **kwargs):
+            def _plot(y, *args, target_ax=None, **kwargs):
+                a = ax if target_ax is None else target_ax
                 if PLOT_BER_AS_GFMI and plot_type == "BER":
-                    ax.plot(*args, y, **kwargs)
+                    a.plot(*args, y, **kwargs)
                 else:
-                    ax.semilogy(*args, y, **kwargs)
+                    a.semilogy(*args, y, **kwargs)
 
             snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, target_y)
-            lbl1 = "ESCNN1" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"ESCNN1 @ {round(100 * target_y)}% = {snr_target_1}"
-            _plot(ber_1, snrs, linestyle=dashes[0], marker=markers[0], color="g", label=lbl1)
+            escnn1_name = "ESCNN1" if plot_all_escnn else "ESCNN"
+            lbl1 = escnn1_name if PLOT_BER_AS_GFMI and plot_type == "BER" else f"{escnn1_name} @ {round(100 * target_y)}% = {snr_target_1}"
+            # Pooled ESCNN <-> ESCNN-UE0 swap their marker/linestyle -- see the
+            # matching swap in the per-user loop below and the MI branch above.
+            _plot(ber_1, snrs, linestyle=dashes[0] if plot_all_escnn else USER_LINESTYLES[0],
+                  marker=markers[0], color="g", label=lbl1)
 
             if plot_all_escnn:
                 snr_target_2 = _safe_interp_x_to_y(ber_2, snrs, target_y)
@@ -908,7 +987,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
 
             snr_target_lmmse = _safe_interp_x_to_y(ber_lmmse, snrs, target_y)
             lbl_lmmse = "LMMSE" if PLOT_BER_AS_GFMI and plot_type == "BER" else f"LMMSE @ {round(100 * target_y)}% = {snr_target_lmmse}"
-            _plot(ber_lmmse, snrs, linestyle=dashes[4], marker=markers[4], color="r", label=lbl_lmmse)
+            # Pooled LMMSE <-> LMMSE-UE0 swap their marker (linestyle is "-" either way).
+            _plot(ber_lmmse, snrs, linestyle=USER_LINESTYLES[0], marker=markers[0], color="r", label=lbl_lmmse)
 
             if show_sphere:
                 sphere_arr = np.asarray(ber_sphere, dtype=float)
@@ -975,7 +1055,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 _plot(ber_deepstag_1, snrs, linestyle=dashes[3], marker=markers[5], color="teal", label=lbl_stag)
 
             # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
-            def _plot_user(key, det_name, u, linestyle, zero_check=False, alpha=1.0):
+            # Color stays tied to the detector (same hue as its pooled line);
+            # user index varies lightness (shade) and linestyle instead.
+            def _plot_user(key, det_name, u, base_color, zero_check=False, linestyle=None, marker=None):
                 y = avg(key, use_log_interp=use_log_interp_for_missing)
                 arr = np.asarray(y, dtype=float)
                 if not np.isfinite(arr).any():
@@ -985,16 +1067,22 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 snr_target_u = _safe_interp_x_to_y(y, snrs, target_y)
                 lbl_u = f"{det_name} UE{u}" if PLOT_BER_AS_GFMI and plot_type == "BER" \
                     else f"{det_name} UE{u} @ {round(100 * target_y)}% = {snr_target_u}"
-                _plot(y, snrs, linestyle=linestyle, marker=markers[u % len(markers)],
-                      color=plt.cm.tab10(u), label=lbl_u, alpha=alpha)
+                ls = linestyle if linestyle is not None else USER_LINESTYLES[u % len(USER_LINESTYLES)]
+                mk = marker if marker is not None else markers[u % len(markers)]
+                _plot(y, snrs, linestyle=ls, marker=mk, target_ax=ax_ue,
+                      color=_user_shade(base_color, u, n_users_present), label=lbl_u)
 
             for u in range(n_users_present):
-                _plot_user(f"ber_user{u}_1", "ESCNN", u, (0, (1, 1)))
-                _plot_user(f"ber_lmmse_user{u}", "LMMSE", u, (0, (1, 1)), alpha=0.6)
+                # UE0 swaps marker/linestyle with the pooled line for ESCNN and
+                # LMMSE specifically (see the pooled plot calls above).
+                _plot_user(f"ber_user{u}_1", "ESCNN", u, "g",
+                           linestyle=dashes[0] if u == 0 else None, marker="P" if u == 0 else None)
+                _plot_user(f"ber_lmmse_user{u}", "LMMSE", u, "r",
+                           marker="P" if u == 0 else None)
                 if show_sphere:
-                    _plot_user(f"ber_sphere_user{u}", "Sphere", u, (0, (3, 1, 1, 1)), alpha=0.6)
-                _plot_user(f"ber_deeprx_user{u}", "DeepRx", u, (0, (5, 1)), alpha=0.6)
-                _plot_user(f"ber_deepsic_user{u}_1", "DeepSIC", u, (0, (1, 1, 3, 1)), zero_check=True, alpha=0.6)
+                    _plot_user(f"ber_sphere_user{u}", "Sphere", u, "brown")
+                _plot_user(f"ber_deeprx_user{u}", "DeepRx", u, "cyan")
+                _plot_user(f"ber_deepsic_user{u}_1", "DeepSIC", u, "purple", zero_check=True)
 
             if plot_type == "BLER":
                 bler_avg_curves = {
@@ -1028,7 +1116,17 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             else:
                 ax.set_yscale("log")
             ax.grid(True)
-            ax.legend()
+            _grouped_legend(ax)
+
+            if ax_ue is not None:
+                ax_ue.set_xlabel("SNR (dB)")
+                ax_ue.set_ylabel(ylabel_cur)
+                if PLOT_BER_AS_GFMI and plot_type == "BER":
+                    ax_ue.set_ylim(0.0, 1.0)
+                else:
+                    ax_ue.set_yscale("log")
+                ax_ue.grid(True)
+                _grouped_legend(ax_ue)
 
     used_seeds_sorted = sorted(used_seeds_overall)
     if title_source_file is not None:
@@ -1045,6 +1143,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     save_path = os.path.join(CSV_DIR, "plot_output.png")
     fig.savefig(save_path, dpi=180)
     print(f"[INFO] Plot saved to: {save_path}")
+
+    if fig_ue is not None:
+        fig_ue.suptitle(global_title_text + "\n(per-UE)", fontsize=12)
+        fig_ue.tight_layout(rect=[0, 0, 1, 0.90])
+        save_path_ue = os.path.join(CSV_DIR, "plot_output_peruser.png")
+        fig_ue.savefig(save_path_ue, dpi=180)
+        print(f"[INFO] Per-user plot saved to: {save_path_ue}")
 
     try:
         from PIL import Image

@@ -175,6 +175,7 @@ def build(tag):
         note = tw_note(k)
         print("=" * 70); print(f"[{label}]  {pattern}")
         has_ue_curve = False
+        ue_indices = []
         try:
             pmc.plot_csvs(pattern)
             src = os.path.join(SCRATCH, "plot_output.png")
@@ -183,12 +184,20 @@ def build(tag):
                 print("  [OK] curve")
             else:
                 raise RuntimeError("plot_output.png not produced")
-            # Second figure with per-UE lines only -- produced only when the
-            # CSVs have per-user columns (see plot_multiple_csvs.py).
+            # Second figure with all-UEs-combined lines, plus one figure per
+            # individual UE -- all produced only when the CSVs have per-user
+            # columns (see plot_multiple_csvs.py).
             src_ue = os.path.join(SCRATCH, "plot_output_peruser.png")
             if os.path.exists(src_ue):
                 shutil.move(src_ue, os.path.join(out_dir, f"curve_{short}_peruser.png"))
                 has_ue_curve = True
+            for src_u in sorted(glob.glob(os.path.join(SCRATCH, "plot_output_ue*.png"))):
+                m = re.search(r"plot_output_ue(\d+)\.png$", src_u)
+                if not m:
+                    continue
+                u = int(m.group(1))
+                shutil.move(src_u, os.path.join(out_dir, f"curve_{short}_ue{u}.png"))
+                ue_indices.append(u)
         except Exception as e:
             print(f"  [FAIL] {e}"); failed.append((label, str(e)))
         plt.close("all")
@@ -196,6 +205,8 @@ def build(tag):
                     f"<img class='curve' src='curve_{short}.png'>")
         if has_ue_curve:
             html.append(f"<img class='curve' src='curve_{short}_peruser.png'>")
+        for u in sorted(ue_indices):
+            html.append(f"<img class='curve' src='curve_{short}_ue{u}.png'>")
 
     html.append(f"<h1>{tag} &mdash; Part 2: LLR histograms &amp; training loss "
                 f"({' | '.join(d.upper() for d in dets)})</h1>")
@@ -237,7 +248,7 @@ def build(tag):
                     pat = os.path.join(SCRATCH, f"{det}_2*_{k}_s=*_SNR={snr}.jpg")
                     hits = glob.glob(pat)
                     if hits:
-                        shutil.copy2(LONG(hits[0]), dst); copied += 1
+                        shutil.copy2(LONG(hits[0]), LONG(dst)); copied += 1
                 if os.path.exists(dst):
                     row.append(f"<td><img src='{sname}'></td>")
                 else:

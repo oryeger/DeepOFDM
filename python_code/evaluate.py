@@ -79,6 +79,24 @@ def entropy_with_bin_width(data, bin_width):
     return entropy(hist, base=2)  # Compute entropy
 
 
+def crc_fail_mask(decodedwords: np.ndarray, crc_out) -> np.ndarray:
+    """Per-row block-error mask (True = block failed).
+
+    An all-zero LDPC decode is a trivial fixed point of belief-propagation
+    decoding (it satisfies every parity check with no evidence needed) and its
+    CRC field is also all-zero, so CRC(0) == 0 always matches: a genuinely
+    undecodable block (e.g. a near-zero-MI UE) can pass CRC purely by
+    collapsing to this trivial word, silently reporting BLER=0 while BER is
+    ~0.5. The transmitted payload is random data ~150-200+ bits long, so the
+    chance it is legitimately all-zero is ~2^-150 or smaller — negligible next
+    to any other source of error — so we always count an all-zero decode as a
+    block failure regardless of what CRC reports.
+    """
+    all_zero = ~np.asarray(decodedwords).any(axis=1)
+    crc_fail = ~np.asarray(crc_out).reshape(-1).astype(bool)
+    return crc_fail | all_zero
+
+
 def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_users: int, num_res: int,
             user_idx: int = None) -> np.ndarray:
     # When make_64QAM_16QAM_percentage=50, the network outputs num_bits_pilot=6 LLRs/symbol
@@ -1620,46 +1638,51 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     for slot in range(num_slots):
                         decodedwords = codec.decode(llr_all_res[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out = crc.decode(decodedwords)
-                        crc_count += (~crc_out).numpy().astype(int).sum()
+                        crc_fail = crc_fail_mask(decodedwords, crc_out)
+                        crc_count += crc_fail.astype(int).sum()
                         for u in range(n_users):
-                            crc_count_user[u] += int(~crc_out[u])
+                            crc_count_user[u] += int(crc_fail[u])
                         if conf.run_tdfdcnn:
                             decodedwords_tdfdcnn = codec.decode(llr_all_res_tdfdcnn[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_tdfdcnn = crc.decode(decodedwords_tdfdcnn)
-                            crc_count_tdfdcnn += (~crc_out_tdfdcnn).numpy().astype(int).sum()
+                            crc_count_tdfdcnn += crc_fail_mask(decodedwords_tdfdcnn, crc_out_tdfdcnn).astype(int).sum()
 
                         decodedwords_lmmse = codec.decode(llr_all_res_lmmse[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                         crc_out_lmmse = crc.decode(decodedwords_lmmse)
-                        crc_count_lmmse += (~crc_out_lmmse).numpy().astype(int).sum()
+                        crc_fail_lmmse = crc_fail_mask(decodedwords_lmmse, crc_out_lmmse)
+                        crc_count_lmmse += crc_fail_lmmse.astype(int).sum()
                         for u in range(n_users):
-                            crc_count_lmmse_user[u] += int(~crc_out_lmmse[u])
+                            crc_count_lmmse_user[u] += int(crc_fail_lmmse[u])
                         if run_sphere:
                             decodedwords_sphere = codec.decode(llr_all_res_sphere[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_sphere = crc.decode(decodedwords_sphere)
-                            crc_count_sphere += (~crc_out_sphere).numpy().astype(int).sum()
+                            crc_fail_sphere = crc_fail_mask(decodedwords_sphere, crc_out_sphere)
+                            crc_count_sphere += crc_fail_sphere.astype(int).sum()
                             for u in range(n_users):
-                                crc_count_sphere_user[u] += int(~crc_out_sphere[u])
+                                crc_count_sphere_user[u] += int(crc_fail_sphere[u])
                         if run_deeprx:
                             decodedwords_deeprx = codec.decode(llr_all_res_deeprx[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_deeprx = crc.decode(decodedwords_deeprx)
-                            crc_count_deeprx += (~crc_out_deeprx).numpy().astype(int).sum()
+                            crc_fail_deeprx = crc_fail_mask(decodedwords_deeprx, crc_out_deeprx)
+                            crc_count_deeprx += crc_fail_deeprx.astype(int).sum()
                             for u in range(n_users):
-                                crc_count_deeprx_user[u] += int(~crc_out_deeprx[u])
+                                crc_count_deeprx_user[u] += int(crc_fail_deeprx[u])
                         if run_deepsic:
                             decodedwords_deepsic = codec.decode(
                                 llr_all_res_deepsic[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_deepsic = crc.decode(decodedwords_deepsic)
-                            crc_count_deepsic += (~crc_out_deepsic).numpy().astype(int).sum()
+                            crc_fail_deepsic = crc_fail_mask(decodedwords_deepsic, crc_out_deepsic)
+                            crc_count_deepsic += crc_fail_deepsic.astype(int).sum()
                             for u in range(n_users):
-                                crc_count_deepsic_user[u] += int(~crc_out_deepsic[u])
+                                crc_count_deepsic_user[u] += int(crc_fail_deepsic[u])
                         if run_mhsa:
                             decodedwords_mhsa = codec.decode(llr_all_res_mhsa[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_mhsa = crc.decode(decodedwords_mhsa)
-                            crc_count_mhsa += (~crc_out_mhsa).numpy().astype(int).sum()
+                            crc_count_mhsa += crc_fail_mask(decodedwords_mhsa, crc_out_mhsa).astype(int).sum()
                         if conf.run_jointllr:
                             decodedwords_jointllr = codec.decode(llr_all_res_jointllr[:, slot * ldpc_n:(slot + 1) * ldpc_n])
                             crc_out_jointllr = crc.decode(decodedwords_jointllr)
-                            crc_count_jointllr += (~crc_out_jointllr).numpy().astype(int).sum()
+                            crc_count_jointllr += crc_fail_mask(decodedwords_jointllr, crc_out_jointllr).astype(int).sum()
                     bler_list[iteration] = crc_count / (num_slots * n_users)
                     total_bler_list[iteration].append(bler_list[iteration])
                     for u in range(n_users):

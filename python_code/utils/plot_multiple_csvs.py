@@ -468,6 +468,17 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         else:
             fig_ue, axes_ue = plt.subplots(1, 2, figsize=(15.6, 6.5))
 
+    # One more figure PER individual UE (BLER/MI/BER for just that user, all
+    # detectors) -- same layout again, indexed by user number.
+    figs_ue_by_user, axes_ue_by_user = [], []
+    for _ in range(n_users_present):
+        if mi_files_exist:
+            f_u, a_u = plt.subplots(1, 3, figsize=(21, 6.5))
+        else:
+            f_u, a_u = plt.subplots(1, 2, figsize=(15.6, 6.5))
+        figs_ue_by_user.append(f_u)
+        axes_ue_by_user.append(a_u)
+
     used_seeds_overall = set()
     title_source_file = None
 
@@ -485,6 +496,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     for plot_type in plot_types:
         ax = axes[subplot_index[plot_type]]
         ax_ue = axes_ue[subplot_index[plot_type]] if axes_ue is not None else None
+        ax_ue_by_user = [a_u[subplot_index[plot_type]] for a_u in axes_ue_by_user]
 
         if plot_type == "BER":
             search_pattern = r"SNR=(-?\d+)"
@@ -889,6 +901,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             if np.isfinite(mi_deeprx_arr).any() and not np.all(mi_deeprx_arr[np.isfinite(mi_deeprx_arr)] == 0):
                 ax.plot(snrs, mi_deeprx, linestyle=dashes[3], marker=markers[3], color="cyan", label="DeepRx")
 
+            # Plots a per-user line on both the combined "all UEs" axis and
+            # that user's own individual axis.
+            def _plot_ue_all(u, *args, **kwargs):
+                if ax_ue is not None:
+                    ax_ue.plot(*args, **kwargs)
+                ax_ue_by_user[u].plot(*args, **kwargs)
+
             # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
             # Color stays tied to the detector (same hue as its pooled line);
             # user index varies lightness (shade) and linestyle instead.
@@ -906,33 +925,33 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 mi_esc_u = _clip_mi(avg(f"mi_user{u}_1", use_log_interp=False))
                 arr = np.asarray(mi_esc_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax_ue.plot(snrs, mi_esc_u, linestyle=ls_escnn_u, marker=marker_escnn_u,
-                               color=_user_shade("g", u, n_users_present), label=f"ESCNN UE{u}")
+                    _plot_ue_all(u, snrs, mi_esc_u, linestyle=ls_escnn_u, marker=marker_escnn_u,
+                                 color=_user_shade("g", u, n_users_present), label=f"ESCNN UE{u}")
 
                 mi_lmmse_u = _clip_mi(avg(f"mi_lmmse_user{u}", use_log_interp=False))
                 arr = np.asarray(mi_lmmse_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax_ue.plot(snrs, mi_lmmse_u, linestyle=ls_u, marker=marker_lmmse_u,
-                               color=_user_shade("r", u, n_users_present), label=f"LMMSE UE{u}")
+                    _plot_ue_all(u, snrs, mi_lmmse_u, linestyle=ls_u, marker=marker_lmmse_u,
+                                 color=_user_shade("r", u, n_users_present), label=f"LMMSE UE{u}")
 
                 if show_sphere:
                     mi_sphere_u = _clip_mi(avg(f"mi_sphere_user{u}", use_log_interp=False))
                     arr = np.asarray(mi_sphere_u, dtype=float)
                     if np.isfinite(arr).any():
-                        ax_ue.plot(snrs, mi_sphere_u, linestyle=ls_u, marker=markers[u % len(markers)],
-                                   color=_user_shade("brown", u, n_users_present), label=f"Sphere UE{u}")
+                        _plot_ue_all(u, snrs, mi_sphere_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                                     color=_user_shade("brown", u, n_users_present), label=f"Sphere UE{u}")
 
                 mi_deeprx_u = _clip_mi(avg(f"mi_deeprx_user{u}", use_log_interp=False))
                 arr = np.asarray(mi_deeprx_u, dtype=float)
                 if np.isfinite(arr).any():
-                    ax_ue.plot(snrs, mi_deeprx_u, linestyle=ls_u, marker=markers[u % len(markers)],
-                               color=_user_shade("cyan", u, n_users_present), label=f"DeepRx UE{u}")
+                    _plot_ue_all(u, snrs, mi_deeprx_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                                 color=_user_shade("cyan", u, n_users_present), label=f"DeepRx UE{u}")
 
                 mi_deepsic_u = _clip_mi(avg(f"mi_deepsic_user{u}_1", use_log_interp=False))
                 arr = np.asarray(mi_deepsic_u, dtype=float)
                 if np.isfinite(arr).any() and not np.all(arr[np.isfinite(arr)] == 0):
-                    ax_ue.plot(snrs, mi_deepsic_u, linestyle=ls_u, marker=markers[u % len(markers)],
-                               color=_user_shade("purple", u, n_users_present), label=f"DeepSIC UE{u}")
+                    _plot_ue_all(u, snrs, mi_deepsic_u, linestyle=ls_u, marker=markers[u % len(markers)],
+                                 color=_user_shade("purple", u, n_users_present), label=f"DeepSIC UE{u}")
 
             ax.set_xlabel("SNR (dB)")
             ax.set_ylabel(ylabel_cur)
@@ -947,6 +966,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 ax_ue.grid(True)
                 _grouped_legend(ax_ue)
 
+            for u, ax_u in enumerate(ax_ue_by_user):
+                ax_u.set_xlabel("SNR (dB)")
+                ax_u.set_ylabel(ylabel_cur)
+                ax_u.set_ylim(0.0, 1.0)
+                ax_u.grid(True)
+                _grouped_legend(ax_u)
+
         else:
             ber_1 = avg("ber_1", use_log_interp=use_log_interp_for_missing)
             ber_2 = avg("ber_2", use_log_interp=use_log_interp_for_missing)
@@ -956,11 +982,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             ber_sphere = avg("ber_sphere", use_log_interp=use_log_interp_for_missing)
 
             def _plot(y, *args, target_ax=None, **kwargs):
-                a = ax if target_ax is None else target_ax
-                if PLOT_BER_AS_GFMI and plot_type == "BER":
-                    a.plot(*args, y, **kwargs)
-                else:
-                    a.semilogy(*args, y, **kwargs)
+                target_axes = [ax] if target_ax is None else (
+                    target_ax if isinstance(target_ax, (list, tuple)) else [target_ax])
+                for a in target_axes:
+                    if PLOT_BER_AS_GFMI and plot_type == "BER":
+                        a.plot(*args, y, **kwargs)
+                    else:
+                        a.semilogy(*args, y, **kwargs)
 
             snr_target_1 = _safe_interp_x_to_y(ber_1, snrs, target_y)
             escnn1_name = "ESCNN1" if plot_all_escnn else "ESCNN"
@@ -1069,7 +1097,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                     else f"{det_name} UE{u} @ {round(100 * target_y)}% = {snr_target_u}"
                 ls = linestyle if linestyle is not None else USER_LINESTYLES[u % len(USER_LINESTYLES)]
                 mk = marker if marker is not None else markers[u % len(markers)]
-                _plot(y, snrs, linestyle=ls, marker=mk, target_ax=ax_ue,
+                target_axes = ([ax_ue] if ax_ue is not None else []) + [ax_ue_by_user[u]]
+                _plot(y, snrs, linestyle=ls, marker=mk, target_ax=target_axes,
                       color=_user_shade(base_color, u, n_users_present), label=lbl_u)
 
             for u in range(n_users_present):
@@ -1128,6 +1157,16 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 ax_ue.grid(True)
                 _grouped_legend(ax_ue)
 
+            for ax_u in ax_ue_by_user:
+                ax_u.set_xlabel("SNR (dB)")
+                ax_u.set_ylabel(ylabel_cur)
+                if PLOT_BER_AS_GFMI and plot_type == "BER":
+                    ax_u.set_ylim(0.0, 1.0)
+                else:
+                    ax_u.set_yscale("log")
+                ax_u.grid(True)
+                _grouped_legend(ax_u)
+
     used_seeds_sorted = sorted(used_seeds_overall)
     if title_source_file is not None:
         original_name = os.path.basename(title_source_file)
@@ -1150,6 +1189,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         save_path_ue = os.path.join(CSV_DIR, "plot_output_peruser.png")
         fig_ue.savefig(save_path_ue, dpi=180)
         print(f"[INFO] Per-user plot saved to: {save_path_ue}")
+
+    for u, fig_u in enumerate(figs_ue_by_user):
+        fig_u.suptitle(global_title_text + f"\n(UE{u})", fontsize=12)
+        fig_u.tight_layout(rect=[0, 0, 1, 0.90])
+        save_path_u = os.path.join(CSV_DIR, f"plot_output_ue{u}.png")
+        fig_u.savefig(save_path_u, dpi=180)
+        print(f"[INFO] UE{u} plot saved to: {save_path_u}")
 
     try:
         from PIL import Image

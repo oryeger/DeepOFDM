@@ -15,7 +15,8 @@ What it does, given experiment tag <tag>:
      short names (long originals exceed Windows MAX_PATH at this depth).
   5. Writes <tag>.html: Part 1 = curves, Part 2 = histogram tables
      (rows = SNR, columns = detectors), each plot preceded by its parameters.
-Safe to rerun: skips jpg copies that already exist, overwrites html/curves.
+Rerunning wipes any existing C:\\Projects\\Scratchpad\\Analysis\\<tag>\\ and
+rebuilds it from scratch, so stale files from a previous run never linger.
 """
 import glob, os, re, shutil, sys
 
@@ -133,6 +134,9 @@ def build(tag):
     keys.sort(key=lambda k: sort_key(diffs[k]))
 
     out_dir = os.path.join(ANALYSIS, tag)
+    if os.path.isdir(out_dir):
+        shutil.rmtree(LONG(out_dir))
+        print(f"Removed existing analysis dir for tag '{tag}': {out_dir}")
     os.makedirs(out_dir, exist_ok=True)
 
     # third plot panel is GFMI when nll=gf, plain BER otherwise

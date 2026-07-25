@@ -286,15 +286,16 @@ class ESCNNTrainer(Trainer):
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str):
-        train_loss_vect_user = []
-        val_loss_vect_user = []
+        """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
+        list per UE (each UE has its own network, so its own loss history)."""
+        train_loss_vect_users = [None] * n_users
+        val_loss_vect_users = [None] * n_users
         for user in range(n_users):
             net_id = f"u={user} it={i}"
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id)
-            if user == 0:
-                train_loss_vect_user = train_loss_vect
-                val_loss_vect_user = val_loss_vect
-        return train_loss_vect_user , val_loss_vect_user
+            train_loss_vect_users[user] = train_loss_vect
+            val_loss_vect_users[user] = val_loss_vect
+        return train_loss_vect_users , val_loss_vect_users
 
 
 
@@ -312,7 +313,17 @@ class ESCNNTrainer(Trainer):
 
         # Training the ESCNN network for each user for iteration=1
         tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real, initial_probs, n_users)
+        # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
+        _labels_identical = [bool(torch.equal(tx_all[0], tx_all[u])) for u in range(1, n_users)]
+        print(f"[TEMP DEBUG] tx_all[u] identical to tx_all[0] for u=1..{n_users-1}: {_labels_identical}", flush=True)
+        # ---- END TEMP DEBUG ----
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
+        # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
+        _final_losses = [round(v[-1], 8) if v else None for v in train_loss_vect]
+        _vect_identical = [train_loss_vect[u] == train_loss_vect[0] for u in range(1, n_users)]
+        print(f"[TEMP DEBUG] final train loss per UE: {_final_losses}", flush=True)
+        print(f"[TEMP DEBUG] train_loss_vect[u] == train_loss_vect[0] for u=1..{n_users-1}: {_vect_identical}", flush=True)
+        # ---- END TEMP DEBUG ----
         # Initializing the probabilities
         if conf.which_augment == 'NO_AUGMENT':
             probs_vec = self._initialize_probs_for_training(tx, num_bits, n_users)
@@ -326,8 +337,9 @@ class ESCNNTrainer(Trainer):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
             if SHOW_ALL_ITERATIONS:
-                train_loss_vect = train_loss_vect + train_loss_cur
-                val_loss_vect = val_loss_vect + val_loss_cur
+                for user in range(n_users):
+                    train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]
+                    val_loss_vect[user] = val_loss_vect[user] + val_loss_cur[user]
         return train_loss_vect , val_loss_vect
 
     @staticmethod

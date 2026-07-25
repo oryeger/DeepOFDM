@@ -142,16 +142,19 @@ class DeepSICTrainer(Trainer):
 
     def _train_models(self, model: List[List[List[DeepSICDetector]]], i: int, tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int):
-        train_loss_vect_user = []
-        val_loss_vect_user = []
+        """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
+        list per UE. DeepSIC trains a separate network per (RE, UE) pair; each UE's
+        curve is taken from the last RE trained (the same single-RE representative
+        the previous code used, just kept for every UE instead of only UE 0)."""
+        train_loss_vect_users = [None] * n_users
+        val_loss_vect_users = [None] * n_users
         for re in range(conf.num_res):
             for user in range(n_users):
                 net_id = f"u={user} re={re} it={i}"
                 train_loss_vect , val_loss_vect = self._train_model(model[re][user][i], tx_all[user][:,re], rx_all[user][:,:,re].to(DEVICE), num_bits, epochs, network_id=net_id)
-                if user == 0:
-                    train_loss_vect_user = train_loss_vect
-                    val_loss_vect_user = val_loss_vect
-        return train_loss_vect_user , val_loss_vect_user
+                train_loss_vect_users[user] = train_loss_vect
+                val_loss_vect_users[user] = val_loss_vect
+        return train_loss_vect_users , val_loss_vect_users
 
 
 
@@ -177,8 +180,9 @@ class DeepSICTrainer(Trainer):
             # Training the DeepSIC networks for the iteration>1
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_all, num_bits , n_users , epochs)
             if SHOW_ALL_ITERATIONS:
-                train_loss_vect = train_loss_vect + train_loss_cur
-                val_loss_vect = val_loss_vect + val_loss_cur
+                for user in range(n_users):
+                    train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]
+                    val_loss_vect[user] = val_loss_vect[user] + val_loss_cur[user]
         return train_loss_vect , val_loss_vect
 
     def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor) -> torch.Tensor:

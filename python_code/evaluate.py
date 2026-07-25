@@ -273,7 +273,7 @@ def get_next_divisible(num, divisor):
 
 
 def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detector, kernel_size, train_samples,
-                       val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration, nll_vals=None):
+                       val_samples, mod_text, cfo_str, ber, ber_lmmse, iteration, nll_vals=None, n_users=None):
     num_res = conf.num_res
     p_len = conf.epochs * (iteration + 1)
     if detector == 'ESCNN' or detector == 'MHSA' or detector == 'FILM' or detector == 'TDFDCNN':
@@ -283,31 +283,68 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     else:
         iters_txt = ''
 
-    fig, axes = plt.subplots(nrows=2, ncols=1, figsize=(6.4, 4.8))
-    epochs_vect = list(range(1, len(train_loss_vect) + 1))
-    axes[0].plot(epochs_vect[:p_len], train_loss_vect[:p_len], linestyle='-', color='b',
-                 label='Training Loss')
-    axes[0].plot(epochs_vect[:p_len], val_loss_vect[:p_len], linestyle='-', color='r',
-                 label='Validation Loss')
-    axes[0].set_xlabel('Epochs')
-    axes[0].set_ylabel('Loss')
+    # train_loss_vect/val_loss_vect: either a flat per-epoch list (one curve,
+    # every non-ESCNN detector) or a list of n_users per-epoch lists (ESCNN/FILM,
+    # whose trainer keeps a separate network+loss history per UE).
+    per_user_loss = (isinstance(train_loss_vect, (list, tuple)) and len(train_loss_vect) > 0
+                      and isinstance(train_loss_vect[0], (list, tuple)))
+    # Per-UE LLR histogram grid, only when the caller tells us how many UEs are
+    # packed into llrs_mat's channel dim (ESCNN/FILM only).
+    per_user_llr = bool(n_users) and n_users > 1 and llrs_mat.shape[1] % n_users == 0
+
+    llr_cols = min(n_users, 4) if per_user_llr else 1
+    llr_rows = -(-n_users // llr_cols) if per_user_llr else 1  # ceil division
+
+    fig = plt.figure(figsize=(6.4, 4.8 + (llr_rows - 1) * 1.6))
+    gs = fig.add_gridspec(1 + llr_rows, llr_cols)
+    ax_loss = fig.add_subplot(gs[0, :])
+
+    if per_user_loss:
+        colors = plt.cm.tab10.colors
+        for u, (tl, vl) in enumerate(zip(train_loss_vect, val_loss_vect)):
+            epochs_vect = list(range(1, len(tl) + 1))
+            c = colors[u % len(colors)]
+            ax_loss.plot(epochs_vect[:p_len], tl[:p_len], linestyle='-', color=c, label=f'UE{u} train')
+            ax_loss.plot(epochs_vect[:p_len], vl[:p_len], linestyle='--', color=c, label=f'UE{u} val')
+        ax_loss.legend(fontsize=6, ncol=2)
+    else:
+        epochs_vect = list(range(1, len(train_loss_vect) + 1))
+        ax_loss.plot(epochs_vect[:p_len], train_loss_vect[:p_len], linestyle='-', color='b',
+                     label='Training Loss')
+        ax_loss.plot(epochs_vect[:p_len], val_loss_vect[:p_len], linestyle='-', color='r',
+                     label='Validation Loss')
+        ax_loss.legend()
+    ax_loss.set_xlabel('Epochs')
+    ax_loss.set_ylabel('Loss')
     title_string = (detector + ', ' + mod_text + ', #TRAIN=' + str(train_samples) + ', #VAL=' + str(
         val_samples) + ', SNR=' + str(
         snr_cur) + ", #REs=" + str(num_res) + ', #UEs=' + str(
         conf.n_users) + '\n ' +
                     cfo_str + ', Epochs=' + str(conf.epochs) + iters_txt + ', CNN kernel size=' + str(kernel_size))
 
-    axes[0].set_title(title_string, fontsize=8)
-    axes[0].legend()
-    axes[0].grid()
+    ax_loss.set_title(title_string, fontsize=8)
+    ax_loss.grid()
 
-    axes[1].hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
-    if (detector == 'ESCNN') or (detector == 'DeepSICe2e') or (detector == 'MHSA') or (detector == 'TDFDCNN'):
-        axes[1].set_xlabel('LLRs iteration ' + str(iteration + 1))
+    llr_xlabel = ('LLRs iteration ' + str(iteration + 1)
+                  if detector in ('ESCNN', 'DeepSICe2e', 'MHSA', 'TDFDCNN') else 'LLRs')
+    if per_user_llr:
+        per_user_width = llrs_mat.shape[1] // n_users
+        for u in range(n_users):
+            ax = fig.add_subplot(gs[1 + u // llr_cols, u % llr_cols])
+            user_llrs = llrs_mat[:, u * per_user_width:(u + 1) * per_user_width, :, :]
+            ax.hist(user_llrs.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
+            ax.set_title(f'UE{u}', fontsize=7)
+            ax.set_xlabel(llr_xlabel, fontsize=6)
+            ax.set_ylabel('#Values', fontsize=6)
+            ax.tick_params(labelsize=6)
+            ax.grid()
     else:
-        axes[1].set_xlabel('LLRs')
-    axes[1].set_ylabel('#Values')
-    axes[1].grid()
+        ax = fig.add_subplot(gs[1:, :])
+        ax.hist(llrs_mat.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
+        ax.set_xlabel(llr_xlabel)
+        ax.set_ylabel('#Values')
+        ax.grid()
+
     if nll_vals:
         parts = []
         if 'consistent' in nll_vals:
@@ -336,8 +373,8 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     _cdi = getattr(conf, 'channel_drift_index', 0)
     title_string = (chan_text + f'_sp={conf.speed}_cdi={_cdi}' + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
         conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
-                    'cfo=' + str(conf.cfo) + ' scs' + ', Epo=' + str(epochs) + ', it=' + str(
-                iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
+                    'cfo=' + str(conf.cfo) + ' scs' + ', Ep=' + str(epochs) + ', it=' + str(
+                iterations) + ', kr=' + str(conf.kernel_size) + ', Clp=' + str(
                 conf.clip_percentage_in_tx))
 
     title_string = title_string.replace("\n", "")
@@ -2034,22 +2071,30 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         cfo_str = 'cfo=' + str(conf.cfo) + ' scs'
         nll_fixed_mu = None if _use_data else (mu_genie if _use_genie else mu_postsinr)
 
-        fig_lmmse = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
+        # train_loss_vect is per-UE (list of lists) for ESCNN; these dummy zero
+        # curves just need to match its epoch count, not its (now nested) length.
+        _ref_epochs = (len(train_loss_vect[0]) if train_loss_vect and isinstance(train_loss_vect[0], (list, tuple))
+                       else len(train_loss_vect))
+
+        fig_lmmse = plot_loss_and_LLRs([0] * _ref_epochs, [0] * _ref_epochs,
                                        torch.from_numpy(llrs_mat_lmmse),
                                        snr_cur, "lmmse", 0, train_samples, val_samples, mod_text, cfo_str, ber_lmmse,
-                                       ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_lmmse, fixed_mu=nll_fixed_mu))
+                                       ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_lmmse, fixed_mu=nll_fixed_mu),
+                                       n_users=n_users)
 
         if run_sphere:
-            fig_sphere = plot_loss_and_LLRs([0] * len(train_loss_vect), [0] * len(val_loss_vect),
+            fig_sphere = plot_loss_and_LLRs([0] * _ref_epochs, [0] * _ref_epochs,
                                            torch.from_numpy(llrs_mat_sphere),
                                            snr_cur, "Sphere", 0, train_samples, val_samples, mod_text, cfo_str,
-                                           ber_sphere, ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_sphere, fixed_mu=nll_fixed_mu))
+                                           ber_sphere, ber_lmmse, 0, nll_vals=calc_llr_nll(llrs_mat_sphere, fixed_mu=nll_fixed_mu),
+                                           n_users=n_users)
 
         if run_deeprx:
             fig_deeprx = plot_loss_and_LLRs(train_loss_vect_deeprx, val_loss_vect_deeprx, llrs_mat_deeprx, snr_cur,
                                             "DeepRx", 3,
                                             train_samples, val_samples, mod_text, cfo_str, ber_deeprx, ber_lmmse, 0,
-                                            nll_vals=calc_llr_nll(llrs_mat_deeprx, fixed_mu=nll_fixed_mu))
+                                            nll_vals=calc_llr_nll(llrs_mat_deeprx, fixed_mu=nll_fixed_mu),
+                                            n_users=n_users)
         if conf.run_tdcnn:
             fig_tdcnn = plot_loss_and_LLRs(train_loss_vect_tdcnn, val_loss_vect_tdcnn, torch.zeros_like(llrs_mat_list[0]), snr_cur,
                                             "TDCNN", 3,
@@ -2068,7 +2113,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                  llrs_mat_deepsic_list[iteration], snr_cur, "DeepSIC", 3,
                                                  train_samples, val_samples, mod_text, cfo_str,
                                                  ber_deepsic_list[iteration], ber_lmmse, conf.iterations,
-                                                 nll_vals=calc_llr_nll(llrs_mat_deepsic_list[iteration], fixed_mu=nll_fixed_mu))
+                                                 nll_vals=calc_llr_nll(llrs_mat_deepsic_list[iteration], fixed_mu=nll_fixed_mu),
+                                                 n_users=n_users)
         if run_mhsa:
             for iteration in range(iterations):
                 fig_mhsa = plot_loss_and_LLRs(train_loss_vect_mhsa, val_loss_vect_mhsa, llrs_mat_mhsa_list[iteration],
@@ -2109,13 +2155,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             fig_escnn = plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat_list[iteration], snr_cur, "ESCNN",
                                              conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                              ber_list[iteration],
-                                             ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu))
+                                             ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu),
+                                             n_users=n_users)
             if conf.use_film:
                 fig_film = plot_loss_and_LLRs(train_loss_vect_film, val_loss_vect_film, llrs_mat_list[iteration], snr_cur,
                                                "FILM",
                                                conf.kernel_size, train_samples, val_samples, mod_text, cfo_str,
                                                ber_list[iteration],
-                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu))
+                                               ber_lmmse, iteration, nll_vals=calc_llr_nll(llrs_mat_list[iteration], fixed_mu=nll_fixed_mu),
+                                               n_users=n_users)
 
         _use_nll = getattr(conf, 'llr_nll_mode', 'none') != 'none'
         data = {
@@ -2231,11 +2279,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_write=' + weights_tag
-        _nll_short = {'none': '0', 'fitted_data': 'fd', 'fitted_postsinr': 'fp', 'fitted_genie': 'fg',
-                      'consistent_data': 'cd', 'consistent_postsinr': 'cp', 'consistent_genie': 'cg',
-                      'gfmi': 'gf'}
-        _nll_tag = _nll_short.get(getattr(conf, 'llr_nll_mode', 'none'), '0')
-        title_string = title_string + '_nll=' + _nll_tag
         _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}
         _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
         title_string = title_string + '_tl=' + _tl_tag

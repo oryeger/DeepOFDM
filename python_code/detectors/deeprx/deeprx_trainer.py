@@ -151,15 +151,16 @@ class DeepRxTrainer(Trainer):
 
     def _train_models(self, model: List[DeepRxDetector], tx_all: List[torch.Tensor],
                       rx_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool):
-        train_loss_vect_user = []
-        val_loss_vect_user = []
+        """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
+        list per UE (each UE has its own network, so its own loss history)."""
+        train_loss_vect_users = [None] * n_users
+        val_loss_vect_users = [None] * n_users
         for user in range(n_users):
             net_id = f"u={user}"
             train_loss_vect , val_loss_vect = self._train_model(model[user], tx_all[user], rx_all[user].to(DEVICE), num_bits,epochs, first_half_flag, network_id=net_id)
-            if user == 0:
-                train_loss_vect_user = train_loss_vect
-                val_loss_vect_user = val_loss_vect
-        return train_loss_vect_user , val_loss_vect_user
+            train_loss_vect_users[user] = train_loss_vect
+            val_loss_vect_users[user] = val_loss_vect
+        return train_loss_vect_users , val_loss_vect_users
 
 
 

@@ -123,6 +123,10 @@ class ESCNNTrainer(Trainer):
         _log_hb = (getattr(conf, 'training_loss', 'bce') in ('gfmi', 'tent', 'tsyn')
                    and getattr(conf, 'beta_balance', 0.0) > 0.0)
         _log_tsyn = getattr(conf, 'training_loss', 'bce') == 'tsyn'
+        # Collapse diagnostics (true_ber/const_pos/frac_ones) need ground-truth tx
+        # but nothing syndrome-specific, so they're equally meaningful for 'tent'
+        # (also blind/unsupervised, same collapse failure mode) as for 'tsyn'.
+        _log_collapse = getattr(conf, 'training_loss', 'bce') in ('tent', 'tsyn')
 
         for epoch in range(epochs):
             epoch_loss = 0.0
@@ -188,6 +192,36 @@ class ESCNNTrainer(Trainer):
                 val_hb = self._calc_h_marginal(llrs_val_cur, mask_val_cur) if _log_hb else None
                 val_tsyn = dict(getattr(self, '_tsyn_stats', {})) if _log_tsyn else None
 
+                # ---- TEMP DEBUG: tsyn collapse investigation (remove once done) ----
+                # Ground-truth diagnostics: is the network collapsing to an
+                # input-independent constant output, a sign-biased output, or a
+                # non-trivial-but-fixed syndrome-satisfying codeword? Read-only,
+                # does not feed back into loss/gradients.
+                if _log_collapse:
+                    tx_val_cur = (tx_val[:, 0::2, :] if first_half_flag else tx_val).to(DEVICE)
+                    # Project convention (see syndrome_loss.py docstring / _compute_output):
+                    # sigmoid(L) = P(bit=1), so L>0 => bit 1, matching prob_to_BPSK_symbol's
+                    # p>0.5 => bit 1 threshold.
+                    hard_val = (llrs_val_cur.squeeze(-1) > 0).long()
+                    true_val = tx_val_cur.long()
+                    mbool = mask_val_cur.bool()
+                    if mbool.any():
+                        true_ber = (hard_val[mbool] != true_val[mbool]).float().mean().item()
+                        frac_ones = hard_val[mbool].float().mean().item()
+                    else:
+                        true_ber = float('nan')
+                        frac_ones = float('nan')
+                    # Per bit-position variance across the batch dim: near-zero
+                    # means the network outputs that position the same way
+                    # regardless of input (input-independent collapse).
+                    var_per_pos = hard_val.float().var(dim=0, unbiased=False)
+                    const_pos = (var_per_pos < 1e-6).float().mean().item()
+                    _tsyn_debug_str = (f" true_ber={true_ber:.4f} const_pos={const_pos:.4f}"
+                                       f" frac_ones={frac_ones:.4f}")
+                else:
+                    _tsyn_debug_str = ""
+                # ---- END TEMP DEBUG ----
+
             def _hb_suffix(train_hb, v_hb):
                 return f" Hb(q̄): train={train_hb:.4f} val={v_hb:.4f}"
 
@@ -220,6 +254,8 @@ class ESCNNTrainer(Trainer):
                                 msg += _hb_suffix(avg_train_hb, val_hb)
                             if _log_tsyn:
                                 msg += _tsyn_suffix()
+                            if _log_collapse:
+                                msg += _tsyn_debug_str  # TEMP DEBUG: tsyn collapse investigation
                             print(msg, flush=True)
                         break
 
@@ -231,6 +267,8 @@ class ESCNNTrainer(Trainer):
                     msg += _hb_suffix(avg_train_hb, val_hb)
                 if _log_tsyn:
                     msg += _tsyn_suffix()
+                if _log_collapse:
+                    msg += _tsyn_debug_str  # TEMP DEBUG: tsyn collapse investigation
                 print(msg, flush=True)
 
         if not stopped_early:

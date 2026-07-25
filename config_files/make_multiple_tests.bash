@@ -12,7 +12,7 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123)
 snrs=($(seq -10 20))
-cfos=(0.2 0.3 0.4)
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -22,7 +22,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100)
+epochs_vals=(100 200)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -37,11 +37,13 @@ training_loss_vals=(
   'tsyn'
 )
 
-beta_balance_vals=(0)
+beta_balance_vals=(0.1)
 
 tw_vals=(0.0 1.0)
 
-channel_drift_index_vals=(0)
+tsyn_fallback_iters_vals=(3)
+
+channel_drift_index_vals=(3)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -57,7 +59,7 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(5000)
-mcs_vals=(36 37 38)
+mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -215,12 +217,15 @@ for seed in "${seeds[@]}"; do
                                                   for tw in "${tw_vals[@]}"; do
                                                     twtag="tw${tw//./p}"
 
+                                                  for tsyn_fallback_iters in "${tsyn_fallback_iters_vals[@]}"; do
+                                                    tftag="tf${tsyn_fallback_iters}"
+
                                                   for channel_drift_index in "${channel_drift_index_vals[@]}"; do
                                                     cditag="cdi${channel_drift_index}"
 
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -251,6 +256,7 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         -e "s/^tw:.*/tw: $tw/" \
+                                                        -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
                                                         -e "s/^channel_drift_index:.*/channel_drift_index: $channel_drift_index/" \
                                                         "$input_file" > "$out_file"
 
@@ -258,6 +264,7 @@ for seed in "${seeds[@]}"; do
                                                     ((total_count++))
                                                   done
                                                   done  # channel_drift_index
+                                                  done  # tsyn_fallback_iters
                                                   done  # tw
                                                   done  # beta_balance
                                                   done  # training_loss
@@ -302,3 +309,4 @@ echo "Total configs generated: $total_count"
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/../replace_config_line.bash" "$config_line"
+

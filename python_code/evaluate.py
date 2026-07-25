@@ -2243,6 +2243,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         title_string = title_string + '_bb=' + str(_beta)
         _tw = getattr(conf, 'tw', 0.5)
         title_string = title_string + '_tw=' + str(_tw)
+        _tsyn_fb = getattr(conf, 'tsyn_fallback_iters', 0)
+        title_string = title_string + '_tf=' + str(_tsyn_fb)
         title_string = title_string + '_' + conf.cur_str
         title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
         title_string = formatted_date + title_string

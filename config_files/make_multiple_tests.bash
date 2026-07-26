@@ -22,7 +22,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100 200)
+epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -37,7 +37,7 @@ training_loss_vals=(
   'tsyn'
 )
 
-beta_balance_vals=(0.1)
+beta_balance_vals=(0.0)
 
 tw_vals=(0.0 1.0)
 

@@ -10,6 +10,9 @@
 #SBATCH --job-name deepsic                      ### name of the job
 #SBATCH --array=0-61                 ### run parallel 5 times
 #SBATCH --output logs/job-%J.out                        ### output log for running job - %J for job number
+#SBATCH --nodes=1                               ### single node per array task
+#SBATCH --ntasks=1                              ### single task per array element
+#SBATCH --cpus-per-task=1                       ### job is single-threaded; requesting more cores wastes allocation (see Slurm serial-workload report)
 
 # Note: the following 4 lines are commented out
 ##SBATCH --gpus=rtx_3090:1                      ### number of GPUs, allocating more than 1 requires IT team's permission. Example to request 3090 gpu: #SBATCH --gpus=rtx_3090:1

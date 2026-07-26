@@ -1,5 +1,5 @@
 snr: 14
-cur_str: debug
+cur_str: nobal
 num_snrs: 1
 n_ants: 8
 snr_step: 1
@@ -27,7 +27,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [-5, 0, 5, 19]
+save_loss_plot_snr: [-5, 0, 9, 19]
 use_film: False
 scale_input: True
 escnn_dropout: 0.0

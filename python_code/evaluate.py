@@ -400,6 +400,8 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
     title_string = title_string + '_bf=' + str(conf.block_length_factor)
     title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
+    title_string = title_string + '_dr=' + str(getattr(conf, 'escnn_dropout', 0.0))
+    title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
     return title_string
 
 

@@ -149,8 +149,18 @@ def _grouped_legend(ax):
 
 def _safe_interp_x_to_y(x, y, x_target):
     """
-    Interpolate y(x) safely after sorting x and dropping duplicates.
-    Used for finding SNR@targetBER, i.e., y=snr and x=ber.
+    Find SNR@targetBER: y=snr, x=ber/bler.
+
+    Fits SNR (domain) -> log10(BER) (range), not the other way around -- BER
+    falls off by orders of magnitude per SNR step on a waterfall curve, so
+    interpolating directly in raw BER space badly distorts the crossing
+    point. Fitting is also stopped at the first exact-zero BER (if any):
+    once BLER hits 0, every later SNR shares that same x=0 value, and
+    feeding all of them into a log-domain fit either fails (log(0)) or -- if
+    naively deduplicated by x first -- silently keeps an arbitrary one of
+    them, which can send the extrapolated crossing point wildly off (e.g.
+    the last non-tail point before a sharp cliff pairing with a much larger
+    SNR than intended).
     """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
@@ -161,18 +171,38 @@ def _safe_interp_x_to_y(x, y, x_target):
     if x.size < 2:
         return np.nan
 
-    order = np.argsort(x)
+    order = np.argsort(y)
     x_sorted = x[order]
     y_sorted = y[order]
 
-    x_unique, idx = np.unique(x_sorted, return_index=True)
-    y_unique = y_sorted[idx]
+    y_unique, idx = np.unique(y_sorted, return_index=True)
+    x_unique = x_sorted[idx]
 
-    if x_unique.size < 2:
+    if y_unique.size < 2:
         return np.nan
 
-    f = interp1d(x_unique, y_unique, fill_value="extrapolate", bounds_error=False)
-    return float(np.round(f(x_target), 1))
+    # Lock the tail at the first exact zero -- points at/after it are known
+    # to already be below any positive target, so they must not be fit in
+    # log space (and shouldn't influence the pre-tail slope either).
+    zero_idx = np.flatnonzero(x_unique == 0)
+    tail_start = int(zero_idx[0]) if zero_idx.size > 0 else y_unique.size
+
+    y_fit = y_unique[:tail_start]
+    x_fit = x_unique[:tail_start]
+    positive = x_fit > 0
+    y_fit = y_fit[positive]
+    x_fit = x_fit[positive]
+
+    if x_fit.size < 2:
+        # Not enough pre-tail data to fit a slope. If a zero tail exists,
+        # the curve is already at/below target by the first zero SNR.
+        return float(y_unique[tail_start]) if tail_start < y_unique.size else np.nan
+
+    # Fit SNR as a function of log10(BER), then evaluate at log10(x_target)
+    # -- this is the inverse of the "SNR -> BER" waterfall relationship, so
+    # interpolation happens in the domain where the curve is roughly linear.
+    g = interp1d(np.log10(x_fit), y_fit, fill_value="extrapolate", bounds_error=False)
+    return float(np.round(g(np.log10(x_target)), 1))
 
 
 def _build_snr_grid(observed_snrs):
@@ -445,6 +475,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     n_users_present = _detect_n_users(all_files)
     if n_users_present:
         print(f"[INFO] Per-user metrics detected for {n_users_present} user(s).")
+    # With a single UE, the "all UEs overlaid" and "per-UE" figures are
+    # identical to the main pooled plot -- skip producing them at all.
+    n_users_for_ue_plots = n_users_present if n_users_present > 1 else 0
 
     pat_upper = (filter_pattern or "").upper()
     show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper
@@ -462,7 +495,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     # separate from the pooled/overall figure above so neither gets cluttered.
     # Only created when per-user columns are actually present in the CSVs.
     fig_ue, axes_ue = None, None
-    if n_users_present:
+    if n_users_for_ue_plots:
         if mi_files_exist:
             fig_ue, axes_ue = plt.subplots(1, 3, figsize=(21, 6.5))
         else:
@@ -471,7 +504,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     # One more figure PER individual UE (BLER/MI/BER for just that user, all
     # detectors) -- same layout again, indexed by user number.
     figs_ue_by_user, axes_ue_by_user = [], []
-    for _ in range(n_users_present):
+    for _ in range(n_users_for_ue_plots):
         if mi_files_exist:
             f_u, a_u = plt.subplots(1, 3, figsize=(21, 6.5))
         else:
@@ -911,7 +944,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
             # Color stays tied to the detector (same hue as its pooled line);
             # user index varies lightness (shade) and linestyle instead.
-            for u in range(n_users_present):
+            for u in range(n_users_for_ue_plots):
                 ls_u = USER_LINESTYLES[u % len(USER_LINESTYLES)]
                 marker_u = markers[u % len(markers)]
                 # UE0 swaps marker/linestyle with the pooled line (see above) for
@@ -1101,7 +1134,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 _plot(y, snrs, linestyle=ls, marker=mk, target_ax=target_axes,
                       color=_user_shade(base_color, u, n_users_present), label=lbl_u)
 
-            for u in range(n_users_present):
+            for u in range(n_users_for_ue_plots):
                 # UE0 swaps marker/linestyle with the pooled line for ESCNN and
                 # LMMSE specifically (see the pooled plot calls above).
                 _plot_user(f"ber_user{u}_1", "ESCNN", u, "g",

@@ -12,7 +12,7 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 seeds=(123)
 snrs=($(seq -10 20))
-cfos=(4)
+cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -22,14 +22,14 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100)
+epochs_vals=(1 10 50)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
-  'first_conv_only'
+  'first_conv_and_scale_only'
 )
 
 
@@ -38,13 +38,13 @@ training_loss_vals=(
   'tsyn'
 )
 
-beta_balance_vals=(0.1)
+beta_balance_vals=(0)
 
 tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(3)
 
-channel_drift_index_vals=(3)
+channel_drift_index_vals=(122)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -59,12 +59,12 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(10 100 500 1000 5000)
+pilot_size_vals=(10 100 5000)
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(4)
+n_users_vals=(1)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------

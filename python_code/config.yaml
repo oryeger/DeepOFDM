@@ -11,8 +11,8 @@ data_size_override: -1  # If > 0, use this directly as data_size (bits) instead 
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
-iqmm_gain: 1 # in dB
-iqmm_phase: 5 # in degrees
+iqmm_gain: 0 # in dB
+iqmm_phase: 0 # in degrees
 epochs: 100
 iterations: 1
 pilot_size: 1000

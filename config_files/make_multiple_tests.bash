@@ -189,10 +189,10 @@ for seed in "${seeds[@]}"; do
                                                     second_conv)    freeze_tag="frfc2" ;;
                                                     last_conv)      freeze_tag="frfc3" ;;
                                                     all)            freeze_tag="frall" ;;
-                                                    scale_only)     freeze_tag="frscaleonly" ;;
-                                                    last_conv_only) freeze_tag="frlastconvonly" ;;
-                                                    first_conv_only) freeze_tag="frfirstconvonly" ;;
-                                                    first_conv_and_scale_only) freeze_tag="frfirstconvandscaleonly" ;; 
+                                                    scale_only)     freeze_tag="frscaleo" ;;
+                                                    last_conv_only) freeze_tag="frfc3o" ;;
+                                                    first_conv_only) freeze_tag="frfc1o" ;;
+                                                    first_conv_and_scale_only) freeze_tag="frfc1so" ;;
                                                     *)
                                                       echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                       exit 1

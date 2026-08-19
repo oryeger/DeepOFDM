@@ -395,9 +395,6 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string + '_%_' + str(conf.make_64QAM_16QAM_percentage)
     title_string = title_string + '_ip_' + str(int(conf.increase_prime_modulation))
     title_string = title_string + '_b' + str(conf.batch_size)
-    title_string = title_string + '_sh=' + str(int(getattr(conf, 'shuffle', False)))
-    title_string = title_string + '_sa=' + str(int(getattr(conf, 'shuffle_augment_priors', False)))
-    title_string = title_string + '_pvo=' + str(int(getattr(conf, 'escnn_use_primary_val_only', False)))
     title_string = title_string + '_bf=' + str(conf.block_length_factor)
     title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
     title_string = title_string + '_dr=' + str(getattr(conf, 'escnn_dropout', 0.0))
@@ -2277,10 +2274,10 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
                         'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
         if conf.load_escnn_weights_tag:
-            title_string = title_string + '_read=' + conf.load_escnn_weights_tag
+            title_string = title_string + '_r=' + conf.load_escnn_weights_tag
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
         if conf.save_escnn_weights and weights_tag:
-            title_string = title_string + '_write=' + weights_tag
+            title_string = title_string + '_w=' + weights_tag
         _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}
         _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
         title_string = title_string + '_tl=' + _tl_tag

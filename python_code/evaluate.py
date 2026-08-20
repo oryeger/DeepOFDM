@@ -2291,6 +2291,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_r=' + conf.load_escnn_weights_tag
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
+        title_string = title_string + '_ekf=' + ('1' if conf.escnn_ekf_track else '0')
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_w=' + weights_tag
         _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}

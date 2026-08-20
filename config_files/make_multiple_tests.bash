@@ -11,7 +11,7 @@ base_name=$(basename "$input_file" .yaml)
 
 # ---------------- Parameters ----------------
 seeds=(123)
-snrs=($(seq -10 20))
+snrs=($(seq -5 20))
 cfos=(0)
 
 clip_percentage_in_tx_vals=(100)
@@ -22,7 +22,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(1 10 50)
+epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -32,10 +32,10 @@ escnn_load_freeze_vals=(
   'first_conv_and_scale_only'
 )
 
+escnn_ekf_track_vals=(False True)
 
 training_loss_vals=(
   'bce'
-  'tsyn'
 )
 
 beta_balance_vals=(0)
@@ -44,7 +44,7 @@ tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(3)
 
-channel_drift_index_vals=(122)
+channel_drift_index_vals=(9)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -59,12 +59,13 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(10 100 5000)
+pilot_size_vals=(10 100 1000)
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
 n_users_vals=(1)
+num_res_vals=(24)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
@@ -139,7 +140,10 @@ for seed in "${seeds[@]}"; do
                               for n_users in "${n_users_vals[@]}"; do
                                 utag="u${n_users}"
 
-                                for mix_pct in "${make_64QAM_16QAM_percentage_vals[@]}"; do
+                                for num_res in "${num_res_vals[@]}"; do
+                                  nrtag="nr${num_res}"
+
+                                  for mix_pct in "${make_64QAM_16QAM_percentage_vals[@]}"; do
                                   mixtag="mix${mix_pct}"
 
                                   for mod_pilot in "${mod_pilot_vals[@]}"; do
@@ -200,6 +204,9 @@ for seed in "${seeds[@]}"; do
                                                   esac
 
 
+                                                  for escnn_ekf_track in "${escnn_ekf_track_vals[@]}"; do
+                                                    [[ "$escnn_ekf_track" == True ]] && ekftag="ekf1" || ekftag="ekf0"
+
                                                   for training_loss in "${training_loss_vals[@]}"; do
                                                     case "$training_loss" in
                                                       gfmi) tltag="tlgf" ;;
@@ -226,7 +233,7 @@ for seed in "${seeds[@]}"; do
 
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${ekftag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -244,6 +251,7 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
                                                         -e "s/^mcs:.*/mcs: $mcs/" \
                                                         -e "s/^n_users:.*/n_users: $n_users/" \
+                                                        -e "s/^num_res:.*/num_res: $num_res/" \
                                                         -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
                                                         -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
                                                         -e "s/^override_noise_var:.*/override_noise_var: $override_noise_var/" \
@@ -254,6 +262,7 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
                                                         -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
+                                                        -e "s/^escnn_ekf_track:.*/escnn_ekf_track: $escnn_ekf_track/" \
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         -e "s/^tw:.*/tw: $tw/" \
@@ -269,6 +278,7 @@ for seed in "${seeds[@]}"; do
                                                   done  # tw
                                                   done  # beta_balance
                                                   done  # training_loss
+                                                  done  # escnn_ekf_track
                                                 done
                                               done
                                             done
@@ -281,6 +291,7 @@ for seed in "${seeds[@]}"; do
                               done
                             done
                           done
+                        done
                         done
                       done
                     done
@@ -310,4 +321,3 @@ echo "Total configs generated: $total_count"
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/../replace_config_line.bash" "$config_line"
-

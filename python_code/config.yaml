@@ -97,11 +97,11 @@ escnn_load_freeze: 'first_conv_and_scale_only'  # 'none', 'scale', 'last_conv', 
 # ESCNN EKF tracking: unsupervised, syndrome-driven test-time adaptation of whichever params
 # escnn_load_freeze leaves unfrozen. Replaces _online_training entirely when enabled (no train/val
 # split, no ground-truth bits) - requires load_escnn_weights_tag to be set. See ekf_syndrome.tex.
-escnn_ekf_track: True  # If True, skip ESCNN training; instead run predict+update every block via the EKF below
+escnn_ekf_track: True  # If True, skip ESCNN training; instead run predict+update every slot (one TB/LDPC codeword each) via the EKF below - NOT once per block; block is just pilot_size/block_length_factor bookkeeping, slot is the real transmission-time unit
 escnn_ekf_dynamics: 'ar1'  # State evolution f(theta): 'random_walk' (f=identity, F=I) | 'ar1' (f=alpha*theta+(1-alpha)*theta_pretrained, F=alpha*I; mean-reverts to the pretrained checkpoint, guards against drifting to a degenerate syndrome-satisfying solution)
-escnn_ekf_alpha: 0.99  # ar1 only: per-block reversion rate toward theta_pretrained (1.0 reproduces random_walk). Ignored if escnn_ekf_dynamics == 'random_walk'
-escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence in theta_pretrained at block 0)
-escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per block)
+escnn_ekf_alpha: 0.99  # ar1 only: per-slot reversion rate toward theta_pretrained (1.0 reproduces random_walk). Ignored if escnn_ekf_dynamics == 'random_walk'. Applied once per slot (~15/block at this config's pilot_size/block_length_factor) - move closer to 1.0 if that's too strong an anchor
+escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence in theta_pretrained at the first slot)
+escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per slot, applied once per slot - lower this if that adds up to too much per-block drift)
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 

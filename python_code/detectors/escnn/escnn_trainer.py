@@ -370,11 +370,12 @@ class ESCNNTrainer(Trainer):
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int):
         """Unsupervised, syndrome-driven test-time adaptation (conf.escnn_ekf_track): for every
         (user, iteration) network, whatever escnn_load_freeze leaves unfrozen gets one EKF
-        predict+update per block from this block's soft-syndrome measurement (no ground-truth
-        bits), written back into the network in place. Replaces _online_training entirely - no
-        pilot/val split. rx_real is the *whole* block (pilot+data, see evaluate.py) since the
-        update is blind and there is nothing to hold out; reporting still runs _forward on
-        rx_data only, for BER comparability with every other detector. See ekf_syndrome.tex."""
+        predict+update per *slot* (one TB/LDPC codeword each) from that slot's soft-syndrome
+        measurement (no ground-truth bits), written back into the network in place. Replaces
+        _online_training entirely - no pilot/val split. rx_real is the *whole* block (pilot+data,
+        see evaluate.py) since the update is blind and there is nothing to hold out; reporting
+        still runs _forward on rx_data only, for BER comparability with every other detector.
+        See ekf_syndrome.tex."""
         helper = self._get_syndrome_helper()
         if helper is None:
             self._tsyn_warn_once('ekf_mcs', "escnn_ekf_track needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
@@ -407,18 +408,27 @@ class ESCNNTrainer(Trainer):
                 else:
                     rx_prob = torch.cat((rx_real, probs_vec), dim=1)
 
-                def measurement_fn(param_dict, _net=net, _rx=rx_prob, _n=helper.n, _slots=num_slots):
-                    _, llrs = functional_call(_net, param_dict, (_rx,))
-                    stream = llrs.squeeze(-1).reshape(-1)
-                    slots = stream[:_slots * _n].reshape(_slots, _n)
-                    return helper.p_vector(slots).reshape(-1)
-
+                # One slot = one TB = one LDPC codeword here (this project has no CB
+                # segmentation), and slots are the actual unit of elapsed transmission
+                # time - unlike "block", whose slot count is just an artifact of
+                # pilot_size/block_length_factor bookkeeping. So predict+update run once
+                # per slot, sequentially, not once for the whole block: each slot gets
+                # its own process-noise injection and (ar1) pull toward theta_pretrained,
+                # and each is a fresh linearization of h() at the just-updated theta -
+                # both wrong to skip if slots are being treated as arriving one at a time.
                 tracker = trackers[user][i]
-                tracker.predict()
-                stats = tracker.update(measurement_fn)
-                if log_stats and not stats.get('skipped', True):
-                    print(f"[ekf] user={user} it={i} checks={stats['num_checks']} "
-                          f"mean_hard_sat={stats['mean_hard_sat']:.3f}", flush=True)
+                for s in range(num_slots):
+                    def measurement_fn(param_dict, _net=net, _rx=rx_prob, _n=helper.n, _s=s):
+                        _, llrs = functional_call(_net, param_dict, (_rx,))
+                        stream = llrs.squeeze(-1).reshape(-1)
+                        slot = stream[_s * _n:(_s + 1) * _n].reshape(1, _n)
+                        return helper.p_vector(slot).reshape(-1)
+
+                    tracker.predict()
+                    stats = tracker.update(measurement_fn)
+                    if log_stats and not stats.get('skipped', True):
+                        print(f"[ekf] user={user} it={i} slot={s + 1}/{num_slots} "
+                              f"checks={stats['num_checks']} mean_hard_sat={stats['mean_hard_sat']:.3f}", flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)

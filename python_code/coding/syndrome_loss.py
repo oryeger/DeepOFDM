@@ -58,7 +58,7 @@ class SyndromeLoss:
     LLR_CLAMP = 30.0
 
     def __init__(self, k: int, n: int, device='cpu', fallback_iters: int = 0,
-                 filler_llr: float = 30.0):
+                 filler_llr: float = 30.0, tag: str = 'synd'):
         """
         k : information bits of the outer code (ldpc_k + crc_length, exactly as
             LDPC5GCodec is constructed in evaluate.py / mimo_channel_dataset).
@@ -67,7 +67,11 @@ class SyndromeLoss:
             variable-node update (previous punctured_fallback=True behaviour);
             >1 = iterated erasure-peeling over that many rounds (early-stops at
             a fixpoint).
+        tag : log-line prefix identifying which caller this instance serves
+            (e.g. 'tsyn' for the training loss, 'ekf' for EkfParamTracker) - purely
+            cosmetic, does not affect the computation.
         """
+        self.tag = tag
         LDPC5GEncoder = _import_encoder()
         enc = LDPC5GEncoder(k, n)
         if enc.num_bits_per_symbol is not None:
@@ -114,19 +118,19 @@ class SyndromeLoss:
         usable = ~check_touches_punctured
         self.num_usable = int(usable.sum())
         frac = self.num_usable / max(self.num_checks, 1)
-        print(f"[tsyn] syndrome loss: {self.num_usable}/{self.num_checks} checks usable "
+        print(f"[{self.tag}] syndrome: {self.num_usable}/{self.num_checks} checks usable "
               f"({100.0 * frac:.1f}%)  [n={self.n}, n_ldpc={self.n_ldpc}, Z={self.z}, "
               f"k={self.k}, fillers={self.k_filler}, punctured={self._punctured_np.size}]",
               flush=True)
         if self.num_usable == 0 and self.fallback_iters <= 0:
             # Restricted mode is vacuous (empty mean -> NaN). Short codes like the
             # project default (n=112) leave no check untouched by puncturing.
-            print("[tsyn] no usable checks in restricted mode -> auto-enabling the "
+            print(f"[{self.tag}] no usable checks in restricted mode -> auto-enabling the "
                   "punctured-bit fallback (1 round; raise tsyn_fallback_iters for "
                   "more erasure-peeling rounds).", flush=True)
             self.fallback_iters = 1
         elif frac < 0.20 and self.fallback_iters <= 0:
-            print("[tsyn] WARNING: fewer than 20% of checks are usable; consider "
+            print(f"[{self.tag}] WARNING: fewer than 20% of checks are usable; consider "
                   "tsyn_fallback_iters: 1 (or higher)", flush=True)
 
         keep = usable[rows]
@@ -246,7 +250,7 @@ class SyndromeLoss:
 
         if not self._fallback_rounds_logged:
             status = 'fixpoint' if rounds_run < n_rounds else 'round budget exhausted'
-            print(f"[tsyn] fallback: erasure-peeling ran {rounds_run}/{n_rounds} "
+            print(f"[{self.tag}] fallback: erasure-peeling ran {rounds_run}/{n_rounds} "
                   f"round(s) ({status})", flush=True)
             self._fallback_rounds_logged = True
         return t_out

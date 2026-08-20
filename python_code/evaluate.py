@@ -1131,6 +1131,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 detected_word_list, llrs_mat_list = escnn_trainer._forward(
                     rx_data, num_bits_pilot, n_users, iterations, probs_for_aug[pilot_chunk:])
                 tx_data_for_ber = tx_data
+                # No training happened - these feed the loss-curve plots below, which only
+                # care about matching epoch-count shape (see the _ref_epochs comment there).
+                train_loss_vect, val_loss_vect = [], []
+                if conf.use_film:
+                    train_loss_vect_film, val_loss_vect_film = [], []
 
             # online training main function
             elif escnn_trainer.is_online_training:

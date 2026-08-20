@@ -28,13 +28,18 @@ _DENSE_STATE_WARN_DIM = 4000
 
 class EkfParamTracker:
     def __init__(self, net: nn.Module, dynamics: str = 'ar1', alpha: float = 0.99,
-                 sigma_p0: float = 0.1, sigma_q: float = 0.01, sigma_r: float = 0.5):
+                 sigma_p0: float = 0.1, sigma_q: float = 0.01, sigma_r: float = 0.5,
+                 jacobian_chunk_size: int = 16):
         if dynamics not in ('random_walk', 'ar1'):
             raise ValueError(f"EkfParamTracker: dynamics must be 'random_walk' or 'ar1', got {dynamics!r}")
         self.dynamics = dynamics
         self.alpha = float(alpha) if dynamics == 'ar1' else 1.0
         self.sigma_q2 = float(sigma_q) ** 2
         self.sigma_r2 = float(sigma_r) ** 2
+        # jacrev vmaps this many measurement-vector rows through the backward pass at once;
+        # None = all M rows at once (fastest, but memory ~ M * activation size - OOMs on
+        # large M/d combinations). Lower this if update() runs out of memory.
+        self.jacobian_chunk_size = jacobian_chunk_size
 
         self.param_names = [n for n, p in net.named_parameters() if p.requires_grad]
         if not self.param_names:
@@ -109,7 +114,7 @@ class EkfParamTracker:
             p = measurement_fn(self._split(theta))
             return p, p
 
-        H, p_hat = jacrev(h, has_aux=True)(self.theta)
+        H, p_hat = jacrev(h, has_aux=True, chunk_size=self.jacobian_chunk_size)(self.theta)
         if p_hat.numel() == 0:
             return {'skipped': True}
 

@@ -15,7 +15,7 @@ iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 100
 iterations: 1
-pilot_size: 1000
+pilot_size: 100
 batch_size: -1
 shuffle: False
 shuffle_augment_priors: False
@@ -92,17 +92,18 @@ save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
 load_escnn_weights_tag: ''  # d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
-escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'all'
+escnn_load_freeze: 'first_conv_only'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
 # ESCNN EKF tracking: unsupervised, syndrome-driven test-time adaptation of whichever params
 # escnn_load_freeze leaves unfrozen. Replaces _online_training entirely when enabled (no train/val
 # split, no ground-truth bits) - requires load_escnn_weights_tag to be set. See ekf_syndrome.tex.
-escnn_ekf_track: False  # If True, skip ESCNN training; instead run predict+update every block via the EKF below
+escnn_ekf_track: True  # If True, skip ESCNN training; instead run predict+update every block via the EKF below
 escnn_ekf_dynamics: 'ar1'  # State evolution f(theta): 'random_walk' (f=identity, F=I) | 'ar1' (f=alpha*theta+(1-alpha)*theta_pretrained, F=alpha*I; mean-reverts to the pretrained checkpoint, guards against drifting to a degenerate syndrome-satisfying solution)
 escnn_ekf_alpha: 0.99  # ar1 only: per-block reversion rate toward theta_pretrained (1.0 reproduces random_walk). Ignored if escnn_ekf_dynamics == 'random_walk'
 escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence in theta_pretrained at block 0)
 escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per block)
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
+escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 
 
 # general

@@ -357,8 +357,9 @@ class ESCNNTrainer(Trainer):
         sigma_p0 = getattr(conf, 'escnn_ekf_sigma_p0', 0.1)
         sigma_q = getattr(conf, 'escnn_ekf_sigma_q', 0.01)
         sigma_r = getattr(conf, 'escnn_ekf_sigma_r', 0.5)
+        chunk_size = getattr(conf, 'escnn_ekf_jacobian_chunk_size', 16)
         if not hasattr(self, '_ekf_trackers'):
-            self._ekf_trackers = [[EkfParamTracker(net, dynamics, alpha, sigma_p0, sigma_q, sigma_r)
+            self._ekf_trackers = [[EkfParamTracker(net, dynamics, alpha, sigma_p0, sigma_q, sigma_r, chunk_size)
                                     for net in nets] for nets in self.detector]
         else:
             for nets, tracker_row in zip(self.detector, self._ekf_trackers):
@@ -376,21 +377,21 @@ class ESCNNTrainer(Trainer):
         rx_data only, for BER comparability with every other detector. See ekf_syndrome.tex."""
         helper = self._get_syndrome_helper()
         if helper is None:
-            self._tsyn_warn_once('ekf_mcs', "escnn_ekf_track needs conf.mcs > -1 (LDPC); skipping EKF update.")
+            self._tsyn_warn_once('ekf_mcs', "escnn_ekf_track needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
             return
         if not getattr(conf, 'encode_pilots', False) or conf.make_64QAM_16QAM_percentage != 0:
             self._tsyn_warn_once('ekf_encode_pilots', "escnn_ekf_track needs encode_pilots: True and "
-                                  "make_64QAM_16QAM_percentage: 0 (LDPC structure required); skipping EKF update.")
+                                  "make_64QAM_16QAM_percentage: 0 (LDPC structure required); skipping EKF update.", tag='ekf')
             return
 
         num_slots = (rx_real.shape[0] * num_bits * conf.num_res) // helper.n
         if num_slots == 0:
             self._tsyn_warn_once('ekf_too_small', f"block has only {rx_real.shape[0]} symbols - too "
-                                  f"small for one codeword (needs {helper.n} bits); skipping EKF update.")
+                                  f"small for one codeword (needs {helper.n} bits); skipping EKF update.", tag='ekf')
             return
 
         trackers = self._get_ekf_trackers()
-        rx_real = rx_real.to(DEVICE)
+        rx_real = rx_real.to(DEVICE).unsqueeze(-1)  # (symbols, C, num_res) -> (symbols, C, num_res, 1), matching probs_vec / _forward's rx.unsqueeze(-1)
         probs_vec = self._initialize_probs_for_infer(rx_real, num_bits, n_users)
         no_samples = getattr(conf, 'no_samples', False)
         log_stats = getattr(conf, 'log_train_every_epochs', 0) > 0
@@ -514,11 +515,11 @@ class ESCNNTrainer(Trainer):
             return l0 - beta * h_marginal
         return l0
 
-    def _tsyn_warn_once(self, key: str, msg: str):
+    def _tsyn_warn_once(self, key: str, msg: str, tag: str = 'tsyn'):
         if not hasattr(self, '_tsyn_warned'):
             self._tsyn_warned = set()
         if key not in self._tsyn_warned:
-            print(f"[tsyn] WARNING: {msg}", flush=True)
+            print(f"[{tag}] WARNING: {msg}", flush=True)
             self._tsyn_warned.add(key)
 
     def _get_syndrome_helper(self):
@@ -533,9 +534,10 @@ class ESCNNTrainer(Trainer):
         key = (ldpc_k + crc_length, ldpc_n)
         if getattr(self, '_synd_key', None) != key:
             from python_code.coding.syndrome_loss import SyndromeLoss
+            tag = 'ekf' if getattr(conf, 'escnn_ekf_track', False) else 'tsyn'
             self._synd = SyndromeLoss(
                 k=key[0], n=key[1], device=DEVICE,
-                fallback_iters=int(getattr(conf, 'tsyn_fallback_iters', 0)))
+                fallback_iters=int(getattr(conf, 'tsyn_fallback_iters', 0)), tag=tag)
             self._synd_key = key
             self._synd_qm = int(qm)
         return self._synd

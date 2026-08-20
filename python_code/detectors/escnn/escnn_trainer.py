@@ -5,11 +5,13 @@ from typing import List
 
 import torch
 from torch import nn
+from torch.func import functional_call
 from torch.optim import Adam
 from torch.utils.data import DataLoader, TensorDataset
 
 from python_code import DEVICE, conf
 from python_code.channel.modulator import BPSKModulator
+from python_code.coding.ekf_tracker import EkfParamTracker
 from python_code.coding.mcs_table import get_mcs
 from python_code.detectors.escnn.escnn_detector import ESCNNDetector
 from python_code.detectors.trainer import Trainer
@@ -341,6 +343,88 @@ class ESCNNTrainer(Trainer):
                     train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]
                     val_loss_vect[user] = val_loss_vect[user] + val_loss_cur[user]
         return train_loss_vect , val_loss_vect
+
+    def _get_ekf_trackers(self):
+        """Lazily build one EkfParamTracker per (user, iteration) network; persists on this
+        trainer instance across blocks *and* SNR steps (conf.escnn_ekf_track), since the
+        trainer itself is created once per run. evaluate.py rebuilds self.detector every SNR
+        via _initialize_detector+load_weights, so existing trackers get rebind()'d onto the
+        new module objects rather than recreated from scratch - that (plus rebind()'s no-op
+        on an already-bound net) is what carries the online-tracked (theta, P) state across
+        SNR steps while still refreshing theta_pretrained to each SNR's own checkpoint."""
+        dynamics = getattr(conf, 'escnn_ekf_dynamics', 'ar1')
+        alpha = getattr(conf, 'escnn_ekf_alpha', 0.99)
+        sigma_p0 = getattr(conf, 'escnn_ekf_sigma_p0', 0.1)
+        sigma_q = getattr(conf, 'escnn_ekf_sigma_q', 0.01)
+        sigma_r = getattr(conf, 'escnn_ekf_sigma_r', 0.5)
+        if not hasattr(self, '_ekf_trackers'):
+            self._ekf_trackers = [[EkfParamTracker(net, dynamics, alpha, sigma_p0, sigma_q, sigma_r)
+                                    for net in nets] for nets in self.detector]
+        else:
+            for nets, tracker_row in zip(self.detector, self._ekf_trackers):
+                for net, tracker in zip(nets, tracker_row):
+                    tracker.rebind(net)
+        return self._ekf_trackers
+
+    def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int):
+        """Unsupervised, syndrome-driven test-time adaptation (conf.escnn_ekf_track): for every
+        (user, iteration) network, whatever escnn_load_freeze leaves unfrozen gets one EKF
+        predict+update per block from this block's soft-syndrome measurement (no ground-truth
+        bits), written back into the network in place. Replaces _online_training entirely - no
+        pilot/val split. rx_real is the *whole* block (pilot+data, see evaluate.py) since the
+        update is blind and there is nothing to hold out; reporting still runs _forward on
+        rx_data only, for BER comparability with every other detector. See ekf_syndrome.tex."""
+        helper = self._get_syndrome_helper()
+        if helper is None:
+            self._tsyn_warn_once('ekf_mcs', "escnn_ekf_track needs conf.mcs > -1 (LDPC); skipping EKF update.")
+            return
+        if not getattr(conf, 'encode_pilots', False) or conf.make_64QAM_16QAM_percentage != 0:
+            self._tsyn_warn_once('ekf_encode_pilots', "escnn_ekf_track needs encode_pilots: True and "
+                                  "make_64QAM_16QAM_percentage: 0 (LDPC structure required); skipping EKF update.")
+            return
+
+        num_slots = (rx_real.shape[0] * num_bits * conf.num_res) // helper.n
+        if num_slots == 0:
+            self._tsyn_warn_once('ekf_too_small', f"block has only {rx_real.shape[0]} symbols - too "
+                                  f"small for one codeword (needs {helper.n} bits); skipping EKF update.")
+            return
+
+        trackers = self._get_ekf_trackers()
+        rx_real = rx_real.to(DEVICE)
+        probs_vec = self._initialize_probs_for_infer(rx_real, num_bits, n_users)
+        no_samples = getattr(conf, 'no_samples', False)
+        log_stats = getattr(conf, 'log_train_every_epochs', 0) > 0
+
+        for i in range(iterations):
+            next_probs_vec = probs_vec.clone()
+            for user in range(n_users):
+                net = self.detector[user][i]
+                if conf.no_probs:
+                    rx_prob = rx_real
+                elif no_samples:
+                    rx_prob = probs_vec
+                else:
+                    rx_prob = torch.cat((rx_real, probs_vec), dim=1)
+
+                def measurement_fn(param_dict, _net=net, _rx=rx_prob, _n=helper.n, _slots=num_slots):
+                    _, llrs = functional_call(_net, param_dict, (_rx,))
+                    stream = llrs.squeeze(-1).reshape(-1)
+                    slots = stream[:_slots * _n].reshape(_slots, _n)
+                    return helper.p_vector(slots).reshape(-1)
+
+                tracker = trackers[user][i]
+                tracker.predict()
+                stats = tracker.update(measurement_fn)
+                if log_stats and not stats.get('skipped', True):
+                    print(f"[ekf] user={user} it={i} checks={stats['num_checks']} "
+                          f"mean_hard_sat={stats['mean_hard_sat']:.3f}", flush=True)
+
+                with torch.no_grad():
+                    output, _ = net(rx_prob)
+                    index_start = user * num_bits
+                    index_end = (user + 1) * num_bits
+                    next_probs_vec[:, index_start:index_end, :, :] = output
+            probs_vec = next_probs_vec
 
     @staticmethod
     def _calc_h_marginal(est: torch.Tensor, mask: torch.Tensor = None) -> float:

@@ -251,17 +251,28 @@ class SyndromeLoss:
             self._fallback_rounds_logged = True
         return t_out
 
-    def loss(self, llr_tx: torch.Tensor) -> torch.Tensor:
-        """L_synd for a batch of transmitted-LLR codewords, shape (B, n)."""
+    def p_vector(self, llr_tx: torch.Tensor) -> torch.Tensor:
+        """Soft check-satisfaction p_j = prod_{i in N_j} t_i for a batch of transmitted-LLR
+        codewords, shape (B, n) -> (B, num_usable) [or (B, num_checks) in fallback mode, with
+        punctured positions filled by the erasure-peeling estimate]. Checks touching a
+        punctured bit are already excluded in restricted mode (num_usable), so callers never
+        see an identically-zero row from puncturing.
+
+        Shared by loss() (training-time L_synd) and the EKF measurement model in
+        ekf_tracker.py, so both use exactly one implementation of what the syndrome
+        measurement is."""
         mother = self.map_to_mother(llr_tx)
         t = torch.tanh(mother.clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
         if self.fallback_iters > 0:
             t_punc = self._estimate_punctured_t(t.detach(), self.fallback_iters)
             t = t.clone()
             t[:, self.punctured_idx] = t_punc[:, self.punctured_idx]
-            p = self._check_products(t, self.edge_check_all, self.edge_bit_all, self.num_checks)
-        else:
-            p = self._check_products(t, self.edge_check_u, self.edge_bit_u, self.num_usable)
+            return self._check_products(t, self.edge_check_all, self.edge_bit_all, self.num_checks)
+        return self._check_products(t, self.edge_check_u, self.edge_bit_u, self.num_usable)
+
+    def loss(self, llr_tx: torch.Tensor) -> torch.Tensor:
+        """L_synd for a batch of transmitted-LLR codewords, shape (B, n)."""
+        p = self.p_vector(llr_tx)
         return -torch.log(((1.0 + p) / 2.0).clamp(min=1e-9, max=1.0)).mean()
 
     @torch.no_grad()

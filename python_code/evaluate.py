@@ -1122,8 +1122,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             tx_data_for_ber = tx_data
             weights_tag = None
 
+            if conf.escnn_ekf_track:
+                # Unsupervised, syndrome-driven test-time adaptation: replaces the whole
+                # training branch below - no pilot/val split, no ground-truth bits. rx_real
+                # (whole block) feeds the EKF; _forward + tx_data_for_ber stay on the
+                # data-only region so BER stays comparable to every other detector's report.
+                escnn_trainer.ekf_predict_update(rx_real, num_bits_pilot, n_users, iterations)
+                detected_word_list, llrs_mat_list = escnn_trainer._forward(
+                    rx_data, num_bits_pilot, n_users, iterations, probs_for_aug[pilot_chunk:])
+                tx_data_for_ber = tx_data
+
             # online training main function
-            if escnn_trainer.is_online_training:
+            elif escnn_trainer.is_online_training:
 
                 if conf.make_64QAM_16QAM_percentage == 50 and num_bits_pilot == 6:  # 64QAM special case
                     # Divide pilot_chunk into three equal parts

@@ -7,7 +7,7 @@ n_users: 4
 mcs: 28
 mod_pilot: -1
 block_length_factor: 3
-data_size_override: 20000  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
+data_size: 20000  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
@@ -45,7 +45,7 @@ plot_genie: False
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
 speed: 10 # in m/s
-channel_drift_index: 0  # TDL channel slot-offset
+channel_drift_base_index: 0  # TDL channel slot-offset
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)

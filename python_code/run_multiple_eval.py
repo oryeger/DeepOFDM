@@ -1,13 +1,13 @@
 #!/usr/bin/env python
 """
-run_drift.py — Sequential CFO / channel drift experiment.
+run_multiple_eval.py — Sequential CFO / channel drift experiment.
 
-Trains with BCE at CFO=0 (and/or channel_drift_index=0), then adapts using a
-blind loss as CFO and/or the TDL channel (via channel_drift_index) drift
+Trains with BCE at CFO=0 (and/or channel_drift_base_index=0), then adapts using a
+blind loss as CFO and/or the TDL channel (via channel_drift_base_index) drift
 gradually. Each SNR chains weights from the same SNR in the previous step.
 
 Usage:
-    python run_drift.py --config path/to/config.yaml
+    python run_multiple_eval.py --config path/to/config.yaml
 
 Edit DRIFT_STEPS below to define the sequence.
 """
@@ -35,17 +35,17 @@ from python_code.detectors.jointllr.jointllr_trainer import JointLLRTrainer
 
 # ── Drift sequence ────────────────────────────────────────────────────────────
 # Each step: CFO to train/test at, loss to use, which layers to freeze, and
-# channel_drift_index (TDL channel slot-offset; 0 = ordinary/no channel
+# channel_drift_base_index (TDL channel slot-offset; 0 = ordinary/no channel
 # drift). First step should use 'bce' (supervised); subsequent steps use
-# 'gfmi'/'tent'/'tsyn' (blind). channel_drift_index is independent of cfo -
+# 'gfmi'/'tent'/'tsyn' (blind). channel_drift_base_index is independent of cfo -
 # set both to drift CFO and the channel together, or leave
-# channel_drift_index at 0 for CFO-only drift as before.
+# channel_drift_base_index at 0 for CFO-only drift as before.
 DRIFT_STEPS = [
-    dict(cfo=0.0, training_loss='bce',  escnn_load_freeze='none', channel_drift_index=0),
-    dict(cfo=0.1, training_loss='gfmi', escnn_load_freeze='none', channel_drift_index=0),
-    dict(cfo=0.2, training_loss='gfmi', escnn_load_freeze='none', channel_drift_index=0),
-    dict(cfo=0.3, training_loss='gfmi', escnn_load_freeze='none', channel_drift_index=0),
-    dict(cfo=0.4, training_loss='gfmi', escnn_load_freeze='none', channel_drift_index=0),
+    dict(cfo=0.0, training_loss='bce',  escnn_load_freeze='none', channel_drift_base_index=0),
+    dict(cfo=0.1, training_loss='gfmi', escnn_load_freeze='none', channel_drift_base_index=0),
+    dict(cfo=0.2, training_loss='gfmi', escnn_load_freeze='none', channel_drift_base_index=0),
+    dict(cfo=0.3, training_loss='gfmi', escnn_load_freeze='none', channel_drift_base_index=0),
+    dict(cfo=0.4, training_loss='gfmi', escnn_load_freeze='none', channel_drift_base_index=0),
 ]
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -79,18 +79,18 @@ def main():
 
     for step_idx, step in enumerate(DRIFT_STEPS):
         print(f"\n{'='*70}", flush=True)
-        channel_drift_index = step.get('channel_drift_index', 0)
+        channel_drift_base_index = step.get('channel_drift_base_index', 0)
         print(f"[DRIFT] Step {step_idx + 1}/{len(DRIFT_STEPS)}: "
               f"cfo={step['cfo']}  loss={step['training_loss']}  "
               f"freeze={step['escnn_load_freeze']}  "
-              f"channel_drift_index={channel_drift_index}  "
+              f"channel_drift_base_index={channel_drift_base_index}  "
               f"load_tag={prev_tag or '(none — train from scratch)'}", flush=True)
         print(f"{'='*70}\n", flush=True)
 
         conf.set_value('cfo',                  step['cfo'])
         conf.set_value('training_loss',        step['training_loss'])
         conf.set_value('escnn_load_freeze',    step['escnn_load_freeze'])
-        conf.set_value('channel_drift_index',  channel_drift_index)
+        conf.set_value('channel_drift_base_index',  channel_drift_base_index)
         conf.set_value('save_escnn_weights',   True)
         conf.set_value('load_escnn_weights_tag', prev_tag or '')
 

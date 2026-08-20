@@ -32,8 +32,6 @@ escnn_load_freeze_vals=(
   'first_conv_and_scale_only'
 )
 
-escnn_ekf_track_vals=(False True)
-
 training_loss_vals=(
   'bce'
 )
@@ -44,7 +42,7 @@ tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(3)
 
-channel_drift_index_vals=(9)
+channel_drift_base_index_vals=(9)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -59,7 +57,7 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(10 100 1000)
+pilot_or_data_size_vals=(10 100 1000)  # writes pilot_size: (evaluate.py) and data_size: (ekf.py) to the same value in every generated config - each script only reads its own key, so one sweep serves both
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
@@ -121,17 +119,17 @@ for seed in "${seeds[@]}"; do
                         for kernel_size in "${kernel_size_vals[@]}"; do
                           ktag="k${kernel_size}"
 
-                          for pilot_size in "${pilot_size_vals[@]}"; do
-                            if [[ "$pilot_size" -eq 1000 ]]; then
+                          for pilot_or_data_size in "${pilot_or_data_size_vals[@]}"; do
+                            if [[ "$pilot_or_data_size" -eq 1000 ]]; then
                               ptag="p1k"
-                            elif [[ "$pilot_size" -eq 5000 ]]; then
+                            elif [[ "$pilot_or_data_size" -eq 5000 ]]; then
                               ptag="p5k"
-                            elif [[ "$pilot_size" -eq 10000 ]]; then
+                            elif [[ "$pilot_or_data_size" -eq 10000 ]]; then
                               ptag="p10k"
-                            elif [[ "$pilot_size" -eq 20000 ]]; then
+                            elif [[ "$pilot_or_data_size" -eq 20000 ]]; then
                               ptag="p20k"
                             else
-                              ptag="p${pilot_size}"
+                              ptag="p${pilot_or_data_size}"
                             fi
 
                             for mcs in "${mcs_vals[@]}"; do
@@ -204,9 +202,6 @@ for seed in "${seeds[@]}"; do
                                                   esac
 
 
-                                                  for escnn_ekf_track in "${escnn_ekf_track_vals[@]}"; do
-                                                    [[ "$escnn_ekf_track" == True ]] && ekftag="ekf1" || ekftag="ekf0"
-
                                                   for training_loss in "${training_loss_vals[@]}"; do
                                                     case "$training_loss" in
                                                       gfmi) tltag="tlgf" ;;
@@ -228,12 +223,12 @@ for seed in "${seeds[@]}"; do
                                                   for tsyn_fallback_iters in "${tsyn_fallback_iters_vals[@]}"; do
                                                     tftag="tf${tsyn_fallback_iters}"
 
-                                                  for channel_drift_index in "${channel_drift_index_vals[@]}"; do
-                                                    cditag="cdi${channel_drift_index}"
+                                                  for channel_drift_base_index in "${channel_drift_base_index_vals[@]}"; do
+                                                    cditag="cdi${channel_drift_base_index}"
 
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${ekftag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -248,7 +243,8 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
                                                         -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
                                                         -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                                        -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
+                                                        -e "s/^pilot_size:.*/pilot_size: $pilot_or_data_size/" \
+                                                        -e "s/^data_size:.*/data_size: $pilot_or_data_size/" \
                                                         -e "s/^mcs:.*/mcs: $mcs/" \
                                                         -e "s/^n_users:.*/n_users: $n_users/" \
                                                         -e "s/^num_res:.*/num_res: $num_res/" \
@@ -262,23 +258,21 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
                                                         -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                         -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
-                                                        -e "s/^escnn_ekf_track:.*/escnn_ekf_track: $escnn_ekf_track/" \
                                                         -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         -e "s/^tw:.*/tw: $tw/" \
                                                         -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
-                                                        -e "s/^channel_drift_index:.*/channel_drift_index: $channel_drift_index/" \
+                                                        -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
                                                         "$input_file" > "$out_file"
 
                                                     all_config_files+=("$out_file")
                                                     ((total_count++))
                                                   done
-                                                  done  # channel_drift_index
+                                                  done  # channel_drift_base_index
                                                   done  # tsyn_fallback_iters
                                                   done  # tw
                                                   done  # beta_balance
                                                   done  # training_loss
-                                                  done  # escnn_ekf_track
                                                 done
                                               done
                                             done

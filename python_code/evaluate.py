@@ -370,7 +370,7 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     (SNR is also deliberately excluded from the hash tag, so the same tag is produced
     regardless of which SNR a model was trained at).
     """
-    _cdi = getattr(conf, 'channel_drift_index', 0)
+    _cdi = getattr(conf, 'channel_drift_base_index', 0)
     title_string = (chan_text + f'_sp={conf.speed}_cdi={_cdi}' + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
         conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                     'cfo=' + str(conf.cfo) + ' scs' + ', Ep=' + str(epochs) + ', it=' + str(
@@ -661,8 +661,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
         pilot_chunk = int(pilot_size / num_bits_pilot)
 
-        if getattr(conf, 'data_size_override', -1) > 0:
-            data_size = get_next_divisible(conf.data_size_override, num_bits_data * NUM_SYMB_PER_SLOT * 3)
+        if getattr(conf, 'data_size', -1) > 0:
+            data_size = get_next_divisible(conf.data_size, num_bits_data * NUM_SYMB_PER_SLOT * 3)
         else:
             data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT * 3)
 
@@ -1122,23 +1122,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             tx_data_for_ber = tx_data
             weights_tag = None
 
-            if conf.escnn_ekf_track:
-                # Unsupervised, syndrome-driven test-time adaptation: replaces the whole
-                # training branch below - no pilot/val split, no ground-truth bits. rx_real
-                # (whole block) feeds the EKF; _forward + tx_data_for_ber stay on the
-                # data-only region so BER stays comparable to every other detector's report.
-                escnn_trainer.ekf_predict_update(rx_real, num_bits_pilot, n_users, iterations)
-                detected_word_list, llrs_mat_list = escnn_trainer._forward(
-                    rx_data, num_bits_pilot, n_users, iterations, probs_for_aug[pilot_chunk:])
-                tx_data_for_ber = tx_data
-                # No training happened - these feed the loss-curve plots below, which only
-                # care about matching epoch-count shape (see the _ref_epochs comment there).
-                train_loss_vect, val_loss_vect = [], []
-                if conf.use_film:
-                    train_loss_vect_film, val_loss_vect_film = [], []
-
             # online training main function
-            elif escnn_trainer.is_online_training:
+            if escnn_trainer.is_online_training:
 
                 if conf.make_64QAM_16QAM_percentage == 50 and num_bits_pilot == 6:  # 64QAM special case
                     # Divide pilot_chunk into three equal parts
@@ -2291,7 +2276,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_r=' + conf.load_escnn_weights_tag
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
-        title_string = title_string + '_ekf=' + ('1' if conf.escnn_ekf_track else '0')
         if conf.save_escnn_weights and weights_tag:
             title_string = title_string + '_w=' + weights_tag
         _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}

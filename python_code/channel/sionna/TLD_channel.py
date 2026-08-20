@@ -164,7 +164,7 @@ class TDLChannel:
         l_tot = l_max-l_min+1
 
         if tf.size(external_channel) == 0:
-            drift_index = getattr(conf, 'channel_drift_index', 0)
+            drift_index = getattr(conf, 'channel_drift_base_index', 0)
             if drift_index:
                 from python_code.channel.sionna.TDL_drift import generate_drift_channel
                 h_time = generate_drift_channel(tdl_params, num_time_samples + l_tot - 1, bandwidth,

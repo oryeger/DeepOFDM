@@ -7,7 +7,7 @@ n_users: 4
 mcs: 2
 mod_pilot: -1
 block_length_factor: 3
-data_size_override: -1  # If > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1)
+data_size: 200  # Regular pass (evaluate.py): if > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1). ekf.py: no pilot_size fallback there, so this must be set > 0 explicitly (see that file's docstring) - a value of -1 will raise.
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
@@ -45,7 +45,7 @@ plot_genie: False
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
 speed: 10 # in m/s
-channel_drift_index: 0  # TDL channel slot-offset
+channel_drift_base_index: 0  # TDL channel slot-offset (regular pass: fixed for the whole run; ekf.py: starting point, advances per group - see that file's docstring)
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
 env_o2i_model: 'low'          # outdoor-to-indoor model: 'low' or 'high' (UMa/UMi only)
@@ -82,7 +82,7 @@ llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2
 training_loss: 'bce'  # 'bce', gfmi', 'tent', 'tsyn'
 beta_balance: 0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
 tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
-tsyn_fallback_iters: 3 # tsyn only: number of erasure-peeling rounds for punctured bits in fallback mode. 0 = restricted mode (no fallback), 1 = today's single-pass behavior, >1 = iterate
+tsyn_fallback_iters: 1 # tsyn only: number of erasure-peeling rounds for punctured bits in fallback mode. 0 = restricted mode (no fallback), 1 = today's single-pass behavior, >1 = iterate
 encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
@@ -90,20 +90,29 @@ separate_pilots: True
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: ''  # d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
+load_escnn_weights_tag: '896978'  # d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'first_conv_and_scale_only'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
-# ESCNN EKF tracking: unsupervised, syndrome-driven test-time adaptation of whichever params
-# escnn_load_freeze leaves unfrozen. Replaces _online_training entirely when enabled (no train/val
-# split, no ground-truth bits) - requires load_escnn_weights_tag to be set. See ekf_syndrome.tex.
-escnn_ekf_track: True  # If True, skip ESCNN training; instead run predict+update every slot (one TB/LDPC codeword each) via the EKF below - NOT once per block; block is just pilot_size/block_length_factor bookkeeping, slot is the real transmission-time unit
+# ESCNN EKF tracking (ekf.py only): unsupervised, syndrome-driven test-time adaptation of
+# whichever params escnn_load_freeze leaves unfrozen - requires load_escnn_weights_tag to be
+# set. See ekf_syndrome.tex.
 escnn_ekf_dynamics: 'ar1'  # State evolution f(theta): 'random_walk' (f=identity, F=I) | 'ar1' (f=alpha*theta+(1-alpha)*theta_pretrained, F=alpha*I; mean-reverts to the pretrained checkpoint, guards against drifting to a degenerate syndrome-satisfying solution)
 escnn_ekf_alpha: 0.99  # ar1 only: per-slot reversion rate toward theta_pretrained (1.0 reproduces random_walk). Ignored if escnn_ekf_dynamics == 'random_walk'. Applied once per slot (~15/block at this config's pilot_size/block_length_factor) - move closer to 1.0 if that's too strong an anchor
 escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence in theta_pretrained at the first slot)
 escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per slot, applied once per slot - lower this if that adds up to too much per-block drift)
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
+slots_per_group: 1  # Number of consecutive slots forming one Kalman "epoch": predict() runs once per this many slots (injecting sigma_q / the ar1 pull once, not once per slot), then each slot in the group is its own sequential update() without re-predicting in between. 1 = today's per-slot cadence (raise this if one slot's worth of syndrome data isn't enough to move the estimate meaningfully). In the per-slot streaming loop (channel_drift), this is also how many consecutive slots share one channel realization before channel_drift_base_index advances - same epoch, same knob, so the two can't drift out of sync.
+
+# ekf.py only (streaming per-group channel-drift experiment; see that file's docstring)
+# channel_drift_base_index (above) is reused here as the starting point; each group advances
+# it by group_size_slots before transmitting, overwriting it for the rest of the run.
+# ekf.py's run length also comes from data_size (above), NOT a separate parameter:
+# it's truncated DOWN (not rounded up like evaluate.py's usage) to a whole number of groups of
+# NUM_SYMB_PER_SLOT * slots_per_group symbols; leftover data that doesn't fill a
+# complete group is discarded. data_size must be set > 0 for this script (no pilot_size fallback).
+# At mcs=2 (qm=2) and slots_per_group=1, data_size=560 -> 20 groups.
 
 
 # general

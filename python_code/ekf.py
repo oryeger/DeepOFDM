@@ -36,9 +36,11 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     block-based evaluate.py path)
     slots_per_group               - slots per group (= slots per channel realization)
     channel_drift_base_index     - starting slot offset into the TDL trajectory
-    data_size                    - total data budget in bits (same convention as
-                                    pilot_size/data_size in the regular pass); truncated
-                                    down to a whole number of groups, see main()
+    pilot_size                   - total data budget in bits (this script's own run length,
+                                    not the regular pass's pilot_size); truncated down to a
+                                    whole number of groups, see main(). Named pilot_size, not
+                                    data_size, because every slot here is a pilot - there's no
+                                    separate "data" region to speak of
 """
 import argparse
 import glob
@@ -98,6 +100,7 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_sq=' + str(getattr(conf, 'escnn_ekf_sigma_q', 0.01))
     title_string += '_sr=' + str(getattr(conf, 'escnn_ekf_sigma_r', 0.5))
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
+    title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))
     title_string += '_' + conf.cur_str
     return title_string.replace(" ", "_")
 
@@ -340,33 +343,34 @@ def main():
     group_size_slots = max(1, int(getattr(conf, 'slots_per_group', 1)))
     base_index = int(getattr(conf, 'channel_drift_base_index', 0))
 
-    # data_size (bits) -> OFDM symbols (// qm) -> whole groups
-    # (// (NUM_SYMB_PER_SLOT * group_size_slots)). Same config key evaluate.py uses, but not
-    # the same fallback: evaluate.py derives data_size from pilot_size when it's <= 0 (a
-    # sensible default there since it always has a pilot_size); this script has no pilot_size
-    # concept at all (see evaluate.py's key-by-key breakdown of what it ignores), so a <= 0
-    # value here is just an error, not a trigger for some other derivation. And unlike
-    # evaluate.py's get_next_divisible (which rounds the bit count UP so nothing is lost),
-    # this truncates DOWN: data_size is a budget, and running past it isn't wanted, so any
-    # leftover data that doesn't fill a complete group is simply discarded.
-    data_size_bits = int(getattr(conf, 'data_size', -1))
-    if data_size_bits <= 0:
-        raise ValueError(f"data_size={data_size_bits} - ekf.py needs data_size set "
-                          f"> 0 explicitly (bits); unlike evaluate.py it has no pilot_size to "
-                          f"fall back to.")
+    # pilot_size (bits) -> OFDM symbols (// qm) -> whole groups
+    # (// (NUM_SYMB_PER_SLOT * group_size_slots)). Deliberately conf.pilot_size, not
+    # conf.data_size: every slot in this script is fully known (a pilot) - there's no "data"
+    # region at all - so pilot_size is the config key that actually names what this run
+    # length is. evaluate.py's data_size is untouched by this and keeps its own meaning there
+    # (its own pilot_size, plus data_size either explicit or derived from
+    # pilot_size*(block_length_factor-1)). And unlike evaluate.py's get_next_divisible (which
+    # rounds the bit count UP so nothing is lost), this truncates DOWN: pilot_size here is a
+    # budget, and running past it isn't wanted, so any leftover data that doesn't fill a
+    # complete group is simply discarded.
+    pilot_size_bits = int(getattr(conf, 'pilot_size', -1))
+    if pilot_size_bits <= 0:
+        raise ValueError(f"pilot_size={pilot_size_bits} - ekf.py needs pilot_size set > 0 "
+                          f"explicitly (bits) - it's this script's whole data budget, since "
+                          f"every slot here is a pilot.")
     symbols_per_group = NUM_SYMB_PER_SLOT * group_size_slots
-    num_symbols_total = data_size_bits // qm
+    num_symbols_total = pilot_size_bits // qm
     num_groups = num_symbols_total // symbols_per_group
     used_symbols = num_groups * symbols_per_group
-    if used_symbols * qm < data_size_bits:
-        print(f"[drift] data_size={data_size_bits} bits -> {num_symbols_total} symbols -> "
+    if used_symbols * qm < pilot_size_bits:
+        print(f"[drift] pilot_size={pilot_size_bits} bits -> {num_symbols_total} symbols -> "
               f"{num_groups} whole group(s) of {symbols_per_group} symbols each; discarding "
-              f"{data_size_bits - used_symbols * qm} leftover bits that don't fill a full group.",
+              f"{pilot_size_bits - used_symbols * qm} leftover bits that don't fill a full group.",
               flush=True)
     if num_groups == 0:
-        raise ValueError(f"data_size={data_size_bits} bits ({num_symbols_total} symbols) isn't "
+        raise ValueError(f"pilot_size={pilot_size_bits} bits ({num_symbols_total} symbols) isn't "
                           f"enough for even one group of {symbols_per_group} symbols "
-                          f"(slots_per_group={group_size_slots} slots); raise data_size "
+                          f"(slots_per_group={group_size_slots} slots); raise pilot_size "
                           f"or lower slots_per_group.")
 
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group, starting at "
@@ -403,23 +407,36 @@ def main():
     output_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad'))
     os.makedirs(_long_path(output_dir), exist_ok=True)
 
+    # Column A holds the per-group channel_drift_base_index (not an SNR sweep), named "cdi"
+    # accordingly. That index is otherwise fully recoverable as (row number - 1) under the
+    # default base_index=0/slots_per_group=1, so it isn't kept as a second, redundant column.
     idx = [r['channel_drift_base_index'] for r in results]
-    data = {'channel_drift_base_index': idx,
-            'total_ber_escnn': [r['ber_escnn'] for r in results],
-            'total_ber_lmmse': [r['ber_lmmse'] for r in results]}
-    data_bler = {'channel_drift_base_index': idx,
-                 'total_bler_escnn': [r['bler_escnn'] for r in results],
-                 'total_bler_lmmse': [r['bler_lmmse'] for r in results]}
-    data_mi = {'channel_drift_base_index': idx,
-               'total_mi_escnn': [r['mi_escnn'] for r in results],
-               'total_mi_lmmse': [r['mi_lmmse'] for r in results]}
+    # Column names/order deliberately match evaluate.py's data/data_bler/data_mi dicts
+    # exactly, including its quirks: every file (BER, BLER, *and* MI) uses the "total_ber_"
+    # prefix (evaluate.py's own BLER/MI CSVs do too, never "total_bler_"/"total_mi_"), and
+    # ESCNN's columns carry a "_1" (an iteration number in evaluate.py, from
+    # f"total_ber_{i+1}"/f"total_ber_user{u}_{i+1}") even though this script has no
+    # per-iteration concept to report - it's meaningless here, kept only so a shared
+    # column-name parser doesn't need to special-case which script produced the file. Order:
+    # LMMSE (aggregate, then every user) first, ESCNN (aggregate, then every user) last -
+    # never interleaved.
+    data = {'cdi': idx,
+            'total_ber_lmmse': [r['ber_lmmse'] for r in results],
+            'total_ber_1': [r['ber_escnn'] for r in results]}
+    data_bler = {'cdi': idx,
+                 'total_ber_lmmse': [r['bler_lmmse'] for r in results],
+                 'total_ber_1': [r['bler_escnn'] for r in results]}
+    data_mi = {'cdi': idx,
+               'total_ber_lmmse': [r['mi_lmmse'] for r in results],
+               'total_ber_1': [r['mi_escnn'] for r in results]}
     for u in range(n_users):
-        data[f'total_ber_escnn_user{u}'] = [r['ber_escnn_user'][u] for r in results]
         data[f'total_ber_lmmse_user{u}'] = [r['ber_lmmse_user'][u] for r in results]
-        data_bler[f'total_bler_escnn_user{u}'] = [r['bler_escnn_user'][u] for r in results]
-        data_bler[f'total_bler_lmmse_user{u}'] = [r['bler_lmmse_user'][u] for r in results]
-        data_mi[f'total_mi_escnn_user{u}'] = [r['mi_escnn_user'][u] for r in results]
-        data_mi[f'total_mi_lmmse_user{u}'] = [r['mi_lmmse_user'][u] for r in results]
+        data_bler[f'total_ber_lmmse_user{u}'] = [r['bler_lmmse_user'][u] for r in results]
+        data_mi[f'total_ber_lmmse_user{u}'] = [r['mi_lmmse_user'][u] for r in results]
+    for u in range(n_users):
+        data[f'total_ber_user{u}_1'] = [r['ber_escnn_user'][u] for r in results]
+        data_bler[f'total_ber_user{u}_1'] = [r['bler_escnn_user'][u] for r in results]
+        data_mi[f'total_ber_user{u}_1'] = [r['mi_escnn_user'][u] for r in results]
 
     file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
     pd.DataFrame(data).to_csv(_long_path(file_path), index=False)

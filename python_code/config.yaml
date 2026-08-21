@@ -7,7 +7,7 @@ n_users: 4
 mcs: 2
 mod_pilot: -1
 block_length_factor: 3
-data_size: 200  # Regular pass (evaluate.py): if > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1). ekf.py: no pilot_size fallback there, so this must be set > 0 explicitly (see that file's docstring) - a value of -1 will raise.
+data_size: 200  # evaluate.py only: if > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1). Not read by ekf.py.
 num_res: 24
 cfo: 0
 clip_percentage_in_tx: 100
@@ -15,7 +15,7 @@ iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 100
 iterations: 1
-pilot_size: 100
+pilot_size: 100  # evaluate.py: the regular pilot region size (bits). ekf.py: this is instead its whole run-length budget (bits) - must be set > 0 there, since every slot in that script is a pilot and there's no separate data_size fallback
 batch_size: -1
 shuffle: False
 shuffle_augment_priors: False

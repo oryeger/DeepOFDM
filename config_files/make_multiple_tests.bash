@@ -57,7 +57,7 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_or_data_size_vals=(10 100 1000)  # writes pilot_size: (evaluate.py) and data_size: (ekf.py) to the same value in every generated config - each script only reads its own key, so one sweep serves both
+pilot_size_vals=(1000 5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
@@ -119,17 +119,17 @@ for seed in "${seeds[@]}"; do
                         for kernel_size in "${kernel_size_vals[@]}"; do
                           ktag="k${kernel_size}"
 
-                          for pilot_or_data_size in "${pilot_or_data_size_vals[@]}"; do
-                            if [[ "$pilot_or_data_size" -eq 1000 ]]; then
+                          for pilot_size in "${pilot_size_vals[@]}"; do
+                            if [[ "$pilot_size" -eq 1000 ]]; then
                               ptag="p1k"
-                            elif [[ "$pilot_or_data_size" -eq 5000 ]]; then
+                            elif [[ "$pilot_size" -eq 5000 ]]; then
                               ptag="p5k"
-                            elif [[ "$pilot_or_data_size" -eq 10000 ]]; then
+                            elif [[ "$pilot_size" -eq 10000 ]]; then
                               ptag="p10k"
-                            elif [[ "$pilot_or_data_size" -eq 20000 ]]; then
+                            elif [[ "$pilot_size" -eq 20000 ]]; then
                               ptag="p20k"
                             else
-                              ptag="p${pilot_or_data_size}"
+                              ptag="p${pilot_size}"
                             fi
 
                             for mcs in "${mcs_vals[@]}"; do
@@ -243,8 +243,7 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^spatial_correlation:.*/spatial_correlation: '$spatial_corr'/" \
                                                         -e "s/^kernel_size:.*/kernel_size: $kernel_size/" \
                                                         -e "s/^run_tdfdcnn:.*/run_tdfdcnn: $run_tdfdcnn/" \
-                                                        -e "s/^pilot_size:.*/pilot_size: $pilot_or_data_size/" \
-                                                        -e "s/^data_size:.*/data_size: $pilot_or_data_size/" \
+                                                        -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
                                                         -e "s/^mcs:.*/mcs: $mcs/" \
                                                         -e "s/^n_users:.*/n_users: $n_users/" \
                                                         -e "s/^num_res:.*/num_res: $num_res/" \

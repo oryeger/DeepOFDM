@@ -83,6 +83,19 @@ def _to_float_cell(x):
         return np.nan
 
 
+def _col_mean(series):
+    """
+    Mean of a CSV column over all rows (NaNs ignored). Single-row CSVs (the
+    normal case) reduce to that one value unchanged; multi-row CSVs (e.g.
+    ekf.py's per-group sweeps) are averaged over all rows for this SNR.
+    """
+    vals = [_to_float_cell(v) for v in series]
+    vals = [v for v in vals if np.isfinite(v)]
+    if not vals:
+        return np.nan
+    return float(np.mean(vals))
+
+
 def _get_first_present(df, candidates):
     """Return the first column name that exists in df.columns, else None."""
     for c in candidates:
@@ -590,186 +603,189 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
                 observed_snrs.add(snr)
                 safe_file = "\\\\?\\" + os.path.abspath(file) if platform.system() == "Windows" else file
                 df = pd.read_csv(safe_file)
+                # Every value below is a _col_mean(df[...]): single-row CSVs (the normal
+                # case) are unaffected, but multi-row CSVs (e.g. ekf.py's per-group
+                # sweeps) are averaged over all rows for this SNR.
 
                 # ---- ESCNN ----
                 if "total_ber_1" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_1"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_1"] = _col_mean(df["total_ber_1"])
 
                 if "total_ber_2" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_2"] = _to_float_cell(df["total_ber_2"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_2"] = _col_mean(df["total_ber_2"])
                 elif "total_ber_1" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_2"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_2"] = _col_mean(df["total_ber_1"])
 
                 if "total_ber_3" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_3"] = _to_float_cell(df["total_ber_3"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_3"] = _col_mean(df["total_ber_3"])
                 elif "total_ber_1" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_3"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_3"] = _col_mean(df["total_ber_1"])
 
                 # ---- JointLLR ----
                 joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                 if joint_col is not None:
-                    seed_snr_dict[seed][snr]["ber_jointllr_1"] = _to_float_cell(df[joint_col].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_jointllr_1"] = _col_mean(df[joint_col])
 
                 # ---- MHSA ----
                 if any(col.startswith("total_ber_mhsa") for col in df.columns):
                     if "total_ber_mhsa" in df.columns and not any(col.startswith("total_ber_mhsa_") for col in df.columns):
-                        val = _to_float_cell(df["total_ber_mhsa"].iloc[0])
+                        val = _col_mean(df["total_ber_mhsa"])
                         for key in ["ber_mhsa_1", "ber_mhsa_2", "ber_mhsa_3"]:
                             seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_mhsa_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _col_mean(df[colname])
                             elif "total_ber_mhsa" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _to_float_cell(df["total_ber_mhsa"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_mhsa_{k}"] = _col_mean(df["total_ber_mhsa"])
 
                 # ---- TDFDCNN (tfdfcnn) ----
                 if any(col.startswith("total_ber_tfdfcnn") for col in df.columns):
                     if "total_ber_tfdfcnn" in df.columns and not any(col.startswith("total_ber_tfdfcnn_") for col in df.columns):
-                        val = _to_float_cell(df["total_ber_tfdfcnn"].iloc[0])
+                        val = _col_mean(df["total_ber_tfdfcnn"])
                         for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
                             seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_tfdfcnn_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _col_mean(df[colname])
                             elif "total_ber_tdfdcnn" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df["total_ber_tfdfcnn"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _col_mean(df["total_ber_tfdfcnn"])
 
                 # ---- TDFDCNN (tdfdcnn) ----
                 if any(col.startswith("total_ber_tdfdcnn") for col in df.columns):
                     if "total_ber_tdfdcnn" in df.columns and not any(col.startswith("total_ber_tdfdcnn_") for col in df.columns):
-                        val = _to_float_cell(df["total_ber_tdfdcnn"].iloc[0])
+                        val = _col_mean(df["total_ber_tdfdcnn"])
                         for key in ["ber_tdfdcnn_1", "ber_tdfdcnn_2", "ber_tdfdcnn_3"]:
                             seed_snr_dict[seed][snr][key] = val
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_tdfdcnn_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _col_mean(df[colname])
                             elif "total_ber_tdfdcnn" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _to_float_cell(df["total_ber_tdfdcnn"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_tdfdcnn_{k}"] = _col_mean(df["total_ber_tdfdcnn"])
 
                 # ---- DeepSIC ----
                 if any(col.startswith("total_ber_deepsic") for col in df.columns):
                     if "total_ber_deepsic" in df.columns:
                         for k in [1, 2, 3]:
-                            seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df["total_ber_deepsic"].iloc[0])
+                            seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _col_mean(df["total_ber_deepsic"])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepsic_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _col_mean(df[colname])
                             elif "total_ber_deepsic_1" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _to_float_cell(df["total_ber_deepsic_1"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepsic_{k}"] = _col_mean(df["total_ber_deepsic_1"])
 
                 # ---- DeepSIC-MB ----
                 if any(col.startswith("total_ber_deepsicmb") for col in df.columns):
                     if "total_ber_deepsicmb" in df.columns:
                         for k in [1, 2, 3]:
-                            seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df["total_ber_deepsicmb"].iloc[0])
+                            seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _col_mean(df["total_ber_deepsicmb"])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepsicmb_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _col_mean(df[colname])
                             elif "total_ber_deepsicmb_1" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _to_float_cell(df["total_ber_deepsicmb_1"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepsicmb_{k}"] = _col_mean(df["total_ber_deepsicmb_1"])
 
                 # ---- DeepSTAG ----
                 if any(col.startswith("total_ber_deepstag") for col in df.columns):
                     if "total_ber_deepstag" in df.columns:
                         for k in [1, 2, 3]:
-                            seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df["total_ber_deepstag"].iloc[0])
+                            seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _col_mean(df["total_ber_deepstag"])
                     else:
                         for k in [1, 2, 3]:
                             colname = f"total_ber_deepstag_{k}"
                             if colname in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df[colname].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _col_mean(df[colname])
                             elif "total_ber_deepstag_1" in df.columns:
-                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _to_float_cell(df["total_ber_deepstag_1"].iloc[0])
+                                seed_snr_dict[seed][snr][f"ber_deepstag_{k}"] = _col_mean(df["total_ber_deepstag_1"])
 
                 # ---- DeepRx ----
                 if "total_ber_deeprx" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_deeprx"] = _to_float_cell(df["total_ber_deeprx"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_deeprx"] = _col_mean(df["total_ber_deeprx"])
 
                 # ---- LMMSE ----
                 if "total_ber_lmmse" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_lmmse"] = _to_float_cell(df["total_ber_lmmse"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_lmmse"] = _col_mean(df["total_ber_lmmse"])
 
                 # ---- Sphere ----
                 if "total_ber_sphere" in df.columns:
-                    seed_snr_dict[seed][snr]["ber_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
+                    seed_snr_dict[seed][snr]["ber_sphere"] = _col_mean(df["total_ber_sphere"])
 
                 # ---- per-user (ESCNN, LMMSE, DeepRx, DeepSIC, Sphere) ----
                 for u in range(n_users_present):
                     col = f"total_ber_user{u}_1"
                     if col in df.columns:
-                        seed_snr_dict[seed][snr][f"ber_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                        seed_snr_dict[seed][snr][f"ber_user{u}_1"] = _col_mean(df[col])
                     col = f"total_ber_lmmse_user{u}"
                     if col in df.columns:
-                        seed_snr_dict[seed][snr][f"ber_lmmse_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        seed_snr_dict[seed][snr][f"ber_lmmse_user{u}"] = _col_mean(df[col])
                     col = f"total_ber_deeprx_user{u}"
                     if col in df.columns:
-                        seed_snr_dict[seed][snr][f"ber_deeprx_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        seed_snr_dict[seed][snr][f"ber_deeprx_user{u}"] = _col_mean(df[col])
                     col = f"total_ber_sphere_user{u}"
                     if col in df.columns:
-                        seed_snr_dict[seed][snr][f"ber_sphere_user{u}"] = _to_float_cell(df[col].iloc[0])
+                        seed_snr_dict[seed][snr][f"ber_sphere_user{u}"] = _col_mean(df[col])
                     col = f"total_ber_deepsic_user{u}_1"
                     if col in df.columns:
-                        seed_snr_dict[seed][snr][f"ber_deepsic_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                        seed_snr_dict[seed][snr][f"ber_deepsic_user{u}_1"] = _col_mean(df[col])
 
                 # ---- MI parsing ----
                 if plot_type == "MI":
                     if "total_ber_1" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_1"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_1"] = _col_mean(df["total_ber_1"])
 
                     if "total_ber_2" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_2"] = _to_float_cell(df["total_ber_2"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_2"] = _col_mean(df["total_ber_2"])
                     elif "total_ber_1" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_2"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_2"] = _col_mean(df["total_ber_1"])
 
                     if "total_ber_3" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_3"] = _to_float_cell(df["total_ber_3"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_3"] = _col_mean(df["total_ber_3"])
                     elif "total_ber_1" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_3"] = _to_float_cell(df["total_ber_1"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_3"] = _col_mean(df["total_ber_1"])
 
                     if "total_ber_lmmse" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_lmmse"] = _to_float_cell(df["total_ber_lmmse"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_lmmse"] = _col_mean(df["total_ber_lmmse"])
 
                     if "total_ber_sphere" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_sphere"] = _to_float_cell(df["total_ber_sphere"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_sphere"] = _col_mean(df["total_ber_sphere"])
 
                     if "total_ber_deeprx" in df.columns:
-                        seed_snr_dict[seed][snr]["mi_deeprx"] = _to_float_cell(df["total_ber_deeprx"].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_deeprx"] = _col_mean(df["total_ber_deeprx"])
 
                     for k in [1, 2, 3]:
                         colname = f"total_ber_deepsic_{k}"
                         if colname in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _to_float_cell(df[colname].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _col_mean(df[colname])
 
                     mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                     if mi_joint_col is not None:
-                        seed_snr_dict[seed][snr]["mi_jointllr_1"] = _to_float_cell(df[mi_joint_col].iloc[0])
+                        seed_snr_dict[seed][snr]["mi_jointllr_1"] = _col_mean(df[mi_joint_col])
 
                     for u in range(n_users_present):
                         col = f"total_ber_user{u}_1"
                         if col in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_user{u}_1"] = _col_mean(df[col])
                         col = f"total_ber_lmmse_user{u}"
                         if col in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_lmmse_user{u}"] = _to_float_cell(df[col].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_lmmse_user{u}"] = _col_mean(df[col])
                         col = f"total_ber_deeprx_user{u}"
                         if col in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_deeprx_user{u}"] = _to_float_cell(df[col].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_deeprx_user{u}"] = _col_mean(df[col])
                         col = f"total_ber_sphere_user{u}"
                         if col in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_sphere_user{u}"] = _to_float_cell(df[col].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_sphere_user{u}"] = _col_mean(df[col])
                         col = f"total_ber_deepsic_user{u}_1"
                         if col in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_deepsic_user{u}_1"] = _to_float_cell(df[col].iloc[0])
+                            seed_snr_dict[seed][snr][f"mi_deepsic_user{u}_1"] = _col_mean(df[col])
 
         snrs = _build_snr_grid(observed_snrs)
 

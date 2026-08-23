@@ -49,6 +49,7 @@ from datetime import datetime
 from typing import Tuple
 
 import commpy.modulation as commpy_mod
+import h5py
 import numpy as np
 import pandas as pd
 import torch
@@ -204,13 +205,18 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
 
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, mod_data: int, n_users: int, n_ants: int, num_res: int, ldpc_k: int, ldpc_n: int,
-              noise_var: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int) -> dict:
+              noise_var: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int,
+              save_diag: bool = False) -> dict:
     """Generate, transmit, LMMSE-estimate/equalize, EKF-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization - plus one extra
     calibration slot at the same channel_drift_base_index, used only to estimate H for LMMSE (and,
     via AUGMENT_LMMSE, to feed ESCNN's auxiliary input). The calibration slot is never scored
     and never enters the EKF, so LMMSE's estimate can't leak the answer for the slots being
     judged (see the augmentation-leakage discussion this replaces).
+
+    save_diag gates the noise-free reference-channel diagnostics (an extra transmit + per-RE
+    LS estimate, only worth paying for at the handful of SNRs in conf.save_loss_plot_snr - see
+    main()) - off by default so a plain run_group() call stays as cheap as before this existed.
 
     base_index is passed in explicitly (not re-read from conf) because conf.channel_drift_base_index
     is also the attribute TLD_channel.py reads at transmit time, which this function overwrites
@@ -224,6 +230,19 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     rx_ce_calib_t = torch.from_numpy(rx_ce_calib)
     s_orig_calib_t = torch.from_numpy(s_orig_calib)
 
+    # Noise-free reference channel: same calib_bits (so same symbols) and same channel
+    # realization (conf.channel_seed/channel_drift_base_index unchanged since the call above),
+    # just noise_var=0 - mirrors the existing rx_clean idiom in mimo_channel_dataset.py
+    # (run_tdcnn). Feeding this through the same ChannelEstimate() LS estimator as the noisy
+    # path gives a genuinely noise-free |H| per RE for free, without re-deriving it from
+    # Sionna's internal CIR tensor (which would mean re-implementing ApplyTimeChannel's own
+    # delay-alignment/CP-removal logic by hand just to get the same answer). Only worth the
+    # extra transmit when save_diag is set.
+    if save_diag:
+        _, rx_ce_calib_true, s_orig_calib_true = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, 0.0)
+        rx_ce_calib_true_t = torch.from_numpy(rx_ce_calib_true)
+        s_orig_calib_true_t = torch.from_numpy(s_orig_calib_true)
+
     pilot_length = group_size_slots * NUM_SYMB_PER_SLOT * qm
     tx_bits = encode_pilots(rng, pilot_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     rx, _, _ = transmit_and_prep(tx_bits, mod_data, n_users, num_res, h, noise_var)
@@ -234,10 +253,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     num_symbols = rx.shape[0]
     detected_word_lmmse = np.zeros((num_symbols * qm, n_users, num_res))
     llrs_mat_lmmse = np.zeros((num_symbols, qm * n_users, num_res, 1))
+    # Per-RE diagnostics for the EKF-divergence investigation: |H| (calibration-slot channel
+    # estimate, noisy and noise-free) and post-equalization SINR, all independent of the
+    # ESCNN/syndrome measurement the EKF actually tracks - a candidate "trust signal" for
+    # gating that update (see ekf_tracker.py's update()) without the circularity of using the
+    # syndrome innovation itself. h_abs_per_re is what LMMSE/EKF actually see (noise and all);
+    # h_abs_true_per_re is the noise_var=0 reference, so channel dips can be told apart from
+    # estimation noise when comparing across SNRs at the same cdi.
+    h_abs_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
     for re in range(num_res):
         H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, NUM_SYMB_PER_SLOT, re)
         equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var, re)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, 1)
+        h_abs_per_re[re] = H.abs().cpu().numpy()
+        sinr_per_re[re] = postEqSINR.cpu().numpy()
+        if save_diag:
+            H_true = ChannelEstimate(rx_ce_calib_true_t, s_orig_calib_true_t, NUM_SYMB_PER_SLOT, re)
+            h_abs_true_per_re[re] = H_true.abs().cpu().numpy()
 
     rx_real = np.empty((num_symbols, n_ants * 2, num_res), dtype=np.float32)
     rx_real[:, 0::2, :] = rx.real.astype(np.float32)
@@ -308,6 +342,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         'mi_lmmse': float(calc_mi_from_ldpc(tx_stream, lmmse_stream)),
         'mi_escnn_user': mi_escnn_user, 'mi_lmmse_user': mi_lmmse_user,
         'num_symbols': num_symbols,
+        'h_abs_per_re': h_abs_per_re, 'h_abs_true_per_re': h_abs_true_per_re,
+        'sinr_per_re': sinr_per_re,
     }
 
 
@@ -335,6 +371,10 @@ def main():
 
     noise_var = 10 ** (-0.1 * conf.snr) * CONSTELLATION_FACTOR[mod_data]
     h = SEDChannel.calculate_channel(n_ants, n_users, num_res)
+    # Same SNR whitelist evaluate.py uses to gate its (also expensive) per-SNR loss/LLR plots
+    # (evaluate.py:2341) - the per-RE channel/SINR diagnostics are only worth the extra
+    # transmit+estimate and the H5 file at those SNRs, not every SNR in a sweep.
+    save_diag = conf.snr in getattr(conf, 'save_loss_plot_snr', [])
 
     escnn_trainer = ESCNNTrainer(qm, n_users, n_ants)
     escnn_trainer._initialize_detector(qm, n_users, n_ants)
@@ -379,15 +419,22 @@ def main():
     results = []
     for g in range(num_groups):
         stats = run_group(escnn_trainer, codec, crc, rng, qm, mod_data, n_users, n_ants, num_res,
-                           ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index)
+                           ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index,
+                           save_diag=save_diag)
         slot_lo = base_index + g * group_size_slots
         slot_hi = slot_lo + group_size_slots - 1
         stats['channel_drift_base_index'] = slot_lo
         results.append(stats)
+        # SINR summary prints every group regardless of save_diag - it's a cheap byproduct of
+        # the (always-computed) noisy calibration-slot H, unlike h_abs_true_per_re below, which
+        # needs its own extra transmit and stays gated to save_loss_plot_snr.
+        sinr_db_re = 10 * np.log10(stats['sinr_per_re'])
         print(f"[drift] group {g + 1}/{num_groups} slots={slot_lo}-{slot_hi} "
               f"ber_escnn={stats['ber_escnn']:.4e} ber_lmmse={stats['ber_lmmse']:.4e} "
               f"bler_escnn={stats['bler_escnn']:.4e} bler_lmmse={stats['bler_lmmse']:.4e} "
-              f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f}", flush=True)
+              f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f} "
+              f"sinr_db(mean/min/max over REs+users)={sinr_db_re.mean():.1f}/"
+              f"{sinr_db_re.min():.1f}/{sinr_db_re.max():.1f}", flush=True)
 
     if mod_data == 2:
         mod_text = 'BPSK'
@@ -447,6 +494,37 @@ def main():
     file_path_mi = os.path.abspath(os.path.join(output_dir, title_string) + "_mi.csv")
     pd.DataFrame(data_mi).to_csv(_long_path(file_path_mi), index=False)
     print(f"[CSV] wrote {file_path_mi}", flush=True)
+
+    # Per-RE diagnostics (|H|, post-eq SINR): one (num_res, n_ants, n_users)/(num_res, n_users)
+    # array per group. Kept out of the CSVs (those are scalar-per-group by design, shared with
+    # evaluate.py's column layout) and out of the console log (too large to print in full per
+    # group - only a mean/min/max summary goes there) - HDF5 instead, mirroring evaluate.py's
+    # save_llrs convention (float16 + gzip), grouped by cdi so it lines up with the CSV rows.
+    # Only written when save_diag (conf.snr in conf.save_loss_plot_snr) - same whitelist
+    # run_group() used to skip the extra noise-free transmit in the first place.
+    if save_diag:
+        file_path_diag = os.path.abspath(os.path.join(output_dir, title_string) + "_diag.h5")
+        with h5py.File(_long_path(file_path_diag), "w") as diag_h5:
+            # File-level attrs so the axes are self-describing - the arrays themselves carry no
+            # labels, and re/ant/user are otherwise just positional indices with no other record
+            # of which physical RE/antenna/user each one is.
+            diag_h5.attrs["h_abs_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_abs_true_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["sinr_per_re_dims"] = "RE, user"
+            diag_h5.attrs["num_res"] = num_res
+            diag_h5.attrs["n_ants"] = n_ants
+            diag_h5.attrs["n_users"] = n_users
+            diag_h5.attrs["h_abs_per_re_note"] = "LS estimate from the noisy calibration slot - what LMMSE/EKF actually see"
+            diag_h5.attrs["h_abs_true_per_re_note"] = "same LS estimator, noise_var=0 - noise-free reference channel"
+            for r in results:
+                grp = diag_h5.create_group(f"cdi_{r['channel_drift_base_index']}")
+                grp.create_dataset("h_abs_per_re", data=r['h_abs_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_abs_true_per_re", data=r['h_abs_true_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("sinr_per_re", data=r['sinr_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+        print(f"[H5] wrote {file_path_diag}", flush=True)
 
 
 if __name__ == '__main__':

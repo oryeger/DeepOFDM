@@ -1,5 +1,5 @@
 snr: 14
-cur_str: moreres
+cur_str: ekfsnr # ekftrk
 num_snrs: 1
 n_ants: 1
 snr_step: 1
@@ -27,7 +27,7 @@ stag_re_kernel_size: 3
 full_e2e: True
 ber_on_one_user: -1
 sphere_radius: 200
-save_loss_plot_snr: [-5, 0, 9, 19]
+save_loss_plot_snr: [19]
 use_film: False
 scale_input: True
 escnn_dropout: 0.0
@@ -88,9 +88,9 @@ save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
-save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
+save_escnn_weights: True  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: '5d1a6b'  # (5d1a6b/2b2784 QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
+load_escnn_weights_tag: '5d1a6b'  # 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
@@ -129,3 +129,4 @@ log_sphere_every_symbols: 5000
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+

@@ -30,6 +30,7 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'first_conv_and_scale_only'
+  'all'
 )
 
 training_loss_vals=(
@@ -40,9 +41,9 @@ beta_balance_vals=(0)
 
 tw_vals=(0.0)
 
-tsyn_fallback_iters_vals=(3)
+tsyn_fallback_iters_vals=(1 2)
 
-channel_drift_base_index_vals=(9)
+channel_drift_base_index_vals=(0)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -57,7 +58,7 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(1000 5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+pilot_size_vals=(5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
 mcs_vals=(2)
 override_noise_var_vals=(False)
 

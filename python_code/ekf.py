@@ -429,7 +429,7 @@ def main():
         # the (always-computed) noisy calibration-slot H, unlike h_abs_true_per_re below, which
         # needs its own extra transmit and stays gated to save_loss_plot_snr.
         sinr_db_re = 10 * np.log10(stats['sinr_per_re'])
-        print(f"[drift] group {g + 1}/{num_groups} slots={slot_lo}-{slot_hi} "
+        print(f"[drift] group {g}/{num_groups} slots={slot_lo}-{slot_hi} "
               f"ber_escnn={stats['ber_escnn']:.4e} ber_lmmse={stats['ber_lmmse']:.4e} "
               f"bler_escnn={stats['bler_escnn']:.4e} bler_lmmse={stats['bler_lmmse']:.4e} "
               f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f} "

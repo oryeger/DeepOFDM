@@ -16,6 +16,7 @@ import glob
 import io
 import os
 import platform
+import subprocess
 import tempfile
 
 import h5py
@@ -67,16 +68,25 @@ def _copy_fig_to_clipboard(fig):
 
 
 def _open_in_viewer(fig):
-    """Save fig to a temp PNG and open it in the OS's default image viewer, which runs as its
-    own process - so the plot stays on screen after this script exits instead of blocking on it
-    the way plt.show() does (its window lives in this process and holds the terminal until
-    closed). Windows-only (os.startfile)."""
-    if platform.system() != "Windows":
-        raise RuntimeError("Auto-opening a viewer is Windows-only (uses os.startfile)")
+    """Save fig to a temp PNG and open it directly in mspaint.exe, a plain Win32 executable
+    always present on Windows - so the plot stays on screen after this script exits instead of
+    blocking on it the way plt.show() does (its window lives in this process and holds the
+    terminal until closed).
+
+    Deliberately subprocess.Popen(["mspaint.exe", ...]) rather than os.startfile() or
+    webbrowser.open(): both of those route through ShellExecute/the OS's file-association
+    handler for .png, which on this machine launches *something* without error but produces no
+    visible window (confirmed: webbrowser.get() resolves to WindowsDefault, whose .open() is
+    itself just os.startfile() - so that "fix" was the same silent-failure path in disguise).
+    Launching a known executable directly sidesteps file-association entirely and raises a real,
+    visible error (FileNotFoundError) if it can't start, instead of failing silently."""
     tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
     tmp.close()
-    fig.savefig(tmp.name, dpi=150, bbox_inches="tight")
-    os.startfile(tmp.name)
+    # 96 DPI (Paint opens the canvas at 1 image px = 1 screen px, unlike apps that scale a
+    # saved-PNG DPI tag) keeps the window a normal on-screen size instead of the ~1350x750px
+    # a print-quality 150 DPI render would produce.
+    fig.savefig(tmp.name, dpi=96, bbox_inches="tight")
+    subprocess.Popen(["mspaint.exe", tmp.name])
 
 
 def plot_channel(file_path: str, cdi: int = None, db: bool = False, show_noisy: bool = False):

@@ -902,6 +902,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 nv = noise_var.item() if hasattr(noise_var, 'item') else float(noise_var)
                 total_snr_per_user_lin += h_pwr_per_user / max(nv, 1e-30)
 
+                # Per-RE LMMSE debug dump, gated to conf.save_loss_plot_snr (same whitelist used
+                # elsewhere to keep this off the by-default full SNR sweep): at high SNR, additive
+                # noise should be negligible, so |H| and the LS noise_var estimate here should
+                # directly show whether a num_res-dependent issue is in the channel/estimate itself
+                # (h_pwr_per_user or nv looking wrong/inconsistent across RE index) rather than in
+                # detection/LDPC downstream.
+                if snr_cur in getattr(conf, 'save_loss_plot_snr', []):
+                    sinr_db = 10.0 * np.log10(max(float(postEqSINR.mean().item()), 1e-30))
+                    print(f"[LMMSE-perRE] SNR={snr_cur} RE={re}/{conf.num_res} "
+                          f"|H|^2={h_pwr_per_user.tolist()} noise_var_est={nv:.6g} "
+                          f"postEqSINR_dB={sinr_db:.2f}", flush=True)
+
                 # Store H for JointLLR detector (convert complex to real/imag interleaved)
                 if conf.run_jointllr:
                     H_cpu = H.cpu()

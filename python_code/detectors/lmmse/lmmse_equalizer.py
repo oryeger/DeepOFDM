@@ -38,6 +38,27 @@ def ChannelEstimate(rx_ce, s_orig, pilot_chunk, re):
     return H
 
 
+# REs to dump a per-symbol LS_channel breakdown for, when debug is active (see
+# _debug_dump_ls_channel): a clean RE before the num_res=96 anomaly window, the worst point
+# inside it, and a RE after it recovers - adjust freely for a different suspect range.
+_LS_DEBUG_RES = {20, 45, 62, 70}
+
+
+def _debug_dump_ls_channel(re, user, LS_channel, H_user, noise_var):
+    """One-off per-symbol dump for _LS_DEBUG_RES REs at conf.save_loss_plot_snr SNRs: are the
+    outlier symbols behind an inflated noise_var concentrated in a specific time-index range
+    (pilot/data boundary, wraparound) or scattered - and how far off is each one."""
+    if re not in _LS_DEBUG_RES or conf.snr not in getattr(conf, 'save_loss_plot_snr', []):
+        return
+    dev = torch.abs(LS_channel[:, 0] - H_user).cpu().numpy()
+    med = float(np.median(dev))
+    outliers = np.flatnonzero(dev > 5 * max(med, 1e-12))
+    print(f"[LS-perRE] SNR={conf.snr} RE={re} user={user} n_symbols={dev.shape[0]} "
+          f"|H|={abs(H_user.item()):.4f} noise_var={float(noise_var):.5f} "
+          f"median|dev|={med:.4f} max|dev|={dev.max():.4f} "
+          f"n_outliers(>5x median)={outliers.size} outlier_idx={outliers.tolist()[:40]}", flush=True)
+
+
 def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
     noise_var = 0
     length = rx_ce.shape[1]
@@ -54,6 +75,7 @@ def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
             LS_channel = (s_orig_pilot[:, None].conj() / (torch.abs(s_orig_pilot[:, None]) ** 2) * rx_pilot_ce_cur)
             H[:, user] = 1 / s_orig_pilot.shape[0] * LS_channel.sum(dim=0)
             noise_var = torch.mean(torch.abs(LS_channel - H[:, user])**2)
+        _debug_dump_ls_channel(re, user, LS_channel, H[:, user], noise_var)
 
     if conf.override_noise_var:
         noise_var = ext_noise_var

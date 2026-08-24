@@ -1,8 +1,10 @@
 import os
 from python_code import conf
 
-from python_code.utils.constants import NUM_SAMPLES_PER_SLOT, SAMPLING_RATE
+from python_code.utils.constants import NUM_SAMPLES_PER_SLOT, SAMPLING_RATE, CP, FIRST_CP
 import matplotlib.pyplot as plt
+
+_cp_debug_printed = False
 
 
 if os.getenv("CUDA_VISIBLE_DEVICES") is None:
@@ -162,6 +164,22 @@ class TDLChannel:
 
         l_min, l_max = time_lag_discrete_time_channel(bandwidth)
         l_tot = l_max-l_min+1
+
+        global _cp_debug_printed
+        if not _cp_debug_printed:
+            # One-time check: if l_tot (the channel filter's tap support, which pads real
+            # multipath delay with the sinc-interpolation filter's own ringing) exceeds the
+            # cyclic prefix, some tail energy wraps into the next OFDM symbol instead of being
+            # absorbed by the CP - genuine ISI/ICI, a property of (model, delay_spread, CP)
+            # alone, independent of num_res (so it'd affect every RE's frequency response, not
+            # just ones near a particular num_res boundary).
+            margin = min(CP, FIRST_CP) - l_tot
+            print(f"[CP-check] channel_model={conf.channel_model} delay_spread={conf.delay_spread*1e9:.0f}ns "
+                  f"l_min={l_min} l_max={l_max} l_tot={l_tot} | CP={CP} FIRST_CP={FIRST_CP} | "
+                  f"margin(min(CP,FIRST_CP)-l_tot)={margin} "
+                  f"{'(CP INSUFFICIENT - ISI/ICI expected)' if margin < 0 else '(CP sufficient)'}",
+                  flush=True)
+            _cp_debug_printed = True
 
         if tf.size(external_channel) == 0:
             drift_index = getattr(conf, 'channel_drift_base_index', 0)

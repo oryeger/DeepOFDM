@@ -4,6 +4,16 @@ from python_code import conf
 from python_code.utils.constants import NUM_SAMPLES_PER_SLOT, SAMPLING_RATE, CP, FIRST_CP
 import matplotlib.pyplot as plt
 
+# Passed to Sionna's time_lag_discrete_time_channel() instead of its own default (3us, sized
+# for a generic 100ns-nominal-delay-spread model per Sionna's own docstring - oversized for
+# some models here, undersized for others). 1us was chosen jointly with SAMPLING_RATE (see
+# constants.py) to capture ~96-97% of TDL-C-300's actual channel power (95%/99% points are
+# 651ns/1892ns) while keeping the resulting filter length comfortably inside CP at
+# SAMPLING_RATE=15.36e6 (~+7 taps of margin) - the weakest, farthest-out ~3-4% of multipath
+# power is truncated rather than aliased into ISI/ICI. Revisit if a channel_model with a longer
+# tail than TDL-C-300 gets used - this isn't re-derived per model/delay_spread.
+MAXIMUM_DELAY_SPREAD = 1e-6
+
 _cp_debug_printed = False
 
 
@@ -162,7 +172,7 @@ class TDLChannel:
         bandwidth  = SAMPLING_RATE
 
 
-        l_min, l_max = time_lag_discrete_time_channel(bandwidth)
+        l_min, l_max = time_lag_discrete_time_channel(bandwidth, maximum_delay_spread=MAXIMUM_DELAY_SPREAD)
         l_tot = l_max-l_min+1
 
         global _cp_debug_printed

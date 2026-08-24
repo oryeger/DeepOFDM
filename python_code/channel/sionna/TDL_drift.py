@@ -45,6 +45,8 @@ except ImportError:  # Sionna >= 1.0 moved channel/config under sionna.phy
     from sionna.phy.utils import insert_dims, flatten_last_dims, split_dim
     from sionna.phy import config as _config
 
+from python_code.channel.sionna.TLD_channel import MAXIMUM_DELAY_SPREAD
+
 PI = np.pi
 
 _self_check_passed = False
@@ -160,7 +162,7 @@ def generate_drift_channel(tdl_kwargs: dict, num_time_samples: int, sampling_fre
     trajectory implied by (seed, tdl_kwargs['model'], tdl_kwargs['min_speed']).
     channel_drift_index=0 is identical to a fresh, ordinary TDL generation.
     """
-    l_min, l_max = time_lag_discrete_time_channel(sampling_frequency)
+    l_min, l_max = time_lag_discrete_time_channel(sampling_frequency, maximum_delay_spread=MAXIMUM_DELAY_SPREAD)
     l_tot = l_max - l_min + 1
     _self_check(tdl_kwargs, num_time_samples, sampling_frequency, seed)
 

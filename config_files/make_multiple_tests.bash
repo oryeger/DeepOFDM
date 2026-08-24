@@ -30,7 +30,6 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
   'first_conv_and_scale_only'
-  'all'
 )
 
 training_loss_vals=(
@@ -42,6 +41,9 @@ beta_balance_vals=(0)
 tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(1 2)
+
+escnn_ekf_sigma_r_vals=(0.5 1 2)
+escnn_ekf_alpha_vals=(0.95 0.97 0.99)
 
 channel_drift_base_index_vals=(0)
 
@@ -224,12 +226,18 @@ for seed in "${seeds[@]}"; do
                                                   for tsyn_fallback_iters in "${tsyn_fallback_iters_vals[@]}"; do
                                                     tftag="tf${tsyn_fallback_iters}"
 
+                                                  for escnn_ekf_sigma_r in "${escnn_ekf_sigma_r_vals[@]}"; do
+                                                    srtag="sr${escnn_ekf_sigma_r//./p}"
+
+                                                  for escnn_ekf_alpha in "${escnn_ekf_alpha_vals[@]}"; do
+                                                    alphatag="a${escnn_ekf_alpha//./p}"
+
                                                   for channel_drift_base_index in "${channel_drift_base_index_vals[@]}"; do
                                                     cditag="cdi${channel_drift_base_index}"
 
                                                   for snr in "${snrs[@]}"; do
 
-                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                    out_file="${base_name}_cfo${cfo}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                     sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                         -e "s/^snr:.*/snr: $snr/" \
@@ -262,6 +270,8 @@ for seed in "${seeds[@]}"; do
                                                         -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                         -e "s/^tw:.*/tw: $tw/" \
                                                         -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
+                                                        -e "s/^escnn_ekf_sigma_r:.*/escnn_ekf_sigma_r: $escnn_ekf_sigma_r/" \
+                                                        -e "s/^escnn_ekf_alpha:.*/escnn_ekf_alpha: $escnn_ekf_alpha/" \
                                                         -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
                                                         "$input_file" > "$out_file"
 
@@ -269,6 +279,8 @@ for seed in "${seeds[@]}"; do
                                                     ((total_count++))
                                                   done
                                                   done  # channel_drift_base_index
+                                                  done  # escnn_ekf_alpha
+                                                  done  # escnn_ekf_sigma_r
                                                   done  # tsyn_fallback_iters
                                                   done  # tw
                                                   done  # beta_balance
@@ -315,3 +327,4 @@ echo "Total configs generated: $total_count"
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/../replace_config_line.bash" "$config_line"
+

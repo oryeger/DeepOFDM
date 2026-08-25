@@ -103,6 +103,8 @@ def plot_channel(file_path: str, cdi: int = None, db: bool = False, show_noisy: 
         grp = f[f"cdi_{cdi}"]
         h_abs_true = grp["h_abs_true_per_re"][:]       # (RE, ant, user) - noise-free reference
         h_abs = grp["h_abs_per_re"][:] if show_noisy else None  # (RE, ant, user) - noisy estimate
+        h_angle_true = grp["h_angle_true_per_re"][:] if "h_angle_true_per_re" in grp else None
+        h_angle = grp["h_angle_per_re"][:] if (show_noisy and "h_angle_per_re" in grp) else None
         num_res, n_ants, n_users = h_abs_true.shape
 
     power_true = h_abs_true.astype(np.float64) ** 2
@@ -112,24 +114,49 @@ def plot_channel(file_path: str, cdi: int = None, db: bool = False, show_noisy: 
         if show_noisy:
             power = 10 * np.log10(np.maximum(power, 1e-20))
 
+    # Unwrap along the RE (frequency) axis, per ant/user column - the point is to see the
+    # channel's phase-vs-frequency trend (e.g. a group-delay-driven ramp/dispersion) without the
+    # +-180deg wraparound obscuring it, same motivation as unwrapping a group-delay measurement.
+    if h_angle_true is not None:
+        angle_true_deg = np.degrees(np.unwrap(h_angle_true.astype(np.float64), axis=0))
+    if h_angle is not None:
+        angle_deg = np.degrees(np.unwrap(h_angle.astype(np.float64), axis=0))
+
     re_axis = np.arange(num_res)
     colors = plt.cm.tab10.colors
-    fig, ax = plt.subplots(figsize=(9, 5))
+    ncols = 2 if h_angle_true is not None else 1
+    fig, axes = plt.subplots(1, ncols, figsize=(9 * ncols, 5))
+    ax_power, ax_angle = (axes[0], axes[1]) if ncols == 2 else (axes, None)
     for ant in range(n_ants):
         for user in range(n_users):
             c = colors[(ant * n_users + user) % len(colors)]
             suffix = f" (ant={ant}, user={user})" if n_ants * n_users > 1 else ""
-            ax.plot(re_axis, power_true[:, ant, user], linestyle="-", marker="o",
-                    color=c, label=f"true{suffix}")
+            ax_power.plot(re_axis, power_true[:, ant, user], linestyle="-", marker="o",
+                          color=c, label=f"true{suffix}")
             if show_noisy:
-                ax.plot(re_axis, power[:, ant, user], linestyle="--", marker="x",
-                        color=c, label=f"noisy{suffix}")
+                ax_power.plot(re_axis, power[:, ant, user], linestyle="--", marker="x",
+                              color=c, label=f"noisy{suffix}")
+            if ax_angle is not None:
+                ax_angle.plot(re_axis, angle_true_deg[:, ant, user], linestyle="-", marker="o",
+                              color=c, label=f"true{suffix}")
+                if h_angle is not None:
+                    ax_angle.plot(re_axis, angle_deg[:, ant, user], linestyle="--", marker="x",
+                                  color=c, label=f"noisy{suffix}")
 
-    ax.set_xlabel("RE")
-    ax.set_ylabel("Power (dB)" if db else "Power")
-    ax.set_title(f"Channel power per RE - cdi={cdi}\n{os.path.basename(file_path)}")
-    ax.grid(True)
-    ax.legend()
+    ax_power.set_xlabel("RE")
+    ax_power.set_ylabel("Power (dB)" if db else "Power")
+    ax_power.set_title("Channel power per RE")
+    ax_power.grid(True)
+    ax_power.legend()
+
+    if ax_angle is not None:
+        ax_angle.set_xlabel("RE")
+        ax_angle.set_ylabel("angle(H) (deg, unwrapped)")
+        ax_angle.set_title("Channel phase per RE")
+        ax_angle.grid(True)
+        ax_angle.legend()
+
+    fig.suptitle(f"cdi={cdi} - {os.path.basename(file_path)}")
     plt.tight_layout()
     return fig
 

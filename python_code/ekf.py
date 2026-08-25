@@ -292,25 +292,30 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     num_symbols = rx.shape[0]
     detected_word_lmmse = np.zeros((num_symbols * qm, n_users, num_res))
     llrs_mat_lmmse = np.zeros((num_symbols, qm * n_users, num_res, 1))
-    # Per-RE diagnostics for the EKF-divergence investigation: |H| (calibration-slot channel
-    # estimate, noisy and noise-free) and post-equalization SINR, all independent of the
+    # Per-RE diagnostics for the EKF-divergence investigation: |H| and angle(H) (calibration-slot
+    # channel estimate, noisy and noise-free) and post-equalization SINR, all independent of the
     # ESCNN/syndrome measurement the EKF actually tracks - a candidate "trust signal" for
     # gating that update (see ekf_tracker.py's update()) without the circularity of using the
-    # syndrome innovation itself. h_abs_per_re is what LMMSE/EKF actually see (noise and all);
-    # h_abs_true_per_re is the noise_var=0 reference, so channel dips can be told apart from
-    # estimation noise when comparing across SNRs at the same cdi.
+    # syndrome innovation itself. The _per_re (no "true") arrays are what LMMSE/EKF actually see
+    # (noise and all); the _true_per_re arrays are the noise_var=0 reference, so channel dips (or
+    # a shift in the channel's frequency-domain phase structure vs. training) can be told apart
+    # from estimation noise when comparing across SNRs at the same cdi.
     h_abs_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_angle_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_angle_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
     for re in range(num_res):
         H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, NUM_SYMB_PER_SLOT, re)
         equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var, re)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, 1)
         h_abs_per_re[re] = H.abs().cpu().numpy()
+        h_angle_per_re[re] = H.angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
         if save_diag:
             H_true = ChannelEstimate(rx_ce_calib_true_t, s_orig_calib_true_t, NUM_SYMB_PER_SLOT, re)
             h_abs_true_per_re[re] = H_true.abs().cpu().numpy()
+            h_angle_true_per_re[re] = H_true.angle().cpu().numpy()
 
     rx_real = np.empty((num_symbols, n_ants * 2, num_res), dtype=np.float32)
     rx_real[:, 0::2, :] = rx.real.astype(np.float32)
@@ -382,6 +387,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         'mi_escnn_user': mi_escnn_user, 'mi_lmmse_user': mi_lmmse_user,
         'num_symbols': num_symbols,
         'h_abs_per_re': h_abs_per_re, 'h_abs_true_per_re': h_abs_true_per_re,
+        'h_angle_per_re': h_angle_per_re, 'h_angle_true_per_re': h_angle_true_per_re,
         'sinr_per_re': sinr_per_re,
     }
 
@@ -553,17 +559,25 @@ def main():
             # of which physical RE/antenna/user each one is.
             diag_h5.attrs["h_abs_per_re_dims"] = "RE, ant, user"
             diag_h5.attrs["h_abs_true_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_angle_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_angle_true_per_re_dims"] = "RE, ant, user"
             diag_h5.attrs["sinr_per_re_dims"] = "RE, user"
             diag_h5.attrs["num_res"] = num_res
             diag_h5.attrs["n_ants"] = n_ants
             diag_h5.attrs["n_users"] = n_users
             diag_h5.attrs["h_abs_per_re_note"] = "LS estimate from the noisy calibration slot - what LMMSE/EKF actually see"
             diag_h5.attrs["h_abs_true_per_re_note"] = "same LS estimator, noise_var=0 - noise-free reference channel"
+            diag_h5.attrs["h_angle_per_re_note"] = "angle(H), noisy calibration-slot estimate, radians, not unwrapped"
+            diag_h5.attrs["h_angle_true_per_re_note"] = "angle(H), noise-free reference, radians, not unwrapped"
             for r in results:
                 grp = diag_h5.create_group(f"cdi_{r['channel_drift_base_index']}")
                 grp.create_dataset("h_abs_per_re", data=r['h_abs_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)
                 grp.create_dataset("h_abs_true_per_re", data=r['h_abs_true_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_angle_per_re", data=r['h_angle_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_angle_true_per_re", data=r['h_angle_true_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)
                 grp.create_dataset("sinr_per_re", data=r['sinr_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)

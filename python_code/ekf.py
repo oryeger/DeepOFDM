@@ -34,8 +34,11 @@ Relevant config keys (see config.yaml for the full list/defaults):
     escnn_load_freeze            - which params the EKF is allowed to move
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path)
-    slots_per_group               - slots per group (= slots per channel realization)
+    slots_per_group               - slots per group (= slots per channel realization, and per CFO value)
     channel_drift_base_index     - starting slot offset into the TDL trajectory
+    cfo                           - base/starting CFO (scs); constant within a group
+    cfo_drift                     - CFO drift rate (scs/sec); advances cfo by cfo_drift *
+                                    elapsed-seconds at each group boundary, can be negative
     pilot_size                   - total data budget in bits (this script's own run length,
                                     not the regular pass's pilot_size); truncated down to a
                                     whole number of groups, see main(). Named pilot_size, not
@@ -64,7 +67,8 @@ from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import ChannelEstimate, LmmseDemod
 from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
-from python_code.utils.constants import NUM_SYMB_PER_SLOT
+from python_code.utils.constants import (CP, FFT_size, FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
+                                          NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC)
 
 # M-QAM average-energy normalization constants (2*(M-1)/3), same table evaluate.py
 # uses to turn an SNR into a noise variance.
@@ -73,6 +77,28 @@ CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 
 def _long_path(p: str) -> str:
     return ("\\\\?\\" + p) if os.name == 'nt' else p
+
+
+def _genie_cfo_comp_vector(num_slots: int):
+    """This group's genie CFO phase-compensation vector (one factor per OFDM symbol, length
+    num_slots*NUM_SYMB_PER_SLOT), mirroring evaluate.py's GENIE_CFO path (~line 786): cancels
+    the common per-symbol phase rotation using the true conf.cfo (the caller has already set
+    this to the group's drifted value before transmitting), leaving the intra-symbol phase
+    ramp - i.e. ICI - uncorrected by design, same as evaluate.py. Returns None (no-op) unless
+    GENIE_CFO and conf.cfo != 0."""
+    if not GENIE_CFO or conf.cfo == 0:
+        return None
+    n = np.arange(int(num_slots * NUM_SAMPLES_PER_SLOT))
+    cfo_phase = -2 * np.pi * conf.cfo * n / FFT_size
+    comp = []
+    pointer = 0
+    cp_length = FIRST_CP
+    for _ in range(NUM_SYMB_PER_SLOT):
+        pointer += cp_length + FFT_size // 2
+        comp.append(np.exp(1j * cfo_phase[pointer]))
+        pointer += FFT_size // 2
+        cp_length = CP
+    return np.tile(np.array(comp), num_slots)
 
 
 def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code_rate) -> str:
@@ -206,7 +232,7 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, mod_data: int, n_users: int, n_ants: int, num_res: int, ldpc_k: int, ldpc_n: int,
               noise_var: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int,
-              save_diag: bool = False) -> dict:
+              base_cfo: float = 0.0, cfo_drift: float = 0.0, save_diag: bool = False) -> dict:
     """Generate, transmit, LMMSE-estimate/equalize, EKF-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization - plus one extra
     calibration slot at the same channel_drift_base_index, used only to estimate H for LMMSE (and,
@@ -218,15 +244,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     LS estimate, only worth paying for at the handful of SNRs in conf.save_loss_plot_snr - see
     main()) - off by default so a plain run_group() call stays as cheap as before this existed.
 
-    base_index is passed in explicitly (not re-read from conf) because conf.channel_drift_base_index
-    is also the attribute TLD_channel.py reads at transmit time, which this function overwrites
-    every call - re-reading it here instead of using the caller's fixed starting value would
-    make each group's index accumulate on top of the previous group's, not the original base."""
-    conf.set_value('channel_drift_base_index', base_index + group_idx * group_size_slots)
+    base_index/base_cfo are passed in explicitly (not re-read from conf) because
+    conf.channel_drift_base_index/conf.cfo are also the attributes TLD_channel.py/SEDChannel
+    read at transmit time, which this function overwrites every call - re-reading them here
+    instead of using the caller's fixed starting values would make each group's index/CFO
+    accumulate on top of the previous group's, not the original base.
+
+    cfo_drift (scs/sec) advances conf.cfo the same way base_index advances
+    channel_drift_base_index: constant for every slot within this group, stepping by
+    cfo_drift * elapsed-time-in-seconds at each group boundary."""
+    elapsed_slots = group_idx * group_size_slots
+    conf.set_value('channel_drift_base_index', base_index + elapsed_slots)
+    conf.set_value('cfo', base_cfo + cfo_drift * elapsed_slots * SLOT_LENGTH_SEC)
 
     # Calibration slot: plain random bits (never decoded/scored, so no need for LDPC coding).
     calib_bits = rng.integers(0, 2, size=(NUM_SYMB_PER_SLOT * qm, n_users, num_res))
     _, rx_ce_calib, s_orig_calib = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, noise_var)
+    calib_cfo_comp = _genie_cfo_comp_vector(1)
+    if calib_cfo_comp is not None:
+        rx_ce_calib = rx_ce_calib * calib_cfo_comp[None, :, None, None]
     rx_ce_calib_t = torch.from_numpy(rx_ce_calib)
     s_orig_calib_t = torch.from_numpy(s_orig_calib)
 
@@ -246,6 +282,9 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     pilot_length = group_size_slots * NUM_SYMB_PER_SLOT * qm
     tx_bits = encode_pilots(rng, pilot_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     rx, _, _ = transmit_and_prep(tx_bits, mod_data, n_users, num_res, h, noise_var)
+    data_cfo_comp = _genie_cfo_comp_vector(group_size_slots)
+    if data_cfo_comp is not None:
+        rx = rx * data_cfo_comp[:, None, None]
     # lmmse_equalize_with_H creates its output on CPU unconditionally, so inputs need to be
     # CPU too (mirrors evaluate.py's own rx_c = rx.cpu()).
     rx_c = torch.from_numpy(rx)
@@ -383,6 +422,8 @@ def main():
 
     group_size_slots = max(1, int(getattr(conf, 'slots_per_group', 1)))
     base_index = int(getattr(conf, 'channel_drift_base_index', 0))
+    base_cfo = float(conf.cfo)
+    cfo_drift = float(getattr(conf, 'cfo_drift', 0.0))
 
     # pilot_size (bits) -> OFDM symbols (// qm) -> whole groups
     # (// (NUM_SYMB_PER_SLOT * group_size_slots)). Deliberately conf.pilot_size, not
@@ -415,13 +456,14 @@ def main():
                           f"or lower slots_per_group.")
 
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group, starting at "
-          f"channel_drift_base_index={base_index}, SNR={conf.snr}dB, mcs={conf.mcs}", flush=True)
+          f"channel_drift_base_index={base_index}, cfo={base_cfo}{'' if cfo_drift == 0 else f' (drift={cfo_drift} scs/sec)'}, "
+          f"SNR={conf.snr}dB, mcs={conf.mcs}", flush=True)
 
     results = []
     for g in range(num_groups):
         stats = run_group(escnn_trainer, codec, crc, rng, qm, mod_data, n_users, n_ants, num_res,
                            ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index,
-                           save_diag=save_diag)
+                           base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
         slot_lo = base_index + g * group_size_slots
         slot_hi = slot_lo + group_size_slots - 1
         stats['channel_drift_base_index'] = slot_lo

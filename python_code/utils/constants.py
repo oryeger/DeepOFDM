@@ -19,7 +19,8 @@ FFT_size = 512
 FIRST_CP = 44
 CP = 36
 SAMPLING_RATE = 15.36e6
-NUM_SAMPLES_PER_SLOT = int(0.5e-3 * SAMPLING_RATE)
+SLOT_LENGTH_SEC = 0.5e-3  # 5G 30kHz-SCS slot duration (14 OFDM symbols)
+NUM_SAMPLES_PER_SLOT = int(SLOT_LENGTH_SEC * SAMPLING_RATE)
 
 class Phase(Enum):
     TRAIN = 'train'

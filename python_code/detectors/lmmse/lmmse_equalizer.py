@@ -39,9 +39,10 @@ def ChannelEstimate(rx_ce, s_orig, pilot_chunk, re):
 
 
 # REs to dump a per-symbol LS_channel breakdown for, when debug is active (see
-# _debug_dump_ls_channel): a clean RE before the num_res=96 anomaly window, the worst point
-# inside it, and a RE after it recovers - adjust freely for a different suspect range.
-_LS_DEBUG_RES = {20, 45, 62, 70}
+# _debug_dump_ls_channel): 0 is the new suspect (persistently anomalous noise_var_est/postEqSINR
+# even after the CP fix, in both num_res=24 and 96, despite a strong |H| there - not explained by
+# fading); 20/45/62/70 were the num_res=96 CP-anomaly probes, kept as a clean-RE reference.
+_LS_DEBUG_RES = {0, 20, 45, 62, 70}
 
 
 def _debug_dump_ls_channel(re, user, LS_channel, H_user, noise_var):

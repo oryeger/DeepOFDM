@@ -13,7 +13,12 @@ once (fixed size, independent of how far into the trajectory we look), and
 `h(t)` is then a deterministic function of t alone. See TDL.__call__ in the
 Sionna source for the reference implementation this mirrors; call_offset()
 below is line-for-line identical except sample_times carries an added
-offset instead of always starting at 0.
+offset instead of always starting at 0 (freeze_time=False - used only by
+_self_check, to validate against vanilla TDL()'s own continuously-evolving
+process) or is held constant at that offset for the whole call
+(freeze_time=True - what generate_drift_channel actually uses: block
+fading, one static snapshot per call, so the channel only ever changes
+when channel_drift_index changes, never within a call at a fixed index).
 
 Verified two ways:
   1. Runtime: local Sionna 1.0.2 (exact match to a vanilla TDL() call at
@@ -56,7 +61,8 @@ class _TDLOffset(TDL):
     """TDL subclass that evaluates the same stochastic process at an
     arbitrary time offset. See module docstring for why this is valid."""
 
-    def call_offset(self, batch_size, num_time_steps, sampling_frequency, time_offset_samples):
+    def call_offset(self, batch_size, num_time_steps, sampling_frequency, time_offset_samples,
+                     freeze_time: bool = False):
         # Attribute name differs across Sionna versions: 1.x exposes the
         # public property `rdtype`; 0.19.2 (cluster) only has the private
         # `_real_dtype`. Resolve once so the rest of this method is
@@ -65,8 +71,21 @@ class _TDLOffset(TDL):
         if rdtype is None:
             rdtype = self._real_dtype
 
-        sample_times = (tf.range(num_time_steps, dtype=rdtype)
-                         + tf.cast(time_offset_samples, rdtype)) / sampling_frequency
+        # freeze_time=True is block fading: every one of the num_time_steps samples is
+        # evaluated at the SAME instant (time_offset_samples) instead of a ramp
+        # (time_offset_samples, +1, +2, ...) - i.e. the channel is one static snapshot for
+        # this whole call, not continuously evolving across it. This is what
+        # generate_drift_channel below actually wants: channel_drift_base_index only steps
+        # between groups, so the channel should only ever change at a group boundary, never
+        # within one - not the "index only advances between groups, but the underlying Doppler
+        # process still evolves continuously within a call" behavior a plain time ramp gives.
+        # Default False (a real ramp) so _self_check below - which must match vanilla TDL.__call__,
+        # itself a continuously-evolving process - still validates correctly at offset=0.
+        if freeze_time:
+            sample_times = tf.fill([num_time_steps], tf.cast(time_offset_samples, rdtype))
+        else:
+            sample_times = tf.range(num_time_steps, dtype=rdtype) + tf.cast(time_offset_samples, rdtype)
+        sample_times = sample_times / sampling_frequency
         sample_times = tf.expand_dims(insert_dims(sample_times, 6, 0), -1)
 
         # NOTE: shapes below (in particular the literal `1` for the
@@ -169,6 +188,12 @@ def generate_drift_channel(tdl_kwargs: dict, num_time_samples: int, sampling_fre
     _config.seed = seed
     tdl = _TDLOffset(**tdl_kwargs)
     time_offset_samples = int(channel_drift_index) * num_samples_per_slot
-    cir = tdl.call_offset(batch_size, num_time_samples, sampling_frequency, time_offset_samples)
+    # freeze_time=True: block fading within this call - the channel is one static snapshot
+    # (taken at time_offset_samples) held for the whole call, not continuously evolving across
+    # it. channel_drift_index only steps between calls (i.e. between groups in ekf.py, or not
+    # at all within a single fixed-index evaluate.py run), so the channel must only ever change
+    # when that index changes, never within one call at a fixed index.
+    cir = tdl.call_offset(batch_size, num_time_samples, sampling_frequency, time_offset_samples,
+                           freeze_time=True)
     h_time = cir_to_time_channel(sampling_frequency, *cir, l_min, l_max, normalize=True)
     return h_time

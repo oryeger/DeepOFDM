@@ -128,6 +128,9 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_sr=' + str(getattr(conf, 'escnn_ekf_sigma_r', 0.5))
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))
+    zllr = getattr(conf, 'debug_zero_llr_res', [])
+    if zllr:
+        title_string += '_zllr=' + '-'.join(str(r) for r in zllr)
     title_string += '_' + conf.cur_str
     return title_string.replace(" ", "_")
 
@@ -317,6 +320,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             h_abs_true_per_re[re] = H_true.abs().cpu().numpy()
             h_angle_true_per_re[re] = H_true.angle().cpu().numpy()
 
+    # Diagnostic only: zero out LMMSE's LLRs at the given RE indices (e.g. RE 0, suspected of an
+    # anomalous |H| - see plot_channel_diag.py) before they're used for anything downstream -
+    # LDPC decoding (lmmse_stream, below) and the AUGMENT_LMMSE prior fed to ESCNN
+    # (probs_for_aug, also below, since it's sigmoid(llrs_mat_lmmse)). Zeroing (not removing the
+    # RE) keeps ldpc_n/the code rate unchanged; a zeroed LLR just tells the decoder "no
+    # information here" for that RE's bits instead of the possibly-corrupted value it had.
+    # conf.debug_zero_llr_res defaults to [] (no-op) - only set it to test this hypothesis.
+    debug_zero_llr_res = getattr(conf, 'debug_zero_llr_res', [])
+    if debug_zero_llr_res:
+        if group_idx == 0:
+            nonzero_before = int(np.count_nonzero(llrs_mat_lmmse[:, :, debug_zero_llr_res, :]))
+        llrs_mat_lmmse[:, :, debug_zero_llr_res, :] = 0.0
+        if group_idx == 0:
+            print(f"[ekf] debug_zero_llr_res={debug_zero_llr_res}: zeroed {nonzero_before} "
+                  f"nonzero LLR entries at those REs (group 0, out of "
+                  f"{llrs_mat_lmmse[:, :, debug_zero_llr_res, :].size} total); "
+                  f"all-zero after={bool(np.all(llrs_mat_lmmse[:, :, debug_zero_llr_res, :] == 0))}",
+                  flush=True)
+
     rx_real = np.empty((num_symbols, n_ants * 2, num_res), dtype=np.float32)
     rx_real[:, 0::2, :] = rx.real.astype(np.float32)
     rx_real[:, 1::2, :] = rx.imag.astype(np.float32)
@@ -430,6 +452,10 @@ def main():
     base_index = int(getattr(conf, 'channel_drift_base_index', 0))
     base_cfo = float(conf.cfo)
     cfo_drift = float(getattr(conf, 'cfo_drift', 0.0))
+
+    # Printed unconditionally (not just when non-default) so a run where this was meant to be set
+    # but wasn't (stale config, unsynced code) is visible in the log rather than silently absent.
+    print(f"[ekf] debug_zero_llr_res={getattr(conf, 'debug_zero_llr_res', [])}", flush=True)
 
     # pilot_size (bits) -> OFDM symbols (// qm) -> whole groups
     # (// (NUM_SYMB_PER_SLOT * group_size_slots)). Deliberately conf.pilot_size, not

@@ -413,6 +413,91 @@ def _long_path(p: str) -> str:
     return ("\\\\?\\" + p) if os.name == 'nt' else p
 
 
+def resolve_auto_escnn_weights_tag():
+    """
+    If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
+    checkpoint matching the current channel_model, channel_seed, which_augment, n_users and
+    num_res, and set conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-
+    copy a hash out of the filename every time the config changes).
+
+    Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
+    which_augment written raw vs mapped to its short code), so this matches on the handful of
+    tag=value substrings that have stayed stable across every observed format (the leading
+    channel-model text, #UEs=, #REs=, _s=<seed>_SNR=, and the augment token) rather than
+    reconstructing the exact current filename suffix and requiring an exact match.
+
+    Must be called after conf.reload_config() and before anything reads
+    conf.load_escnn_weights_tag (in particular before ESCNNTrainer/ESCNN network construction,
+    which reads it in __init__).
+    """
+    if str(getattr(conf, 'load_escnn_weights_tag', '')).strip().lower() != 'auto':
+        return
+
+    weights_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad', 'weights'))
+    all_pt_files = glob.glob(os.path.join(weights_dir, '*.pt'))
+
+    if conf.channel_model[0] == 'N':
+        chan_ok = lambda name: name.startswith('Flat')
+    elif conf.channel_model[0] in ('A', 'B', 'C'):
+        chan_prefix = f'TDL-{conf.channel_model}-'
+        chan_ok = lambda name: name.startswith(chan_prefix)
+    else:
+        chan_ok = lambda name: name.startswith(conf.channel_model)
+
+    augment_map = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AUGMENT_DEEPSIC': 'aDEEPSIC',
+                   'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
+    augment_tokens = {conf.which_augment, augment_map.get(conf.which_augment, conf.which_augment)}
+    augment_re = re.compile(r'(?:^|_)(' + '|'.join(re.escape(t) for t in augment_tokens) + r')(?:_|$)')
+
+    matches = []
+    for path in all_pt_files:
+        name = os.path.basename(path)
+        if not chan_ok(name):
+            continue
+        n_users_m = re.search(r'#UEs=(\d+)', name)
+        num_res_m = re.search(r'#REs=(\d+)', name)
+        seed_m = re.search(r'_s=(\d+)_SNR=', name)
+        if not (n_users_m and num_res_m and seed_m):
+            continue
+        if int(n_users_m.group(1)) != conf.n_users:
+            continue
+        if int(num_res_m.group(1)) != conf.num_res:
+            continue
+        if int(seed_m.group(1)) != conf.channel_seed:
+            continue
+        if not augment_re.search(name):
+            continue
+        tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
+        if not tag_m:
+            continue
+        matches.append((path, tag_m.group(1)))
+
+    if not matches:
+        raise AssertionError(
+            f"load_escnn_weights_tag: 'auto' requested but no saved ESCNN weights in {weights_dir} "
+            f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
+            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, num_res={conf.num_res}. "
+            f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
+            f"load_escnn_weights_tag to an explicit tag.")
+
+    # Multiple SNRs of the same trained checkpoint share one tag across several files, so
+    # dedupe to distinct tags (keeping each tag's most recent mtime) before ranking/printing.
+    tag_mtimes = {}
+    for path, tag in matches:
+        mtime = os.path.getmtime(_long_path(path))
+        tag_mtimes[tag] = max(tag_mtimes.get(tag, mtime), mtime)
+    distinct_tags = sorted(tag_mtimes, key=tag_mtimes.get, reverse=True)
+    resolved_tag = distinct_tags[0]
+    if len(distinct_tags) > 1:
+        print(f"[ESCNN] load_escnn_weights_tag='auto' matched {len(distinct_tags)} distinct "
+              f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
+              f"which_augment={conf.which_augment} n_users={conf.n_users} num_res={conf.num_res}: "
+              f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
+    else:
+        print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)
+    conf.set_value('load_escnn_weights_tag', resolved_tag)
+
+
 def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trainer, deepsicmb_trainer,
                  deepstag_trainer, mhsa_trainer, tdcnn_trainer, tdfdcnn_trainer, jointllr_trainer) -> List[float]:
     """
@@ -2575,6 +2660,7 @@ if __name__ == '__main__':
 
     # Reload config singleton with the provided config file (or default)
     conf.reload_config(args.config)
+    resolve_auto_escnn_weights_tag()
 
     # Now conf has the updated config, proceed as before
     assert not (

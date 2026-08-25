@@ -63,7 +63,7 @@ from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import ChannelEstimate, LmmseDemod
-from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask
+from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
 from python_code.utils.constants import NUM_SYMB_PER_SLOT
 
 # M-QAM average-energy normalization constants (2*(M-1)/3), same table evaluate.py
@@ -353,6 +353,7 @@ def main():
     args = parser.parse_args()
 
     conf.reload_config(args.config)
+    resolve_auto_escnn_weights_tag()
     # Always AUGMENT_LMMSE here, regardless of what's in the config: run_group() builds its
     # own leakage-free probs_for_aug from a dedicated calibration slot every call, so this is
     # never actually reading LMMSE priors computed elsewhere.

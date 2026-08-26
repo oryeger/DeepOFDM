@@ -1,5 +1,5 @@
 snr: 14
-cur_str: ekfsnr # ekftrk
+cur_str:  blk0p75
 num_snrs: 1
 n_ants: 1
 snr_step: 1
@@ -7,9 +7,10 @@ n_users: 4
 mcs: 28
 mod_pilot: -1
 block_length_factor: 3
-data_size: 20000  # Regular pass (evaluate.py): if > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1). ekf.py: no pilot_size fallback there, so this must be set > 0 explicitly (see that file's docstring) - a value of -1 will raise.
+data_size: -1  # Regular pass (evaluate.py): if > 0, use this directly as data_size (bits) instead of deriving it from pilot_size*(block_length_factor-1). ekf.py: no pilot_size fallback there, so this must be set > 0 explicitly (see that file's docstring) - a value of -1 will raise.
 num_res: 24
 cfo: 0
+cfo_drift: 0.75
 clip_percentage_in_tx: 100
 iqmm_gain: 1 # in dB
 iqmm_phase: 5 # in degrees
@@ -44,7 +45,7 @@ plot_genie: False
 
 channel_model: 'C'
 carrier_frequency: 2.6e9 # in Hz
-speed: 10 # in m/s
+speed: 40 # in m/s
 channel_drift_base_index: 0  # TDL channel slot-offset (regular pass: fixed for the whole run; ekf.py: starting point, advances per group - see that file's docstring)
 spatial_correlation: 'low'
 # Environment channel settings (used when channel_model is UMa, UMi, or RMa)
@@ -88,9 +89,9 @@ save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
-save_escnn_weights: True  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
+save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: '5d1a6b'  # 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
+load_escnn_weights_tag: 'auto'  # 1c8c38/ff8324 (TDLC 24/96)  fef0f0/03e5ad (TDLB 24/96) 356e94 (QPSK TDLB 1 UE 123) 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
@@ -103,6 +104,7 @@ escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence
 escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per slot, applied once per slot - lower this if that adds up to too much per-block drift)
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
+debug_zero_llr_res: []
 slots_per_group: 1  # Number of consecutive slots forming one Kalman "epoch": predict() runs once per this many slots (injecting sigma_q / the ar1 pull once, not once per slot), then each slot in the group is its own sequential update() without re-predicting in between. 1 = today's per-slot cadence (raise this if one slot's worth of syndrome data isn't enough to move the estimate meaningfully). In the per-slot streaming loop (channel_drift), this is also how many consecutive slots share one channel realization before channel_drift_base_index advances - same epoch, same knob, so the two can't drift out of sync.
 
 # ekf.py only (streaming per-group channel-drift experiment; see that file's docstring)

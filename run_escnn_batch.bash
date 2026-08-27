@@ -9,7 +9,7 @@
 #SBATCH --time 7-00:00:00                       ### limit the time of job running. Make sure it is not greater than the partition time limit!! Format: D-H:MM:SS
 #SBATCH --job-name deepsic                      ### name of the job
 #SBATCH --array=0-155                 ### run parallel 5 times
-#SBATCH --output logs/job-%J.out                        ### output log for running job - %J for job number
+#SBATCH --output logs/job-%A_%a.out                     ### output log for running job - %A_%a for array job ID and task index (matches squeue's display)
 #SBATCH --nodes=1                               ### single node per array task
 #SBATCH --ntasks=1                              ### single task per array element
 #SBATCH --cpus-per-task=1                       ### job is single-threaded; requesting more cores wastes allocation (see Slurm serial-workload report)
@@ -46,8 +46,8 @@ python -c "import sys; print('Python version:', sys.version)"
 cd /home/egero/Projects/DeepOFDM
 if [[ "$1" == "--drift" ]]; then
   python -m python_code.run_multiple_eval --config config_files/$config_file
-elif [[ "$1" == "--ekf" ]]; then
-  python -m python_code.ekf --config config_files/$config_file
-else
+elif [[ "$1" == "--train" ]]; then
   python -m python_code.evaluate --config config_files/$config_file
+else
+  python -m python_code.ekf --config config_files/$config_file
 fi

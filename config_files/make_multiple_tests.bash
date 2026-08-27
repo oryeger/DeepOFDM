@@ -12,13 +12,12 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
-# snrs=(19)
 snrs=($(seq -5 30))
 cfos=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
-speed_vals=(0) 
+speed_vals=(0 10 20 40)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -68,13 +67,13 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(40000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
 n_users_vals=(1)
-num_res_vals=(96)
+num_res_vals=(24)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------

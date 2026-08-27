@@ -24,8 +24,14 @@ inside_parens=$(printf '%s\n' "$new_line" | sed -E 's/^config_files=\(|\)$//g')
 num_files=$(printf '%s\n' "$inside_parens" | wc -w | awk '{print $1}')
 last_idx=$(( num_files - 1 ))
 
-# Update the SBATCH array line
-sed -i -E "s|^#SBATCH[[:space:]]+--array=0-[0-9]+|#SBATCH --array=0-${last_idx}|" "$target_file"
+if [ "$num_files" -eq 0 ]; then
+  echo "ERROR: 0 config files generated - refusing to write an invalid #SBATCH --array line" >&2
+  exit 1
+fi
+
+# Update the SBATCH array line. Match the whole old value (not just 0-[0-9]+) so this
+# self-heals even if a previous buggy run left behind an invalid value like "0--1".
+sed -i -E "s|^#SBATCH[[:space:]]+--array=[^[:space:]]+|#SBATCH --array=0-${last_idx}|" "$target_file"
 
 echo "Updated #SBATCH --array=0-${last_idx} in $target_file"
 

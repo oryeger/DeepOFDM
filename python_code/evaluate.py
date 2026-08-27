@@ -97,6 +97,39 @@ def crc_fail_mask(decodedwords: np.ndarray, crc_out) -> np.ndarray:
     return crc_fail | all_zero
 
 
+def _mi_from_flat(llr_flat: np.ndarray, bit_flat: np.ndarray) -> float:
+    """Core MI estimator over flat (LLR, true bit) arrays, dispatched by conf.mi_estimator.
+
+    'histogram' (default): empirical differential-entropy estimate via binned
+      histograms (entropy_with_bin_width). Makes no assumption about the LLR
+      distribution's shape, but needs enough samples per bin to be stable -
+      thin per-slot sample counts make it noisy.
+    'gmi': closed-form genie-aided generalized mutual information (Arnold/ten
+      Brink soft-decision GMI). A plain sample mean of a smooth function of
+      each LLR against its true bit - no histogram/binning, so it stays
+      well-behaved even with few samples. Uses this project's logit LLR
+      convention L = log(p(b=1)/p(b=0)), L>0 => bit=1 (see syndrome_loss.py):
+          s = 2*bit - 1
+          I = 1 - mean(log2(1 + exp(-s*L)))
+      Unlike the blind calc_gfmi (which only sees |L| and so overestimates MI
+      for confidently-wrong LLRs), this uses the true bit and is exact under
+      no consistency assumption.
+    """
+    estimator = getattr(conf, 'mi_estimator', 'histogram')
+    if estimator == 'gmi':
+        l = np.asarray(llr_flat, dtype=np.float64)
+        s = 2.0 * np.asarray(bit_flat, dtype=np.float64) - 1.0
+        term = np.logaddexp(0.0, -s * l) / np.log(2.0)
+        return float(np.clip(1.0 - np.mean(term), 0.0, 1.0))
+    H_y = entropy_with_bin_width(llr_flat, 0.1)
+    zero_idx = np.where(bit_flat == 0)[0]
+    one_idx = np.where(bit_flat == 1)[0]
+    H_y_x_0 = entropy_with_bin_width(llr_flat[zero_idx], 0.1)
+    H_y_x_1 = entropy_with_bin_width(llr_flat[one_idx], 0.1)
+    H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
+    return float(max(H_y - H_y_x, 0))
+
+
 def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_users: int, num_res: int,
             user_idx: int = None) -> np.ndarray:
     # When make_64QAM_16QAM_percentage=50, the network outputs num_bits_pilot=6 LLRs/symbol
@@ -132,21 +165,7 @@ def calc_mi(tx_data: np.ndarray, llrs_mat: np.ndarray, num_bits_data: int, n_use
         tx_data_for_mi = tx_data_for_mi[idx]
         llr_for_mi = llr_for_mi[idx]
 
-    # H_y calculation
-    H_y = entropy_with_bin_width(llr_for_mi.numpy(), 0.1)
-    # H_y_x calculation
-    # x=0
-    zero_indexes = np.where(tx_data_for_mi == 0)[0]
-    H_y_x_0 = entropy_with_bin_width(llr_for_mi[zero_indexes].numpy(), 0.1)
-    # x=1
-    one_indexes = np.where(tx_data_for_mi == 1)[0]
-    H_y_x_1 = entropy_with_bin_width(llr_for_mi[one_indexes].numpy(), 0.1)
-
-    H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
-
-    mi = H_y - H_y_x
-    mi = np.maximum(mi, 0)
-    return mi
+    return _mi_from_flat(llr_for_mi.numpy(), tx_data_for_mi.numpy())
 
 
 def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray, user_idx: int = None) -> float:
@@ -174,13 +193,7 @@ def calc_mi_from_ldpc(tx_aligned: np.ndarray, llr_aligned: np.ndarray, user_idx:
         llr_flat = llr_flat[idx]
         tx_flat = tx_flat[idx]
 
-    H_y = entropy_with_bin_width(llr_flat, 0.1)
-    zero_idx = np.where(tx_flat == 0)[0]
-    one_idx = np.where(tx_flat == 1)[0]
-    H_y_x_0 = entropy_with_bin_width(llr_flat[zero_idx], 0.1)
-    H_y_x_1 = entropy_with_bin_width(llr_flat[one_idx], 0.1)
-    H_y_x = 0.5 * H_y_x_0 + 0.5 * H_y_x_1
-    return float(max(H_y - H_y_x, 0))
+    return _mi_from_flat(llr_flat, tx_flat)
 
 
 def calc_gfmi(llrs_mat) -> float:
@@ -416,9 +429,10 @@ def _long_path(p: str) -> str:
 def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
-    checkpoint matching the current channel_model, channel_seed, which_augment, n_users and
-    num_res, and set conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-
-    copy a hash out of the filename every time the config changes).
+    checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
+    num_res and modulation (derived from mcs if set, else mod_data), and set
+    conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
+    of the filename every time the config changes).
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
     which_augment written raw vs mapped to its short code), so this matches on the handful of
@@ -449,6 +463,21 @@ def resolve_auto_escnn_weights_tag():
     augment_tokens = {conf.which_augment, augment_map.get(conf.which_augment, conf.which_augment)}
     augment_re = re.compile(r'(?:^|_)(' + '|'.join(re.escape(t) for t in augment_tokens) + r')(?:_|$)')
 
+    # Modulation, derived the same way run_evaluate() does (mcs takes precedence over mod_data),
+    # and matched as a standalone '_'-delimited token the way _build_escnn_filename_suffix emits it.
+    if conf.mcs > -1:
+        _qm, _ = get_mcs(conf.mcs)
+        mod_data = int(2 ** _qm)
+    else:
+        mod_data = conf.mod_data
+    if mod_data == 2:
+        mod_text = 'BPSK'
+    elif mod_data == 4:
+        mod_text = 'QPSK'
+    else:
+        mod_text = f'{mod_data}Q'
+    mod_re = re.compile(r'(?:^|_)' + re.escape(mod_text) + r'(?:_|$)')
+
     matches = []
     for path in all_pt_files:
         name = os.path.basename(path)
@@ -467,6 +496,8 @@ def resolve_auto_escnn_weights_tag():
             continue
         if not augment_re.search(name):
             continue
+        if not mod_re.search(name):
+            continue
         tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
         if not tag_m:
             continue
@@ -476,7 +507,8 @@ def resolve_auto_escnn_weights_tag():
         raise AssertionError(
             f"load_escnn_weights_tag: 'auto' requested but no saved ESCNN weights in {weights_dir} "
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
-            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, num_res={conf.num_res}. "
+            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, num_res={conf.num_res}, "
+            f"modulation={mod_text}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
             f"load_escnn_weights_tag to an explicit tag.")
 
@@ -491,7 +523,8 @@ def resolve_auto_escnn_weights_tag():
     if len(distinct_tags) > 1:
         print(f"[ESCNN] load_escnn_weights_tag='auto' matched {len(distinct_tags)} distinct "
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
-              f"which_augment={conf.which_augment} n_users={conf.n_users} num_res={conf.num_res}: "
+              f"which_augment={conf.which_augment} n_users={conf.n_users} num_res={conf.num_res} "
+              f"modulation={mod_text}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
     else:
         print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)
@@ -522,11 +555,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         mod_data = int(2 ** qm)
         ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * qm)
         ldpc_k = int(ldpc_n * code_rate)
+        # code_rate is the Shannon (LDPC-decodable) MI floor; in practice good BLER needs a
+        # margin above it (finite blocklength, imperfect LLR calibration) - mi_healthy_margin
+        # is that empirical margin, tunable per setup. E.g. MCS2 has code_rate=0.30, so with
+        # the default margin (0.2) MI needs to clear ~0.50 for BLER to be expected to be good.
+        mi_healthy_margin = getattr(conf, 'mi_healthy_margin', 0.2)
+        mi_healthy_threshold = code_rate + mi_healthy_margin
     else:
         mod_data = conf.mod_data
         num_bits_data = int(np.log2(mod_data))
         ldpc_n = 0
         ldpc_k = 0
+        mi_healthy_threshold = None
 
     # cfo=1 is a sentinel that requests modulation-aware effective cfo
     # (higher-order constellations are more sensitive to phase noise).
@@ -2129,7 +2169,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             print(f'SNR={snr_cur}dB, Final SNR={Final_SNR}dB')
             print(f'current ESCNN: {block_ind, _val(nll_list[iterations - 1], ber_list[iterations - 1]), mi}')
             if conf.mcs > -1:
-                print(f'current ESCNN BLER: {block_ind, float(bler_list[iterations - 1]), mi}')
+                _mi_status = 'HEALTHY' if mi >= mi_healthy_threshold else 'LOW'
+                print(f'current ESCNN BLER: {block_ind, float(bler_list[iterations - 1]), mi} '
+                      f'[MI {_mi_status}: target={mi_healthy_threshold:.3f} (code_rate={code_rate:.3f}+margin={mi_healthy_margin:.3f})]')
             if conf.run_e2e:
                 print(f'curr DeepSICe2e: {block_ind, _val(nll_e2e[iters_e2e_disp-1], ber_e2e_list[iters_e2e_disp - 1]), mi_e2e}')
             if run_deeprx:
@@ -2402,6 +2444,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 "SNR_range": SNR_range[:len(total_mi_lmmse)],
                 "total_ber_lmmse": total_mi_lmmse,
             }
+            if conf.mcs > -1:
+                data_mi["mi_target"] = [mi_healthy_threshold] * len(data_mi["SNR_range"])
             if run_sphere:
                 data_mi["total_ber_sphere"] = total_mi_sphere
             if run_deeprx:

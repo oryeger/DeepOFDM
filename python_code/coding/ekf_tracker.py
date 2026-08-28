@@ -131,4 +131,9 @@ class EkfParamTracker:
         self._write_back()
 
         return {'skipped': False, 'num_checks': int(p_hat.numel()),
-                'mean_hard_sat': float((p_hat > 0).float().mean())}
+                'mean_hard_sat': float((p_hat > 0).float().mean()),
+                # Raw mean of p_hat itself (range [-1, 1], unlike mean_hard_sat's [0, 1]) -
+                # keeps the confidence magnitude mean_hard_sat's >0 threshold throws away, so
+                # e.g. "barely satisfied" (p~0.01) and "confidently satisfied" (p~0.99) don't
+                # both just read as "satisfied".
+                'mean_p': float(p_hat.mean())}

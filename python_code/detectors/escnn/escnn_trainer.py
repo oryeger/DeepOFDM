@@ -397,6 +397,8 @@ class ESCNNTrainer(Trainer):
         if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
             self._tsyn_warn_once('ekf_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
+            if getattr(conf, 'log_train_every_epochs', 0) > 0:
+                self._log_static_syndrome_stats(rx_real, num_bits, n_users, iterations, probs_in, helper, num_slots)
             return
 
         trackers = self._get_ekf_trackers()
@@ -454,7 +456,8 @@ class ESCNNTrainer(Trainer):
                         if log_stats and not stats.get('skipped', True):
                             print(f"[ekf] user={user} it={i} slot={s + 1}/{num_slots} "
                                   f"(epoch {group_start // slots_per_predict + 1}) "
-                                  f"checks={stats['num_checks']} mean_hard_sat={stats['mean_hard_sat']:.3f}", flush=True)
+                                  f"checks={stats['num_checks']} mean_hard_sat={stats['mean_hard_sat']:.3f} "
+                                  f"mean_p={stats['mean_p']:.3f}", flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)
@@ -462,6 +465,56 @@ class ESCNNTrainer(Trainer):
                     index_end = (user + 1) * num_bits
                     next_probs_vec[:, index_start:index_end, :, :] = output
             probs_vec = next_probs_vec
+
+    def _log_static_syndrome_stats(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
+                                    probs_in: torch.Tensor, helper, num_slots: int):
+        """Diagnostic-only counterpart to the tracked path's per-slot mean_hard_sat prints
+        (ekf_predict_update() above), for when escnn_load_freeze leaves nothing trainable and that
+        function returns before ever computing a measurement. Needed to compare "tracking on" vs
+        "tracking off/static" mean_hard_sat under the same CFO drift - the frozen/static case is
+        the natural baseline for checking the EKF is actually doing something, not the tracked
+        case alone (see the plot_drift_log.py Kalman-convergence discussion).
+
+        Mirrors ekf_predict_update()'s rx_prob construction and per-slot forward pass exactly, but
+        read-only: no Jacobian, no predict/update, nothing written back - just measures how well
+        the loaded (frozen) weights' own LLRs already satisfy the syndrome, slot by slot."""
+        with torch.no_grad():
+            rx_real = rx_real.to(DEVICE).unsqueeze(-1)
+            if getattr(conf, 'which_augment', 'NO_AUGMENT') == 'NO_AUGMENT' or probs_in is None:
+                probs_vec = self._initialize_probs_for_infer(rx_real, num_bits, n_users)
+            else:
+                probs_vec = probs_in.to(DEVICE)
+            no_samples = getattr(conf, 'no_samples', False)
+
+            for i in range(iterations):
+                next_probs_vec = probs_vec.clone()
+                for user in range(n_users):
+                    net = self.detector[user][i]
+                    if conf.no_probs:
+                        rx_prob = rx_real
+                    elif no_samples:
+                        rx_prob = probs_vec
+                    else:
+                        rx_prob = torch.cat((rx_real, probs_vec), dim=1)
+
+                    for s in range(num_slots):
+                        rx_slot = rx_prob[s * NUM_SYMB_PER_SLOT:(s + 1) * NUM_SYMB_PER_SLOT]
+                        _, llrs = net(rx_slot)
+                        stream = llrs.squeeze(-1).reshape(-1)[:helper.n].reshape(1, helper.n)
+                        p = helper.p_vector(stream).reshape(-1)
+                        if p.numel() == 0:
+                            continue
+                        mean_hard_sat = float((p > 0).float().mean())
+                        mean_p = float(p.mean())
+                        print(f"[ekf] user={user} it={i} slot={s + 1}/{num_slots} (static) "
+                              f"checks={p.numel()} mean_hard_sat={mean_hard_sat:.3f} "
+                              f"mean_p={mean_p:.3f}", flush=True)
+
+                    output, _ = net(rx_prob)
+                    index_start = user * num_bits
+                    index_end = (user + 1) * num_bits
+                    next_probs_vec[:, index_start:index_end, :, :] = output
+                probs_vec = next_probs_vec
 
     @staticmethod
     def _calc_h_marginal(est: torch.Tensor, mask: torch.Tensor = None) -> float:

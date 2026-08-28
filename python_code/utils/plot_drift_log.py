@@ -27,6 +27,8 @@ import textwrap
 
 import matplotlib.pyplot as plt
 
+SCRATCHPAD_DIR = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "Scratchpad"))
+
 try:
     from python_code.utils.constants import SLOT_LENGTH_SEC
 except ImportError:
@@ -60,7 +62,24 @@ HEADER_RE = re.compile(
     r'SNR=(?P<snr>[-+\d.eE]+)dB, mcs=(?P<mcs>\d+)'
 )
 
+# freeze/speed for the title come from here instead of the header line above: ekf.py's own
+# "[CSV] wrote <path>" line (_build_ekf_filename_suffix) already bakes both into the filename
+# as "..._sp=<speed>_..._frz=<code>_...", so parsing it out means every existing log already
+# has this - no need for ekf.py to print it twice. Tokens are found by underscore-splitting the
+# basename rather than matching the whole filename's fixed order, so this survives the field
+# order/set in _build_ekf_filename_suffix changing.
+CSV_WROTE_RE = re.compile(r'\[CSV\]\s+wrote\s+(?P<path>\S+\.csv)')
+
 WEIGHTS_RE = re.compile(r'\[drift\]\s+loaded pretrained weights:.*?#REs=(?P<num_res>\d+)')
+
+# Matches both the tracked path's "(epoch N)" and the static-diagnostic path's "(static)" -
+# see ekf_predict_update()/_log_static_syndrome_stats() in escnn_trainer.py. mean_p is optional
+# so logs from before it was added (only mean_hard_sat) still parse.
+HARD_SAT_RE = re.compile(
+    r'\[ekf\]\s+user=\d+\s+it=\d+\s+slot=\d+/\d+\s+\([^)]*\)\s+'
+    r'checks=\d+\s+mean_hard_sat=(?P<mean_hard_sat>[-+\d.eE]+)'
+    r'(?:\s+mean_p=(?P<mean_p>[-+\d.eE]+))?'
+)
 
 GROUP_RE = re.compile(
     r'\[drift\]\s+group\s+(?P<group_idx>\d+)/\d+\s+slots=[\d\-]+\s+'
@@ -72,8 +91,8 @@ GROUP_RE = re.compile(
 
 def parse_drift_log(path: str) -> dict:
     """Returns dict of parallel lists: cfo, ber_escnn, ber_lmmse, bler_escnn,
-    bler_lmmse, mi_escnn, mi_lmmse - one entry per parsed group line - plus a
-    'meta' key holding the run parameters from the log's header line (SNR,
+    bler_lmmse, mi_escnn, mi_lmmse, mean_hard_sat - one entry per parsed group
+    line - plus a 'meta' key holding the run parameters from the log's header line (SNR,
     mcs, base_cfo, cfo_drift, group_size, base_index, num_groups) and, if a
     "[drift] loaded pretrained weights: ..." line is present, num_res (parsed
     from that checkpoint filename's "#REs=" token - the header line itself
@@ -85,15 +104,33 @@ def parse_drift_log(path: str) -> dict:
     (the common case is one run per log); later headers still update the CFO
     reconstruction correctly, they just aren't reflected in the title.
     """
-    data = {k: [] for k in ('cfo', 'ber_escnn', 'ber_lmmse', 'bler_escnn',
-                             'bler_lmmse', 'mi_escnn', 'mi_lmmse')}
+    data = {k: [] for k in ('cfo', 'slots', 'ber_escnn', 'ber_lmmse', 'bler_escnn',
+                             'bler_lmmse', 'mi_escnn', 'mi_lmmse', 'mean_hard_sat', 'mean_p')}
     meta = None
     num_res = None  # from the weights-loaded line, which ekf.py prints BEFORE the "N groups x ..."
                      # header - so this has to be tracked independently of meta, not nested under it
 
+    # mean_hard_sat/mean_p are Kalman-tracking diagnostics (see escnn_trainer.py's
+    # ekf_predict_update()) printed on their own "[ekf] ..." line(s) BEFORE the "[drift] group
+    # ..." line for the slot(s) they belong to - possibly several lines per group (multiple
+    # users/iterations, or group_size_slots > 1), so they're accumulated here and averaged into
+    # that group's single value once the group line is reached. float('nan') when a group has
+    # none (e.g. an older log predating these diagnostics, or log_train_every_epochs disabled;
+    # mean_p specifically is also absent in logs from before it was added alongside
+    # mean_hard_sat) so the plotted line simply leaves a gap there instead of lying about a value.
+    pending_hard_sats = []
+    pending_mean_ps = []
+
     group_size = base_cfo = cfo_drift = None
     with open(path, 'r', encoding='utf-8', errors='replace') as f:
         for line in f:
+            hard_sat_m = HARD_SAT_RE.search(line)
+            if hard_sat_m:
+                pending_hard_sats.append(float(hard_sat_m.group('mean_hard_sat')))
+                if hard_sat_m.group('mean_p') is not None:
+                    pending_mean_ps.append(float(hard_sat_m.group('mean_p')))
+                continue
+
             header_m = HEADER_RE.search(line)
             if header_m:
                 group_size = int(header_m.group('group_size'))
@@ -120,6 +157,18 @@ def parse_drift_log(path: str) -> dict:
                     meta.setdefault('num_res', num_res)
                 continue
 
+            csv_m = CSV_WROTE_RE.search(line)
+            if csv_m:
+                for tok in os.path.basename(csv_m.group('path')).split('_'):
+                    if tok.startswith('sp=') and meta is not None and 'speed' not in meta:
+                        try:
+                            meta['speed'] = float(tok[len('sp='):])
+                        except ValueError:
+                            pass
+                    elif tok.startswith('frz=') and meta is not None:
+                        meta.setdefault('freeze', tok[len('frz='):])
+                continue
+
             group_m = GROUP_RE.search(line)
             if not group_m:
                 continue
@@ -133,8 +182,14 @@ def parse_drift_log(path: str) -> dict:
             cfo = base_cfo + cfo_drift * elapsed_slots * SLOT_LENGTH_SEC
 
             data['cfo'].append(cfo)
+            data['slots'].append(elapsed_slots)
             for key in ('ber_escnn', 'ber_lmmse', 'bler_escnn', 'bler_lmmse', 'mi_escnn', 'mi_lmmse'):
                 data[key].append(float(group_m.group(key)))
+
+            data['mean_hard_sat'].append(_mean(pending_hard_sats) if pending_hard_sats else float('nan'))
+            data['mean_p'].append(_mean(pending_mean_ps) if pending_mean_ps else float('nan'))
+            pending_hard_sats = []
+            pending_mean_ps = []
 
     if not data['cfo']:
         raise ValueError(f"{path}: no '[drift] group ...' lines found")
@@ -143,10 +198,10 @@ def parse_drift_log(path: str) -> dict:
 
 
 def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> str:
-    """Builds a (possibly multi-line) title: the run's parameters, wrapped to
-    wrap_width characters so a long parameter list doesn't run wider than the
-    figure, followed by an optional user-supplied line (e.g. the log's name)
-    last."""
+    """Builds a (possibly multi-line) title: the run's parameters plus, last, an
+    optional user-supplied label (e.g. the log's name) - all wrapped together as
+    one paragraph to wrap_width characters, so the label lands on the same line
+    as the trailing params when it fits rather than always getting its own row."""
     parts = []
     if 'snr' in meta:
         parts.append(f"SNR={meta['snr']:g}dB")
@@ -160,6 +215,10 @@ def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> 
             parts.append(f"mcs={meta['mcs']}")
     if 'num_res' in meta:
         parts.append(f"REs={meta['num_res']}")
+    if 'freeze' in meta:
+        parts.append(f"freeze={meta['freeze']}")
+    if 'speed' in meta:
+        parts.append(f"speed={meta['speed']:g}m/s")
     if 'base_cfo' in meta:
         parts.append(f"cfo0={meta['base_cfo']:g}")
     if 'cfo_drift' in meta:
@@ -168,30 +227,40 @@ def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> 
         parts.append(f"slots/group={meta['group_size']}")
     if 'num_groups' in meta:
         parts.append(f"num_groups={meta['num_groups']}")
+    if user_title:
+        parts.append(user_title)
 
     lines = textwrap.wrap(', '.join(parts), width=wrap_width) if parts else []
-    if user_title:
-        lines.append(user_title)
-
     return '\n'.join(lines)
 
 
 def _mean(values) -> float:
-    return sum(values) / len(values)
+    """Mean of values, ignoring NaN entries (mean_hard_sat can have gaps - see
+    parse_drift_log). Returns NaN if every entry is NaN/the list is empty."""
+    clean = [v for v in values if v == v]  # v == v is False only for NaN
+    return sum(clean) / len(clean) if clean else float('nan')
 
 
 def plot_drift_log(data: dict, title: str = None):
-    order = sorted(range(len(data['cfo'])), key=lambda i: data['cfo'][i])
-    cfo = [data['cfo'][i] for i in order]
+    # With no CFO drift, every group reconstructs to the exact same cfo (see parse_drift_log) -
+    # plotting vs. CFO then collapses all points onto one x value instead of showing a trend.
+    # Fall back to slot index, which is always distinct per group, in that case.
+    use_slots = data.get('meta', {}).get('cfo_drift', 0.0) == 0.0
+    xkey = 'slots' if use_slots else 'cfo'
+    order = sorted(range(len(data[xkey])), key=lambda i: data[xkey][i])
+    cfo = [data[xkey][i] * SLOT_LENGTH_SEC for i in order] if use_slots else [data[xkey][i] for i in order]
+    xlabel = 'Time (s)' if use_slots else 'CFO (scs)'
 
     full_title = _format_title(data.get('meta', {}), title)
     title_lines = full_title.count('\n') + 1 if full_title else 0
 
-    # Landscape: the figure as a whole is wider than tall, but the 3 subplots
+    # Landscape: the figure as a whole is wider than tall, but the 5 subplots
     # are still stacked vertically (sharing the CFO x-axis) rather than side by
     # side. Figure height grows a bit with the title so a multi-line parameter
-    # header doesn't eat into subplot space. Top-to-bottom: BER, MI, BLER.
-    fig, (ax_ber, ax_mi, ax_bler) = plt.subplots(3, 1, figsize=(12, 7 + 0.18 * title_lines), sharex=True)
+    # header doesn't eat into subplot space, and a bit more per extra subplot.
+    # Top-to-bottom: BER, MI, BLER, mean_hard_sat, mean_p.
+    fig, (ax_ber, ax_mi, ax_bler, ax_hardsat, ax_meanp) = plt.subplots(
+        5, 1, figsize=(12, 11 + 0.18 * title_lines), sharex=True)
 
     ax_ber.semilogy(cfo, [data['ber_lmmse'][i] for i in order],
                      label=f"LMMSE: mean BER={_mean(data['ber_lmmse']):.2f}", color='r')
@@ -214,9 +283,32 @@ def plot_drift_log(data: dict, title: str = None):
     ax_bler.plot(cfo, [data['bler_escnn'][i] for i in order],
                  label=f"ESCNN: mean BLER={_mean(data['bler_escnn']):.2f}", color='g')
     ax_bler.set_ylabel('BLER')
-    ax_bler.set_xlabel('CFO (scs)')
     ax_bler.legend()
     ax_bler.grid(True)
+
+    # mean_hard_sat/mean_p are single tracked-model diagnostics (not an LMMSE-vs-ESCNN comparison
+    # like the other 3), so each is a single line. NaN gaps (groups with no "[ekf] ..." line, or
+    # (for mean_p specifically) an older log predating its addition alongside mean_hard_sat) are
+    # left as gaps rather than interpolated over.
+    ax_hardsat.plot(cfo, [data['mean_hard_sat'][i] for i in order],
+                     label=f"mean mean_hard_sat={_mean(data['mean_hard_sat']):.2f}", color='b')
+    ax_hardsat.set_ylabel('mean_hard_sat')
+    ax_hardsat.legend()
+    ax_hardsat.grid(True)
+
+    # mean_p is the raw (unthresholded) mean of the syndrome check-satisfaction values p_j,
+    # range [-1, 1] (+1 = every check confidently satisfied, -1 = every check confidently
+    # violated, 0 = no information) - keeps the confidence magnitude mean_hard_sat's >0 threshold
+    # discards, so e.g. "barely satisfied" and "confidently satisfied" don't both just read as
+    # "satisfied". Fixed y-limits so the scale is always the full possible range, not just
+    # whatever narrow band this run happens to occupy.
+    ax_meanp.plot(cfo, [data['mean_p'][i] for i in order],
+                  label=f"mean mean_p={_mean(data['mean_p']):.2f}", color='b')
+    ax_meanp.set_ylabel('mean_p')
+    ax_meanp.set_ylim(-1, 1)
+    ax_meanp.set_xlabel(xlabel)
+    ax_meanp.legend()
+    ax_meanp.grid(True)
 
     if full_title:
         fig.suptitle(full_title)
@@ -224,10 +316,10 @@ def plot_drift_log(data: dict, title: str = None):
     else:
         fig.tight_layout()
 
-    # BER's log-scale tick labels (e.g. "3x10^-1") are wider than MI/BLER's
-    # linear ones ("0.6"), so matplotlib's per-axes auto-padding otherwise
-    # leaves the "BER" ylabel sitting further left than "MI"/"BLER".
-    fig.align_ylabels([ax_ber, ax_mi, ax_bler])
+    # BER's log-scale tick labels (e.g. "3x10^-1") are wider than the other subplots'
+    # linear ones ("0.6"), so matplotlib's per-axes auto-padding otherwise leaves the
+    # "BER" ylabel sitting further left than the rest.
+    fig.align_ylabels([ax_ber, ax_mi, ax_bler, ax_hardsat, ax_meanp])
     return fig
 
 
@@ -291,9 +383,20 @@ if __name__ == '__main__':
                          help='Label for the last title line (default: the log file\'s name).')
     args = parser.parse_args()
 
-    title = args.title if args.title is not None else os.path.splitext(os.path.basename(args.log_file))[0]
+    log_file = args.log_file
+    if not os.path.exists(log_file):
+        # Bare filename (or a path that just doesn't exist here) - fall back to Scratchpad,
+        # where ekf.py's sbatch runs actually land, rather than requiring an absolute path
+        # every time.
+        candidate = os.path.join(SCRATCHPAD_DIR, os.path.basename(log_file))
+        if os.path.exists(candidate):
+            log_file = candidate
+        else:
+            parser.error(f"log file not found: {args.log_file!r} (also checked {candidate!r})")
 
-    parsed = parse_drift_log(args.log_file)
+    title = args.title if args.title is not None else os.path.splitext(os.path.basename(log_file))[0]
+
+    parsed = parse_drift_log(log_file)
     fig = plot_drift_log(parsed, title=title)
 
     if args.output:

@@ -235,10 +235,27 @@ def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> 
 
 
 def _mean(values) -> float:
-    """Mean of values, ignoring NaN entries (mean_hard_sat can have gaps - see
+    """Mean of values, ignoring NaN entries (mean_p can have gaps - see
     parse_drift_log). Returns NaN if every entry is NaN/the list is empty."""
     clean = [v for v in values if v == v]  # v == v is False only for NaN
     return sum(clean) / len(clean) if clean else float('nan')
+
+
+def _padded_ylim(values, lo=-1.0, hi=1.0, pad_frac=0.1, min_span=0.05):
+    """Y-limits zoomed to values' actual (non-NaN) range plus a bit of padding, clamped to
+    [lo, hi] (mean_p's theoretical range) so the padding never overshoots past what's possible.
+    Falls back to the full [lo, hi] range when there's no usable data (all-NaN, e.g. an older
+    log predating mean_p), and enforces min_span so a near-constant run doesn't collapse to an
+    illegibly flat line."""
+    clean = [v for v in values if v == v]  # v == v is False only for NaN
+    if not clean:
+        return lo, hi
+    vmin, vmax = min(clean), max(clean)
+    if vmax - vmin < min_span:
+        center = (vmax + vmin) / 2
+        vmin, vmax = center - min_span / 2, center + min_span / 2
+    pad = (vmax - vmin) * pad_frac
+    return max(lo, vmin - pad), min(hi, vmax + pad)
 
 
 def plot_drift_log(data: dict, title: str = None):
@@ -254,13 +271,13 @@ def plot_drift_log(data: dict, title: str = None):
     full_title = _format_title(data.get('meta', {}), title)
     title_lines = full_title.count('\n') + 1 if full_title else 0
 
-    # Landscape: the figure as a whole is wider than tall, but the 5 subplots
+    # Landscape: the figure as a whole is wider than tall, but the 4 subplots
     # are still stacked vertically (sharing the CFO x-axis) rather than side by
     # side. Figure height grows a bit with the title so a multi-line parameter
     # header doesn't eat into subplot space, and a bit more per extra subplot.
-    # Top-to-bottom: BER, MI, BLER, mean_hard_sat, mean_p.
-    fig, (ax_ber, ax_mi, ax_bler, ax_hardsat, ax_meanp) = plt.subplots(
-        5, 1, figsize=(12, 11 + 0.18 * title_lines), sharex=True)
+    # Top-to-bottom: BER, MI, BLER, mean_p.
+    fig, (ax_ber, ax_mi, ax_bler, ax_meanp) = plt.subplots(
+        4, 1, figsize=(12, 9 + 0.18 * title_lines), sharex=True)
 
     ax_ber.semilogy(cfo, [data['ber_lmmse'][i] for i in order],
                      label=f"LMMSE: mean BER={_mean(data['ber_lmmse']):.2f}", color='r')
@@ -286,26 +303,17 @@ def plot_drift_log(data: dict, title: str = None):
     ax_bler.legend()
     ax_bler.grid(True)
 
-    # mean_hard_sat/mean_p are single tracked-model diagnostics (not an LMMSE-vs-ESCNN comparison
-    # like the other 3), so each is a single line. NaN gaps (groups with no "[ekf] ..." line, or
-    # (for mean_p specifically) an older log predating its addition alongside mean_hard_sat) are
-    # left as gaps rather than interpolated over.
-    ax_hardsat.plot(cfo, [data['mean_hard_sat'][i] for i in order],
-                     label=f"mean mean_hard_sat={_mean(data['mean_hard_sat']):.2f}", color='b')
-    ax_hardsat.set_ylabel('mean_hard_sat')
-    ax_hardsat.legend()
-    ax_hardsat.grid(True)
-
-    # mean_p is the raw (unthresholded) mean of the syndrome check-satisfaction values p_j,
+    # mean_p is a single tracked-model diagnostic (not an LMMSE-vs-ESCNN comparison like the
+    # other 3) - the raw (unthresholded) mean of the syndrome check-satisfaction values p_j,
     # range [-1, 1] (+1 = every check confidently satisfied, -1 = every check confidently
-    # violated, 0 = no information) - keeps the confidence magnitude mean_hard_sat's >0 threshold
-    # discards, so e.g. "barely satisfied" and "confidently satisfied" don't both just read as
-    # "satisfied". Fixed y-limits so the scale is always the full possible range, not just
-    # whatever narrow band this run happens to occupy.
+    # violated, 0 = no information). NaN gaps (groups with no "[ekf] ..." line, or an older log
+    # predating this field) are left as gaps rather than interpolated over. Y-limits are zoomed
+    # to this run's actual data range (with padding) rather than the full [-1, 1] scale, since
+    # a run usually only occupies a narrow band and the full range makes it look flat.
     ax_meanp.plot(cfo, [data['mean_p'][i] for i in order],
-                  label=f"mean mean_p={_mean(data['mean_p']):.2f}", color='b')
-    ax_meanp.set_ylabel('mean_p')
-    ax_meanp.set_ylim(-1, 1)
+                  label=f"mean syndrome={_mean(data['mean_p']):.2f}", color='b')
+    ax_meanp.set_ylabel('syndrome')
+    ax_meanp.set_ylim(*_padded_ylim(data['mean_p']))
     ax_meanp.set_xlabel(xlabel)
     ax_meanp.legend()
     ax_meanp.grid(True)
@@ -319,7 +327,7 @@ def plot_drift_log(data: dict, title: str = None):
     # BER's log-scale tick labels (e.g. "3x10^-1") are wider than the other subplots'
     # linear ones ("0.6"), so matplotlib's per-axes auto-padding otherwise leaves the
     # "BER" ylabel sitting further left than the rest.
-    fig.align_ylabels([ax_ber, ax_mi, ax_bler, ax_hardsat, ax_meanp])
+    fig.align_ylabels([ax_ber, ax_mi, ax_bler, ax_meanp])
     return fig
 
 

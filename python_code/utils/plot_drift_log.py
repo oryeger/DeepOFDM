@@ -167,6 +167,11 @@ def parse_drift_log(path: str) -> dict:
                             pass
                     elif tok.startswith('frz=') and meta is not None:
                         meta.setdefault('freeze', tok[len('frz='):])
+                    elif tok.startswith('tf=') and meta is not None and 'tsyn_fallback_iters' not in meta:
+                        try:
+                            meta['tsyn_fallback_iters'] = int(tok[len('tf='):])
+                        except ValueError:
+                            pass
                 continue
 
             group_m = GROUP_RE.search(line)
@@ -219,6 +224,8 @@ def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> 
         parts.append(f"freeze={meta['freeze']}")
     if 'speed' in meta:
         parts.append(f"speed={meta['speed']:g}m/s")
+    if 'tsyn_fallback_iters' in meta:
+        parts.append(f"tsyn_fallback_iters={meta['tsyn_fallback_iters']}")
     if 'base_cfo' in meta:
         parts.append(f"cfo0={meta['base_cfo']:g}")
     if 'cfo_drift' in meta:

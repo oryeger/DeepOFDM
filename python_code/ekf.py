@@ -39,6 +39,13 @@ Relevant config keys (see config.yaml for the full list/defaults):
     cfo                           - base/starting CFO (scs); constant within a group
     cfo_drift                     - CFO drift rate (scs/sec); advances cfo by cfo_drift *
                                     elapsed-seconds at each group boundary, can be negative
+    snr                           - base/starting SNR (dB); constant within a group. Also what
+                                    load_pretrained_weights matches against when picking a
+                                    checkpoint tag - unaffected by snr_drift, so a run can start
+                                    tracking from the same checkpoint it always would have.
+    snr_drift                     - SNR drift rate (dB/sec); advances the SNR used for noise_var
+                                    by snr_drift * elapsed-seconds at each group boundary, same
+                                    mechanism as cfo_drift, can be negative
     pilot_size                   - total data budget in bits (this script's own run length,
                                     not the regular pass's pilot_size); truncated down to a
                                     whole number of groups, see main(). Named pilot_size, not
@@ -112,7 +119,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
                     'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = (f"{chan_text}_sp={conf.speed}_{mod_text}_REs={conf.num_res}_UEs={n_users}"
-                     f"_ant={conf.n_ants}_cfo={conf.cfo}_kr={conf.kernel_size}"
+                     f"_ant={conf.n_ants}_cfo={conf.cfo}_cfod={getattr(conf, 'cfo_drift', 0.0)}"
+                     f"_kr={conf.kernel_size}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
     if conf.mcs > -1:
@@ -234,8 +242,9 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
 
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, mod_data: int, n_users: int, n_ants: int, num_res: int, ldpc_k: int, ldpc_n: int,
-              noise_var: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int,
-              base_cfo: float = 0.0, cfo_drift: float = 0.0, save_diag: bool = False) -> dict:
+              base_snr: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int,
+              base_cfo: float = 0.0, cfo_drift: float = 0.0, snr_drift: float = 0.0,
+              save_diag: bool = False) -> dict:
     """Generate, transmit, LMMSE-estimate/equalize, EKF-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization - plus one extra
     calibration slot at the same channel_drift_base_index, used only to estimate H for LMMSE (and,
@@ -255,10 +264,18 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
 
     cfo_drift (scs/sec) advances conf.cfo the same way base_index advances
     channel_drift_base_index: constant for every slot within this group, stepping by
-    cfo_drift * elapsed-time-in-seconds at each group boundary."""
+    cfo_drift * elapsed-time-in-seconds at each group boundary.
+
+    snr_drift (dB/sec) advances the SNR used to derive noise_var the same way: constant within
+    this group, base_snr + snr_drift * elapsed-time-in-seconds at each group boundary. base_snr
+    is the caller's fixed starting value (conf.snr at startup, same as base_cfo/base_index) -
+    load_pretrained_weights already ran before any of this, against conf.snr unmodified, so
+    drifting the SNR here never affects which checkpoint got loaded."""
     elapsed_slots = group_idx * group_size_slots
     conf.set_value('channel_drift_base_index', base_index + elapsed_slots)
     conf.set_value('cfo', base_cfo + cfo_drift * elapsed_slots * SLOT_LENGTH_SEC)
+    snr_cur = base_snr + snr_drift * elapsed_slots * SLOT_LENGTH_SEC
+    noise_var = 10 ** (-0.1 * snr_cur) * CONSTELLATION_FACTOR[mod_data]
 
     # Calibration slot: plain random bits (never decoded/scored, so no need for LDPC coding).
     calib_bits = rng.integers(0, 2, size=(NUM_SYMB_PER_SLOT * qm, n_users, num_res))
@@ -437,7 +454,6 @@ def main():
     crc = CRC5GCodec(crc_length)
     rng = np.random.default_rng(seed=conf.seed)
 
-    noise_var = 10 ** (-0.1 * conf.snr) * CONSTELLATION_FACTOR[mod_data]
     h = SEDChannel.calculate_channel(n_ants, n_users, num_res)
     # Same SNR whitelist evaluate.py uses to gate its (also expensive) per-SNR loss/LLR plots
     # (evaluate.py:2341) - the per-RE channel/SINR diagnostics are only worth the extra
@@ -452,6 +468,8 @@ def main():
     base_index = int(getattr(conf, 'channel_drift_base_index', 0))
     base_cfo = float(conf.cfo)
     cfo_drift = float(getattr(conf, 'cfo_drift', 0.0))
+    base_snr = float(conf.snr)
+    snr_drift = float(getattr(conf, 'snr_drift', 0.0))
 
     # Printed unconditionally (not just when non-default) so a run where this was meant to be set
     # but wasn't (stale config, unsynced code) is visible in the log rather than silently absent.
@@ -489,13 +507,13 @@ def main():
 
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group, starting at "
           f"channel_drift_base_index={base_index}, cfo={base_cfo}{'' if cfo_drift == 0 else f' (drift={cfo_drift} scs/sec)'}, "
-          f"SNR={conf.snr}dB, mcs={conf.mcs}", flush=True)
+          f"SNR={base_snr}dB{'' if snr_drift == 0 else f' (drift={snr_drift} dB/sec)'}, mcs={conf.mcs}", flush=True)
 
     results = []
     for g in range(num_groups):
         stats = run_group(escnn_trainer, codec, crc, rng, qm, mod_data, n_users, n_ants, num_res,
-                           ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index,
-                           base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
+                           ldpc_k, ldpc_n, base_snr, h, group_size_slots, g, base_index,
+                           base_cfo=base_cfo, cfo_drift=cfo_drift, snr_drift=snr_drift, save_diag=save_diag)
         slot_lo = base_index + g * group_size_slots
         slot_hi = slot_lo + group_size_slots - 1
         stats['channel_drift_base_index'] = slot_lo
@@ -524,7 +542,8 @@ def main():
     else:
         chan_text = conf.channel_model
     title_string = _build_ekf_filename_suffix(chan_text, mod_text, n_users, code_rate)
-    title_string += '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
+    title_string += ('_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
+                      + '_snrd=' + str(getattr(conf, 'snr_drift', 0.0)))
     title_string = datetime.now().strftime("%Y%m%d_%H%M_") + title_string
     output_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad'))
     os.makedirs(_long_path(output_dir), exist_ok=True)

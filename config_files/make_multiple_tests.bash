@@ -14,10 +14,12 @@ base_name=$(basename "$input_file" .yaml)
 seeds=(123)
 snrs=($(seq -5 30))
 cfos=(0)
+cfo_drift_vals=(0 0.75)
+snr_drift_vals=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
-speed_vals=(0 10 20 40)
+speed_vals=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -47,7 +49,7 @@ beta_balance_vals=(0)
 
 tw_vals=(0.0)
 
-tsyn_fallback_iters_vals=(1)
+tsyn_fallback_iters_vals=(0)
 
 escnn_ekf_sigma_r_vals=(0.5)
 escnn_ekf_alpha_vals=(0.99)
@@ -68,12 +70,12 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(2)
+mcs_vals=(2 4 5)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
 n_users_vals=(1)
-num_res_vals=(24)
+num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
@@ -83,6 +85,9 @@ all_config_files=()
 for seed in "${seeds[@]}"; do
   for cfo in "${cfos[@]}"; do
     echo "Generating configs for seed=$seed, cfo=$cfo"
+
+    for cfo_drift in "${cfo_drift_vals[@]}"; do
+    for snr_drift in "${snr_drift_vals[@]}"; do
 
     for speed in "${speed_vals[@]}"; do
       speedtag="spd${speed}"
@@ -246,11 +251,13 @@ for seed in "${seeds[@]}"; do
 
                                                                     for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_sd${snr_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                                           -e "s/^snr:.*/snr: $snr/" \
+                                                                          -e "s/^snr_drift:.*/snr_drift: $snr_drift/" \
                                                                           -e "s/^cfo:.*/cfo: $cfo/" \
+                                                                          -e "s/^cfo_drift:.*/cfo_drift: $cfo_drift/" \
                                                                           -e "s/^speed:.*/speed: $speed/" \
                                                                           -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
                                                                           -e "s/^use_film:.*/use_film: $use_film/" \
@@ -320,6 +327,9 @@ for seed in "${seeds[@]}"; do
         done
       done
     done  # speed
+
+    done  # snr_drift
+    done  # cfo_drift
 
     echo "Finished seed=$seed cfo=$cfo"
   done

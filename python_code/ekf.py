@@ -112,7 +112,7 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
                     'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = (f"{chan_text}_sp={conf.speed}_{mod_text}_REs={conf.num_res}_UEs={n_users}"
-                     f"_ant={conf.n_ants}_cfo={conf.cfo}_cfod={getattr(conf, 'cfo_drift', 0.0)}"
+                     f"_ant={conf.n_ants}_cfo={conf.cfo:.2f}_cfod={getattr(conf, 'cfo_drift', 0.0):.2f}"
                      f"_kr={conf.kernel_size}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')

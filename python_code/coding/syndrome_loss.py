@@ -138,21 +138,72 @@ class SyndromeLoss:
         remap = np.full(self.num_checks, -1, dtype=np.int64)
         remap[np.flatnonzero(usable)] = np.arange(self.num_usable)
 
+        # Non-circular check set for fallback mode: a check that itself supplied a
+        # peeling message to one of its own punctured neighbours (self.fallback_iters
+        # rounds) would then be "verified" against a value it helped fabricate - for a
+        # check with exactly one punctured neighbour resolved solely by itself this is
+        # provably vacuous (p_j = (prod of its other members)^2 >= 0 always, rewarding
+        # LLR magnitude regardless of sign/correctness). This is purely structural
+        # (which positions are punctured, and the peeling round budget) - it doesn't
+        # depend on the actual LLR values, since punctured positions always start at
+        # exactly t=0 - so it's precomputed once here, mirroring the per-round
+        # zero_count==1 logic in _estimate_punctured_t exactly (synchronous rounds:
+        # each round's contributions are decided from the state at the round's start,
+        # applied afterwards, stopping early at a fixpoint).
+        check_to_cols = {}
+        for r_, c_ in zip(rows.tolist(), cols.tolist()):
+            check_to_cols.setdefault(r_, []).append(c_)
+        resolved = filled.copy()
+        contributing_checks = np.zeros(self.num_checks, dtype=bool)
+        for _ in range(max(int(self.fallback_iters), 0)):
+            newly = []
+            for j, members in check_to_cols.items():
+                unresolved = [m for m in members if not resolved[m]]
+                if len(unresolved) == 1:
+                    newly.append(unresolved[0])
+                    contributing_checks[j] = True
+            if not newly:
+                break
+            resolved[newly] = True
+        all_resolved = np.array([all(resolved[m] for m in check_to_cols.get(j, []))
+                                  for j in range(self.num_checks)], dtype=bool)
+        clean = all_resolved & ~contributing_checks   # includes usable checks trivially
+        self.num_clean = int(clean.sum())
+        if self.fallback_iters > 0:
+            n_dead = self.num_checks - int(all_resolved.sum())
+            n_self = int(contributing_checks.sum())
+            print(f"[{self.tag}] fallback check quality: {self.num_clean}/{self.num_checks} clean "
+                  f"(non-circular), {n_self} self-referential (excluded - would be tested against "
+                  f"a value they helped fabricate), {n_dead} dead (an unresolved punctured "
+                  f"neighbour, excluded)", flush=True)
+
+        keep_c = clean[rows]
+        rows_c, cols_c = rows[keep_c], cols[keep_c]
+        remap_c = np.full(self.num_checks, -1, dtype=np.int64)
+        remap_c[np.flatnonzero(clean)] = np.arange(self.num_clean)
+
         dev = torch.device(device)
         self.device = dev
         self.tx_to_mother = torch.as_tensor(tx_to_mother, dtype=torch.long, device=dev)
         self.filler_idx = torch.as_tensor(filler_idx, dtype=torch.long, device=dev)
         self.edge_check_u = torch.as_tensor(remap[rows_u], dtype=torch.long, device=dev)
         self.edge_bit_u = torch.as_tensor(cols_u, dtype=torch.long, device=dev)
-        # Full edge set (all checks) for the punctured fallback path
+        # Full edge set (all checks) - used only inside _estimate_punctured_t, which
+        # legitimately needs every check touching a punctured bit to estimate it.
         self.edge_check_all = torch.as_tensor(rows, dtype=torch.long, device=dev)
         self.edge_bit_all = torch.as_tensor(cols, dtype=torch.long, device=dev)
+        # Clean edge set (all checks) - used for the actual loss/satisfaction output in
+        # fallback mode, so a check is never scored against a punctured neighbour it (or
+        # a round of peeling seeded by it) helped estimate.
+        self.edge_check_clean = torch.as_tensor(remap_c[rows_c], dtype=torch.long, device=dev)
+        self.edge_bit_clean = torch.as_tensor(cols_c, dtype=torch.long, device=dev)
         self.punctured_idx = torch.as_tensor(self._punctured_np, dtype=torch.long, device=dev)
 
     def _to(self, device):
         if self.device != device:
             for name in ('tx_to_mother', 'filler_idx', 'edge_check_u', 'edge_bit_u',
-                         'edge_check_all', 'edge_bit_all', 'punctured_idx'):
+                         'edge_check_all', 'edge_bit_all', 'edge_check_clean',
+                         'edge_bit_clean', 'punctured_idx'):
                 setattr(self, name, getattr(self, name).to(device))
             self.device = device
 
@@ -257,10 +308,13 @@ class SyndromeLoss:
 
     def p_vector(self, llr_tx: torch.Tensor) -> torch.Tensor:
         """Soft check-satisfaction p_j = prod_{i in N_j} t_i for a batch of transmitted-LLR
-        codewords, shape (B, n) -> (B, num_usable) [or (B, num_checks) in fallback mode, with
+        codewords, shape (B, n) -> (B, num_usable) [or (B, num_clean) in fallback mode, with
         punctured positions filled by the erasure-peeling estimate]. Checks touching a
         punctured bit are already excluded in restricted mode (num_usable), so callers never
-        see an identically-zero row from puncturing.
+        see an identically-zero row from puncturing. Fallback mode further excludes any check
+        that itself contributed to resolving one of its own punctured neighbours (self-
+        referential - see the "clean" set built in __init__) and any check with a neighbour
+        that never resolved (dead - always p_j=0) - only "clean" checks are scored.
 
         Shared by loss() (training-time L_synd) and the EKF measurement model in
         ekf_tracker.py, so both use exactly one implementation of what the syndrome
@@ -271,7 +325,7 @@ class SyndromeLoss:
             t_punc = self._estimate_punctured_t(t.detach(), self.fallback_iters)
             t = t.clone()
             t[:, self.punctured_idx] = t_punc[:, self.punctured_idx]
-            return self._check_products(t, self.edge_check_all, self.edge_bit_all, self.num_checks)
+            return self._check_products(t, self.edge_check_clean, self.edge_bit_clean, self.num_clean)
         return self._check_products(t, self.edge_check_u, self.edge_bit_u, self.num_usable)
 
     def loss(self, llr_tx: torch.Tensor) -> torch.Tensor:
@@ -283,16 +337,17 @@ class SyndromeLoss:
     def hard_satisfaction(self, llr_tx: torch.Tensor) -> float:
         """Fraction of checks satisfied by the hard decisions (blind health metric).
 
-        Restricted mode: usable checks only. Fallback mode: all checks, with
-        punctured bits filled by the erasure-peeling estimate (any positions
-        left undetermined after all rounds count as 0, so the metric is
-        noisier there)."""
+        Restricted mode: usable checks only. Fallback mode: the "clean" checks only
+        (punctured bits filled by the erasure-peeling estimate, same as p_vector) -
+        self-referential and dead checks are excluded here too, so this diagnostic
+        isn't inflated by checks that are trivially self-consistent or permanently
+        constant."""
         mother = self.map_to_mother(llr_tx)
         t = torch.tanh(mother.clamp(-self.LLR_CLAMP, self.LLR_CLAMP) / 2.0)
         if self.fallback_iters > 0:
             t = self._estimate_punctured_t(t, self.fallback_iters)
             bits = (t < 0).to(torch.long)    # classical: negative => bit 1
-            edge_check, edge_bit, num_checks = self.edge_check_all, self.edge_bit_all, self.num_checks
+            edge_check, edge_bit, num_checks = self.edge_check_clean, self.edge_bit_clean, self.num_clean
         else:
             bits = (mother < 0).to(torch.long)
             edge_check, edge_bit, num_checks = self.edge_check_u, self.edge_bit_u, self.num_usable

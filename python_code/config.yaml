@@ -11,7 +11,6 @@ data_size: 200  # evaluate.py only: if > 0, use this directly as data_size (bits
 num_res: 96
 cfo: 0
 cfo_drift: 0  # ekf.py only: CFO drift rate in scs/sec. cfo (above) is the base/starting value; each group advances it by cfo_drift * (elapsed slots * SLOT_LENGTH_SEC), constant within a group of slots_per_group and stepping at group boundaries - same mechanism as channel_drift_base_index. Can be negative.
-snr_drift: 0  # ekf.py only: SNR drift rate in dB/sec, same mechanism as cfo_drift. snr (above) is the base/starting value AND what load_pretrained_weights still matches against (unaffected by snr_drift) - each group's noise_var is instead derived from snr + snr_drift * (elapsed slots * SLOT_LENGTH_SEC). Can be negative.
 clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees

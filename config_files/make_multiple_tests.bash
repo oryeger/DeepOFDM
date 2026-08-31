@@ -15,7 +15,6 @@ seeds=(123)
 snrs=($(seq -5 30))
 cfos=(0)
 cfo_drift_vals=(0 0.75)
-snr_drift_vals=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -87,7 +86,6 @@ for seed in "${seeds[@]}"; do
     echo "Generating configs for seed=$seed, cfo=$cfo"
 
     for cfo_drift in "${cfo_drift_vals[@]}"; do
-    for snr_drift in "${snr_drift_vals[@]}"; do
 
     for speed in "${speed_vals[@]}"; do
       speedtag="spd${speed}"
@@ -251,11 +249,10 @@ for seed in "${seeds[@]}"; do
 
                                                                     for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_sd${snr_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                                           -e "s/^snr:.*/snr: $snr/" \
-                                                                          -e "s/^snr_drift:.*/snr_drift: $snr_drift/" \
                                                                           -e "s/^cfo:.*/cfo: $cfo/" \
                                                                           -e "s/^cfo_drift:.*/cfo_drift: $cfo_drift/" \
                                                                           -e "s/^speed:.*/speed: $speed/" \
@@ -328,7 +325,6 @@ for seed in "${seeds[@]}"; do
       done
     done  # speed
 
-    done  # snr_drift
     done  # cfo_drift
 
     echo "Finished seed=$seed cfo=$cfo"

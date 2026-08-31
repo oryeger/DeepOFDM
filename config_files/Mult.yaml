@@ -11,7 +11,6 @@ data_size: -1  # Regular pass (evaluate.py): if > 0, use this directly as data_s
 num_res: 24
 cfo: 0
 cfo_drift: 0.75
-snr_drift: 0
 clip_percentage_in_tx: 100
 iqmm_gain: 1 # in dB
 iqmm_phase: 5 # in degrees

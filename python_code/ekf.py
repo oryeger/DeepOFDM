@@ -31,6 +31,13 @@ Usage:
 
 Relevant config keys (see config.yaml for the full list/defaults):
     load_escnn_weights_tag       - required: the pretrained checkpoint to track from
+    mod_pilot                     - >0: run a checkpoint trained at a higher constellation
+                                    (network sized num_bits_pilot=log2(mod_pilot)) against real
+                                    data at mcs's smaller modulation. LmmseDemod pads the real
+                                    qm bits/symbol out to num_bits_pilot (extra channels at
+                                    LLR=0/prob=0.5); only QPSK-under-16QAM/16QAM-under-64QAM
+                                    (qm=2 or 4) are supported, matching evaluate.py's AUGMENT_LMMSE
+                                    path. <=0 (default): network sized to mcs's own modulation.
     escnn_load_freeze            - which params the EKF is allowed to move
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path)
@@ -69,6 +76,7 @@ from python_code.detectors.lmmse.lmmse_equalizer import ChannelEstimate, LmmseDe
 from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
 from python_code.utils.constants import (CP, FFT_size, FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
                                           NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC)
+from python_code.utils.probs_utils import relevant_indices
 
 # M-QAM average-energy normalization constants (2*(M-1)/3), same table evaluate.py
 # uses to turn an SNR into a noise variance.
@@ -116,6 +124,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
                      f"_kr={conf.kernel_size}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
+    if getattr(conf, 'mod_pilot', -1) > 0:
+        title_string += '_mp=' + str(conf.mod_pilot)
     if conf.mcs > -1:
         title_string += f'_R={code_rate:.2f}'
     if conf.load_escnn_weights_tag:
@@ -234,15 +244,22 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
 
 
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
-              qm: int, mod_data: int, n_users: int, n_ants: int, num_res: int, ldpc_k: int, ldpc_n: int,
-              noise_var: float, h: np.ndarray, group_size_slots: int, group_idx: int, base_index: int,
-              base_cfo: float = 0.0, cfo_drift: float = 0.0, save_diag: bool = False) -> dict:
+              qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
+              ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
+              group_idx: int, base_index: int, base_cfo: float = 0.0, cfo_drift: float = 0.0,
+              save_diag: bool = False) -> dict:
     """Generate, transmit, LMMSE-estimate/equalize, EKF-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization - plus one extra
     calibration slot at the same channel_drift_base_index, used only to estimate H for LMMSE (and,
     via AUGMENT_LMMSE, to feed ESCNN's auxiliary input). The calibration slot is never scored
     and never enters the EKF, so LMMSE's estimate can't leak the answer for the slots being
     judged (see the augmentation-leakage discussion this replaces).
+
+    qm is the real data modulation (mcs); num_bits_pilot is the ESCNN network's own bit-width
+    (>= qm, see conf.mod_pilot in main()). When they differ, LmmseDemod pads the qm real bits/symbol
+    out to num_bits_pilot (extra channels at LLR=0/prob=0.5, mirroring evaluate.py's AUGMENT_LMMSE
+    path), and real_bit_idx below picks the qm real channels back out of the network's
+    num_bits_pilot-wide output for BER/BLER/MI scoring.
 
     save_diag gates the noise-free reference-channel diagnostics (an extra transmit + per-RE
     LS estimate, only worth paying for at the handful of SNRs in conf.save_loss_plot_snr - see
@@ -294,8 +311,12 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     rx_c = torch.from_numpy(rx)
 
     num_symbols = rx.shape[0]
-    detected_word_lmmse = np.zeros((num_symbols * qm, n_users, num_res))
-    llrs_mat_lmmse = np.zeros((num_symbols, qm * n_users, num_res, 1))
+    # pilot_data_ratio/real_bit_idx: see the num_bits_pilot docstring note above. ratio=1.0 (the
+    # default, mod_pilot unset) makes real_bit_idx the identity arange(qm) - a no-op.
+    pilot_data_ratio = num_bits_pilot / qm
+    real_bit_idx = relevant_indices(num_bits_pilot, pilot_data_ratio)
+    detected_word_lmmse = np.zeros((num_symbols * num_bits_pilot, n_users, num_res))
+    llrs_mat_lmmse = np.zeros((num_symbols, num_bits_pilot * n_users, num_res, 1))
     # Per-RE diagnostics for the EKF-divergence investigation: |H| and angle(H) (calibration-slot
     # channel estimate, noisy and noise-free) and post-equalization SINR, all independent of the
     # ESCNN/syndrome measurement the EKF actually tracks - a candidate "trust signal" for
@@ -312,7 +333,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     for re in range(num_res):
         H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, NUM_SYMB_PER_SLOT, re)
         equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var, re)
-        LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, 1)
+        LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio)
         h_abs_per_re[re] = H.abs().cpu().numpy()
         h_angle_per_re[re] = H.angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
@@ -349,9 +370,9 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     # slot's own channel estimate, never from the data slots being scored below - no leakage.
     probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse, dtype=torch.float32))
 
-    escnn_trainer.ekf_predict_update(rx_real_t, qm, n_users, conf.iterations, probs_for_aug)
-    _, llrs_mat_list = escnn_trainer._forward(rx_real_t, qm, n_users, conf.iterations, probs_for_aug)
-    escnn_llrs = llrs_mat_list[-1].squeeze(-1).cpu().numpy()   # (symbols, qm*n_users, num_res)
+    escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
+    _, llrs_mat_list = escnn_trainer._forward(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
+    escnn_llrs = llrs_mat_list[-1].squeeze(-1).cpu().numpy()   # (symbols, num_bits_pilot*n_users, num_res)
 
     # BER (hard decisions) + build the LDPC-decoder-input LLR streams BLER/MI need below.
     # Stream layout matches SyndromeLoss/_syndrome_component's convention (symbol-major, then
@@ -364,20 +385,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     tx_stream = np.zeros((n_users, group_size_slots * ldpc_n))
     for user in range(n_users):
         tx_user = tx_bits[:, user, :].reshape(num_symbols, qm, num_res)
-        escnn_user = (escnn_llrs[:, user * qm:(user + 1) * qm, :] > 0).astype(int)
+
+        # Select the qm real bit-channels back out of each user's num_bits_pilot-wide block
+        # (real_bit_idx is the identity when num_bits_pilot==qm, i.e. mod_pilot unset).
+        escnn_user_llr = escnn_llrs[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, :][:, real_bit_idx, :]
+        escnn_user = (escnn_user_llr > 0).astype(int)
         n_err_escnn = int((escnn_user != tx_user).sum())
         ber_escnn_num += n_err_escnn
         ber_escnn_den += tx_user.size
         ber_escnn_user.append(n_err_escnn / tx_user.size)
 
-        lmmse_user = detected_word_lmmse[:, user, :].reshape(num_symbols, qm, num_res)
+        lmmse_user = detected_word_lmmse[:, user, :].reshape(num_symbols, num_bits_pilot, num_res)[:, real_bit_idx, :]
         n_err_lmmse = int((lmmse_user != tx_user).sum())
         ber_lmmse_num += n_err_lmmse
         ber_lmmse_den += tx_user.size
         ber_lmmse_user.append(n_err_lmmse / tx_user.size)
 
-        escnn_stream[user] = escnn_llrs[:, user * qm:(user + 1) * qm, :].reshape(-1)
-        lmmse_stream[user] = llrs_mat_lmmse[:, user * qm:(user + 1) * qm, :, 0].reshape(-1)
+        escnn_stream[user] = escnn_user_llr.reshape(-1)
+        lmmse_llr_full = llrs_mat_lmmse[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, :, 0]
+        lmmse_stream[user] = lmmse_llr_full[:, real_bit_idx, :].reshape(-1)
         tx_stream[user] = tx_user.reshape(-1)
 
     # BLER: per-slot LDPC decode + CRC check, same mechanism evaluate.py uses
@@ -438,6 +464,24 @@ def main():
     crc = CRC5GCodec(crc_length)
     rng = np.random.default_rng(seed=conf.seed)
 
+    # num_bits_pilot: the ESCNN network's own bit-width (mirrors evaluate.py's num_bits_pilot,
+    # evaluate.py:2720-2725). Set conf.mod_pilot to a higher order than mcs's real modulation
+    # (e.g. mod_pilot=16 with mcs=2/QPSK) to run a checkpoint trained at that higher order
+    # against the real smaller-modulation data - run_group's LmmseDemod call pads the qm real
+    # bits/symbol out to num_bits_pilot (extra channels at LLR=0/prob=0.5) and selects them back
+    # out for scoring, same as evaluate.py's AUGMENT_LMMSE path for this case.
+    if conf.mod_pilot > 0:
+        num_bits_pilot = int(np.log2(conf.mod_pilot))
+    else:
+        num_bits_pilot = qm
+    if num_bits_pilot < qm:
+        raise ValueError(f"mod_pilot implies num_bits_pilot={num_bits_pilot} < mcs's num_bits_data={qm} - "
+                          f"the network must be sized for at least as many bits as the real data.")
+    if num_bits_pilot != qm and qm not in (2, 4):
+        raise NotImplementedError(f"LmmseDemod only supports padding real data of num_bits_data=2 (QPSK) or "
+                                   f"4 (16QAM) up to a wider num_bits_pilot={num_bits_pilot}; mcs={conf.mcs} "
+                                   f"gives num_bits_data={qm}.")
+
     noise_var = 10 ** (-0.1 * conf.snr) * CONSTELLATION_FACTOR[mod_data]
     h = SEDChannel.calculate_channel(n_ants, n_users, num_res)
     # Same SNR whitelist evaluate.py uses to gate its (also expensive) per-SNR loss/LLR plots
@@ -445,8 +489,8 @@ def main():
     # transmit+estimate and the H5 file at those SNRs, not every SNR in a sweep.
     save_diag = conf.snr in getattr(conf, 'save_loss_plot_snr', [])
 
-    escnn_trainer = ESCNNTrainer(qm, n_users, n_ants)
-    escnn_trainer._initialize_detector(qm, n_users, n_ants)
+    escnn_trainer = ESCNNTrainer(num_bits_pilot, n_users, n_ants)
+    escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
     load_pretrained_weights(escnn_trainer)
 
     group_size_slots = max(1, int(getattr(conf, 'slots_per_group', 1)))
@@ -490,11 +534,13 @@ def main():
 
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group, starting at "
           f"channel_drift_base_index={base_index}, cfo={base_cfo}{'' if cfo_drift == 0 else f' (drift={cfo_drift} scs/sec)'}, "
-          f"SNR={conf.snr}dB, mcs={conf.mcs}", flush=True)
+          f"SNR={conf.snr}dB, mcs={conf.mcs}"
+          f"{'' if num_bits_pilot == qm else f' (mod_pilot={conf.mod_pilot} -> num_bits_pilot={num_bits_pilot}, padded from qm={qm})'}",
+          flush=True)
 
     results = []
     for g in range(num_groups):
-        stats = run_group(escnn_trainer, codec, crc, rng, qm, mod_data, n_users, n_ants, num_res,
+        stats = run_group(escnn_trainer, codec, crc, rng, qm, num_bits_pilot, mod_data, n_users, n_ants, num_res,
                            ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index,
                            base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
         slot_lo = base_index + g * group_size_slots

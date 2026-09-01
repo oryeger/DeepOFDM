@@ -430,9 +430,9 @@ def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
     checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
-    num_res and modulation (derived from mcs if set, else mod_data), and set
-    conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
-    of the filename every time the config changes).
+    num_res and modulation (mod_pilot's modulation if set - the network's own architecture width
+    - else mcs if set, else mod_data), and set conf.load_escnn_weights_tag to its tag (so the
+    caller doesn't have to hand-copy a hash out of the filename every time the config changes).
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
     which_augment written raw vs mapped to its short code), so this matches on the handful of
@@ -463,19 +463,29 @@ def resolve_auto_escnn_weights_tag():
     augment_tokens = {conf.which_augment, augment_map.get(conf.which_augment, conf.which_augment)}
     augment_re = re.compile(r'(?:^|_)(' + '|'.join(re.escape(t) for t in augment_tokens) + r')(?:_|$)')
 
-    # Modulation, derived the same way run_evaluate() does (mcs takes precedence over mod_data),
-    # and matched as a standalone '_'-delimited token the way _build_escnn_filename_suffix emits it.
+    # Modulation to search for: a saved checkpoint's filename always encodes the modulation it
+    # was actually *trained* at (mod_text in run_evaluate(), evaluate.py:588-594 - derived from
+    # mcs/mod_data at save time, mod_pilot plays no part in saving). But when mod_pilot is set at
+    # *load* time (running a checkpoint trained at a higher constellation against smaller real
+    # data - see mod_pilot's config.yaml comment), the network - and so the checkpoint that must
+    # match it - is sized by mod_pilot, not by the current run's mcs. So search by mod_pilot's
+    # modulation when set, falling back to mcs/mod_data (run_evaluate()'s own fallback) otherwise.
     if conf.mcs > -1:
         _qm, _ = get_mcs(conf.mcs)
-        mod_data = int(2 ** _qm)
+        num_bits_data = int(_qm)
     else:
-        mod_data = conf.mod_data
-    if mod_data == 2:
+        num_bits_data = int(np.log2(conf.mod_data))
+    if conf.mod_pilot > 0:
+        num_bits_pilot = int(np.log2(conf.mod_pilot))
+    else:
+        num_bits_pilot = num_bits_data
+    mod_order = int(2 ** num_bits_pilot)
+    if mod_order == 2:
         mod_text = 'BPSK'
-    elif mod_data == 4:
+    elif mod_order == 4:
         mod_text = 'QPSK'
     else:
-        mod_text = f'{mod_data}Q'
+        mod_text = f'{mod_order}Q'
     mod_re = re.compile(r'(?:^|_)' + re.escape(mod_text) + r'(?:_|$)')
 
     matches = []

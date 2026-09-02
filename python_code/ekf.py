@@ -1,30 +1,40 @@
 #!/usr/bin/env python
 """
-ekf.py -- Streaming per-group channel-drift + unsupervised EKF tracking.
+ekf.py -- Streaming per-group channel-drift + EKF/SGD parameter tracking.
 
 A deliberately different loop from evaluate.py's run_evaluate(): no train/val/test
-split, no supervised training, and the channel genuinely changes over the course of
-the run instead of being fixed per block. Every group of data slots is treated as
-fully known (a pilot) for BER scoring, but LMMSE's channel estimate (and the soft
-probs fed to ESCNN via AUGMENT_LMMSE) comes from a *separate*, dedicated calibration
-slot at the same channel realization - not from the slots being scored - so there's
-no leakage between "what LMMSE/ESCNN get to see" and "what gets judged."
+split, and the channel genuinely changes over the course of the run instead of
+being fixed per block. Every group of data slots is treated as fully known (a
+pilot) for BER scoring, but LMMSE's channel estimate (and the soft probs fed to
+ESCNN via AUGMENT_LMMSE) comes from a *separate*, dedicated block of calibration
+slots at the same channel realization - not from the slots being scored - so
+there's no leakage between "what LMMSE/ESCNN get to see" and "what gets judged."
 
-Unit of work is a *group*: conf.slots_per_group data slots plus one
-calibration slot, all sharing one channel realization (channel_drift_base_index only
-advances between groups, not within one). The data slots get exactly one EKF
-predict() + one sequential update() per slot (see ESCNNTrainer.ekf_predict_update,
-unchanged - handing it a group's worth of data makes it resolve num_slots == group
-size on its own); the calibration slot never enters the EKF. Setting
-slots_per_group=1 makes every data slot its own group, i.e. a new
-channel every slot (plus its own calibration slot).
+Unit of work is a *group*: conf.slots_per_group data slots plus
+conf.calib_slots_per_group calibration slots, all sharing one channel realization
+(channel_drift_base_index only advances between groups, not within one). What
+happens to the calibration slots - and to whichever params escnn_load_freeze
+leaves unfrozen - depends on conf.weights_track_mode:
+  'ekf' (default) - unsupervised, syndrome-driven: the data slots get exactly one
+      EKF predict() + one sequential update() per slot (see
+      ESCNNTrainer.ekf_predict_update, unchanged - handing it a group's worth of
+      data makes it resolve num_slots == group size on its own); the calibration
+      slots are LMMSE-only and never enter the EKF.
+  'sgd' - ordinary supervised BCEWithLogitsLoss training (ESCNNTrainer.
+      _online_training, the same code path evaluate.py's normal pilot training
+      uses) against the calibration slots' own known (uncoded) bits - a
+      ground-truth upper-bound baseline to compare the blind EKF against. The
+      data slots are never trained on in this mode either, so both modes score
+      identically on data neither has seen.
+Setting slots_per_group=1 makes every data slot its own group, i.e. a new
+channel every slot (plus its own calibration block).
 
-Reuses, unmodified: ESCNNTrainer (construction/weight loading/freezing/EKF/_forward),
-EkfParamTracker, SyndromeLoss, SEDChannel (channel generation, including the TDL
-channel_drift_base_index machinery), ChannelEstimate/LmmseDemod, encode_pilots, the
-LDPC/CRC codecs. Nothing here duplicates any of that - this file is only the
-orchestration loop for a shape those pieces don't otherwise support (streaming,
-calibration-slot LMMSE, no training).
+Reuses, unmodified: ESCNNTrainer (construction/weight loading/freezing/EKF/
+_online_training/_forward), EkfParamTracker, SyndromeLoss, SEDChannel (channel
+generation, including the TDL channel_drift_base_index machinery), ChannelEstimate/
+LmmseDemod, encode_pilots, the LDPC/CRC codecs. Nothing here duplicates any of
+that - this file is only the orchestration loop for a shape those pieces don't
+otherwise support (streaming, calibration-slot LMMSE, per-group tracking).
 
 Usage:
     python -m python_code.ekf --config path/to/config.yaml
@@ -38,9 +48,18 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     LLR=0/prob=0.5); only QPSK-under-16QAM/16QAM-under-64QAM
                                     (qm=2 or 4) are supported, matching evaluate.py's AUGMENT_LMMSE
                                     path. <=0 (default): network sized to mcs's own modulation.
-    escnn_load_freeze            - which params the EKF is allowed to move
+    escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
+    weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF) or 'sgd'
+                                    (supervised BCE training on the calibration slots -
+                                    see module docstring above)
+    calib_slots_per_group         - calibration slots per group (LMMSE CE always; also
+                                    'sgd' mode's training data). Default 1; raise well
+                                    above 1 for 'sgd' - a single slot's worth of bits is
+                                    unlikely to move the weights via gradient descent
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
-                                    block-based evaluate.py path)
+                                    block-based evaluate.py path); 'ekf' mode only
+    epochs                        - 'sgd' mode only: epochs of full training per group
+                                    (same knob evaluate.py's own pilot training uses)
     slots_per_group               - slots per group (= slots per channel realization, and per CFO value)
     channel_drift_base_index     - starting slot offset into the TDL trajectory
     cfo                           - base/starting CFO (scs); constant within a group
@@ -138,6 +157,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_sq=' + str(getattr(conf, 'escnn_ekf_sigma_q', 0.01))
     title_string += '_sr=' + str(getattr(conf, 'escnn_ekf_sigma_r', 0.5))
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
+    title_string += '_trk=' + getattr(conf, 'weights_track_mode', 'ekf')
+    title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:
@@ -278,12 +299,19 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     conf.set_value('channel_drift_base_index', base_index + elapsed_slots)
     conf.set_value('cfo', base_cfo + cfo_drift * elapsed_slots * SLOT_LENGTH_SEC)
 
-    # Calibration slot: plain random bits (never decoded/scored, so no need for LDPC coding).
-    calib_bits = rng.integers(0, 2, size=(NUM_SYMB_PER_SLOT * qm, n_users, num_res))
-    _, rx_ce_calib, s_orig_calib = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, noise_var)
-    calib_cfo_comp = _genie_cfo_comp_vector(1)
+    weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
+    calib_slots = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
+
+    # Calibration slots: plain random bits (never decoded/scored, so no need for LDPC coding) -
+    # used for LMMSE channel estimation regardless of weights_track_mode, and (when
+    # weights_track_mode == 'sgd') as the ESCNN training data too, since plain BCE needs no code
+    # structure. calib_slots_per_group generalizes what used to be a single fixed slot.
+    calib_bits = rng.integers(0, 2, size=(calib_slots * NUM_SYMB_PER_SLOT * qm, n_users, num_res))
+    rx_calib, rx_ce_calib, s_orig_calib = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, noise_var)
+    calib_cfo_comp = _genie_cfo_comp_vector(calib_slots)
     if calib_cfo_comp is not None:
         rx_ce_calib = rx_ce_calib * calib_cfo_comp[None, :, None, None]
+        rx_calib = rx_calib * calib_cfo_comp[:, None, None]
     rx_ce_calib_t = torch.from_numpy(rx_ce_calib)
     s_orig_calib_t = torch.from_numpy(s_orig_calib)
 
@@ -317,6 +345,21 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     real_bit_idx = relevant_indices(num_bits_pilot, pilot_data_ratio)
     detected_word_lmmse = np.zeros((num_symbols * num_bits_pilot, n_users, num_res))
     llrs_mat_lmmse = np.zeros((num_symbols, num_bits_pilot * n_users, num_res, 1))
+
+    # sgd tracking mode trains directly against tx bits, so it needs num_bits_pilot == qm - no
+    # padded (LLR=0/prob=0.5) channels for a supervised loss to be trained against. The EKF path
+    # never needs this (its syndrome measurement is unsupervised), which is why mod_pilot padding
+    # only works with weights_track_mode == 'ekf' today.
+    if weights_track_mode == 'sgd' and num_bits_pilot != qm:
+        raise NotImplementedError(f"weights_track_mode='sgd' doesn't support mod_pilot padding yet "
+                                   f"(num_bits_pilot={num_bits_pilot} != qm={qm}) - the padded "
+                                   f"channels have no real tx bits to train a supervised loss "
+                                   f"against. Use weights_track_mode='ekf', or set mod_pilot<=0.")
+    if weights_track_mode == 'sgd':
+        rx_calib_c = torch.from_numpy(rx_calib)
+        num_calib_symbols = rx_calib.shape[0]
+        detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
+        llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
     # Per-RE diagnostics for the EKF-divergence investigation: |H| and angle(H) (calibration-slot
     # channel estimate, noisy and noise-free) and post-equalization SINR, all independent of the
     # ESCNN/syndrome measurement the EKF actually tracks - a candidate "trust signal" for
@@ -331,16 +374,24 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     h_angle_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
     for re in range(num_res):
-        H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, NUM_SYMB_PER_SLOT, re)
+        H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, calib_slots * NUM_SYMB_PER_SLOT, re)
         equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var, re)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio)
         h_abs_per_re[re] = H.abs().cpu().numpy()
         h_angle_per_re[re] = H.angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
         if save_diag:
-            H_true = ChannelEstimate(rx_ce_calib_true_t, s_orig_calib_true_t, NUM_SYMB_PER_SLOT, re)
+            H_true = ChannelEstimate(rx_ce_calib_true_t, s_orig_calib_true_t, calib_slots * NUM_SYMB_PER_SLOT, re)
             h_abs_true_per_re[re] = H_true.abs().cpu().numpy()
             h_angle_true_per_re[re] = H_true.angle().cpu().numpy()
+        if weights_track_mode == 'sgd':
+            # Same H (this calibration block's own estimate) equalizing this same block's own
+            # symbols - an AUGMENT_LMMSE prior for what ESCNN is about to train on, exactly the
+            # relationship evaluate.py's own pilot training has (LMMSE prior computed from the
+            # same region being trained), not the scored data block above.
+            equalized_calib, postEqSINR_calib = lmmse_equalize_with_H(H, rx_calib_c, noise_var, re)
+            LmmseDemod(equalized_calib, postEqSINR_calib, qm, re, llrs_mat_lmmse_calib,
+                       detected_word_lmmse_calib, pilot_data_ratio)
 
     # Diagnostic only: zero out LMMSE's LLRs at the given RE indices (e.g. RE 0, suspected of an
     # anomalous |H| - see plot_channel_diag.py) before they're used for anything downstream -
@@ -370,7 +421,27 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     # slot's own channel estimate, never from the data slots being scored below - no leakage.
     probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse, dtype=torch.float32))
 
-    escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
+    if weights_track_mode == 'sgd':
+        # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
+        # raises on an empty param list) - same "run the loaded weights statically" fallback
+        # ekf_predict_update uses when escnn_load_freeze leaves nothing trainable.
+        escnn_frozen = not any(p.requires_grad for nets in escnn_trainer.detector for net in nets
+                                for p in net.parameters())
+        if escnn_frozen:
+            escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing "
+                                           "trainable - skipping SGD update (running loaded "
+                                           "weights statically).", tag='sgd')
+        else:
+            rx_calib_real = np.empty((rx_calib.shape[0], n_ants * 2, num_res), dtype=np.float32)
+            rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
+            rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
+            rx_calib_real_t = torch.from_numpy(rx_calib_real)
+            probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
+            tx_calib_t = torch.from_numpy(calib_bits.astype(np.float32))
+            escnn_trainer._online_training(tx_calib_t, rx_calib_real_t, num_bits_pilot, n_users,
+                                            conf.iterations, conf.epochs, False, probs_for_aug_calib)
+    else:
+        escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
     _, llrs_mat_list = escnn_trainer._forward(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
     escnn_llrs = llrs_mat_list[-1].squeeze(-1).cpu().numpy()   # (symbols, num_bits_pilot*n_users, num_res)
 
@@ -442,7 +513,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Streaming channel-drift + unsupervised EKF tracking')
+    parser = argparse.ArgumentParser(description='Streaming channel-drift + EKF/SGD parameter tracking')
     parser.add_argument('--config', type=str, default=None, help='Path to config YAML file')
     args = parser.parse_args()
 
@@ -532,7 +603,10 @@ def main():
                           f"(slots_per_group={group_size_slots} slots); raise pilot_size "
                           f"or lower slots_per_group.")
 
-    print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group, starting at "
+    weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
+    calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
+    print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group "
+          f"+ {calib_slots_per_group} calib slot(s)/group, track_mode={weights_track_mode}, starting at "
           f"channel_drift_base_index={base_index}, cfo={base_cfo}{'' if cfo_drift == 0 else f' (drift={cfo_drift} scs/sec)'}, "
           f"SNR={conf.snr}dB, mcs={conf.mcs}"
           f"{'' if num_bits_pilot == qm else f' (mod_pilot={conf.mod_pilot} -> num_bits_pilot={num_bits_pilot}, padded from qm={qm})'}",

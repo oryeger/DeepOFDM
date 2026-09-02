@@ -12,13 +12,13 @@ base_name=$(basename "$input_file" .yaml)
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
-snrs=($(seq -5 30))
+snrs=($(seq 5 45))
 cfos=(0)
-cfo_drift_vals=(0 0.75)
+cfo_drift_vals=(0.0)
+speed_vals=(0 10)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
-speed_vals=(0)
 
 clip_percentage_in_tx_vals=(100)
 use_film_vals=(False)
@@ -55,6 +55,13 @@ escnn_ekf_alpha_vals=(0.99)
 
 channel_drift_base_index_vals=(0)
 
+# ekf.py only
+weights_track_mode_vals=(
+  'ekf'
+#  'sgd'
+)
+calib_slots_per_group_vals=(1)
+
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
 
@@ -69,10 +76,10 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(2 4 5)
+mcs_vals=(2)
 override_noise_var_vals=(False)
 
-mod_pilot_vals=(-1)
+mod_pilot_vals=(16)
 n_users_vals=(1)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
@@ -247,14 +254,20 @@ for seed in "${seeds[@]}"; do
                                                                   for channel_drift_base_index in "${channel_drift_base_index_vals[@]}"; do
                                                                     cditag="cdi${channel_drift_base_index}"
 
-                                                                    for snr in "${snrs[@]}"; do
+                                                                    for weights_track_mode in "${weights_track_mode_vals[@]}"; do
+                                                                      trktag="trk${weights_track_mode}"
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_s${seed}_snr${snr}.yaml"
+                                                                      for calib_slots_per_group in "${calib_slots_per_group_vals[@]}"; do
+                                                                        csgtag="csg${calib_slots_per_group}"
+
+                                                                        for snr in "${snrs[@]}"; do
+
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                                           -e "s/^snr:.*/snr: $snr/" \
                                                                           -e "s/^cfo:.*/cfo: $cfo/" \
-                                                                          -e "s/^cfo_drift:.*/cfo_drift: $cfo_drift/" \
+                                                          -e "s/^cfo_drift:.*/cfo_drift: $cfo_drift/" \
                                                                           -e "s/^speed:.*/speed: $speed/" \
                                                                           -e "s/^clip_percentage_in_tx:.*/clip_percentage_in_tx: $clip/" \
                                                                           -e "s/^use_film:.*/use_film: $use_film/" \
@@ -287,11 +300,15 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^escnn_ekf_sigma_r:.*/escnn_ekf_sigma_r: $escnn_ekf_sigma_r/" \
                                                                           -e "s/^escnn_ekf_alpha:.*/escnn_ekf_alpha: $escnn_ekf_alpha/" \
                                                                           -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
+                                                                          -e "s/^weights_track_mode:.*/weights_track_mode: '$weights_track_mode'/" \
+                                                                          -e "s/^calib_slots_per_group:.*/calib_slots_per_group: $calib_slots_per_group/" \
                                                                           "$input_file" > "$out_file"
 
                                                                       all_config_files+=("$out_file")
                                                                       ((total_count++))
-                                                                    done
+                                                                        done  # snr
+                                                                      done  # calib_slots_per_group
+                                                                    done  # weights_track_mode
                                                                   done  # channel_drift_base_index
                                                                 done  # escnn_ekf_alpha
                                                               done  # escnn_ekf_sigma_r

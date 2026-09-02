@@ -9,13 +9,15 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
+cur_str=intermod  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
 snrs=($(seq 5 45))
 cfos=(0)
 cfo_drift_vals=(0.0)
-speed_vals=(0)
+speed_vals=(0 10)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -36,8 +38,8 @@ learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
 # 'first_conv_and_scale_only'
-#  'all'
-  'none'
+ 'all'
+ 'none'
 )
 
 training_loss_vals=(
@@ -79,9 +81,9 @@ pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its 
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
-mod_pilot_vals=(-1)
-n_users_vals=(2 4)
-n_ants_vals=(2 4 8)
+mod_pilot_vals=(16)
+n_users_vals=(1)
+n_ants_vals=(1)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
@@ -268,7 +270,8 @@ for seed in "${seeds[@]}"; do
 
                                                                       out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_s${seed}_snr${snr}.yaml"
 
-                                                                      sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
+                                                                      sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
+                                                                          -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                                           -e "s/^snr:.*/snr: $snr/" \
                                                                           -e "s/^cfo:.*/cfo: $cfo/" \
                                                           -e "s/^cfo_drift:.*/cfo_drift: $cfo_drift/" \
@@ -367,4 +370,5 @@ echo "Total configs generated: $total_count"
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 

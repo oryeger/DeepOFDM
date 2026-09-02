@@ -58,17 +58,39 @@ def unique_configs(tag):
             cfgs.setdefault(p[0], set()).add(p[1])
     return {k: sorted(v) for k, v in cfgs.items()}
 
+def _split_key_tokens(k):
+    """Split a config key into (name, token) pairs, in order. 'name=value' tokens use the
+    part before '=' as name; bare tokens (no '=', e.g. the leading channel/mod text or the
+    trailing cur_str) get a positional name "bare_N" instead - stable across keys even when
+    the number of optional name=value tokens between them differs (see differing_tokens)."""
+    pairs = []
+    bare_idx = 0
+    for tok in k.split("_"):
+        if "=" in tok:
+            name = tok.split("=", 1)[0]
+        else:
+            name, bare_idx = f"bare_{bare_idx}", bare_idx + 1
+        pairs.append((name, tok))
+    return pairs
+
 def differing_tokens(keys):
-    """Token positions whose value differs across configs (split on '_')."""
-    tok_lists = [k.split("_") for k in keys]
-    if len({len(t) for t in tok_lists}) != 1:
-        # token counts differ; fall back to whole keys
-        return {k: [k] for k in keys}
-    n = len(tok_lists[0])
-    diff_pos = [i for i in range(n) if len({t[i] for t in tok_lists}) > 1]
-    if not diff_pos and len(keys) == 1:
+    """Tokens whose value differs across configs, matched by token *name* (see
+    _split_key_tokens) rather than raw '_'-split position - so a token only some configs
+    have (e.g. an older CSV predating a newly added filename tag) still shows up as a real
+    difference instead of falling back to the whole key for every config."""
+    parsed = {k: _split_key_tokens(k) for k in keys}
+    names_in_order = []
+    seen = set()
+    for k in keys:
+        for name, _ in parsed[k]:
+            if name not in seen:
+                seen.add(name)
+                names_in_order.append(name)
+    value_by_name = {name: {k: dict(parsed[k]).get(name) for k in keys} for name in names_in_order}
+    diff_names = {name for name in names_in_order if len(set(value_by_name[name].values())) > 1}
+    if not diff_names and len(keys) == 1:
         return {keys[0]: ["config"]}
-    return {k: [k.split("_")[i] for i in diff_pos] for k in keys}
+    return {k: [tok for name, tok in parsed[k] if name in diff_names] for k in keys}
 
 SAFE = lambda s: re.sub(r"[^A-Za-z0-9=.,\-]", "", s)
 

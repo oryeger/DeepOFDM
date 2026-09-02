@@ -15,7 +15,7 @@ seeds=(123)
 snrs=($(seq 5 45))
 cfos=(0)
 cfo_drift_vals=(0.0)
-speed_vals=(0 10)
+speed_vals=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -35,9 +35,9 @@ escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
- 'first_conv_and_scale_only'
-  'all'
-#  'none'
+# 'first_conv_and_scale_only'
+#  'all'
+  'none'
 )
 
 training_loss_vals=(
@@ -79,8 +79,9 @@ pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its 
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
-mod_pilot_vals=(16)
-n_users_vals=(1)
+mod_pilot_vals=(-1)
+n_users_vals=(2 4)
+n_ants_vals=(2 4 8)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
@@ -160,6 +161,9 @@ for seed in "${seeds[@]}"; do
 
                                 for n_users in "${n_users_vals[@]}"; do
                                   utag="u${n_users}"
+
+                                  for n_ants in "${n_ants_vals[@]}"; do
+                                    natag="ant${n_ants}"
 
                                   for num_res in "${num_res_vals[@]}"; do
                                     nrtag="nr${num_res}"
@@ -262,7 +266,7 @@ for seed in "${seeds[@]}"; do
 
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^channel_seed:.*/channel_seed: $seed/" \
                                                                           -e "s/^snr:.*/snr: $snr/" \
@@ -282,6 +286,7 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^pilot_size:.*/pilot_size: $pilot_size/" \
                                                                           -e "s/^mcs:.*/mcs: $mcs/" \
                                                                           -e "s/^n_users:.*/n_users: $n_users/" \
+                                                                          -e "s/^n_ants:.*/n_ants: $n_ants/" \
                                                                           -e "s/^num_res:.*/num_res: $num_res/" \
                                                                           -e "s/^mod_pilot:.*/mod_pilot: $mod_pilot/" \
                                                                           -e "s/^make_64QAM_16QAM_percentage:.*/make_64QAM_16QAM_percentage: $mix_pct/" \
@@ -326,6 +331,7 @@ for seed in "${seeds[@]}"; do
                                       done
                                     done
                                   done
+                                  done  # n_ants
                                 done
                               done
                             done
@@ -361,3 +367,4 @@ echo "Total configs generated: $total_count"
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 "$script_dir/../replace_config_line.bash" "$config_line"
+

@@ -1,5 +1,5 @@
 snr: 14
-cur_str: intermod
+cur_str: moreues
 num_snrs: 1
 n_ants: 1
 snr_step: 1
@@ -90,9 +90,9 @@ save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
-save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
+save_escnn_weights: True  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: 'auto'  # 1c8c38/ff8324 (TDLC 24/96)  fef0f0/03e5ad (TDLB 24/96) 356e94 (QPSK TDLB 1 UE 123) 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
+load_escnn_weights_tag: ''  # 1c8c38/ff8324 (TDLC 24/96)  fef0f0/03e5ad (TDLB 24/96) 356e94 (QPSK TDLB 1 UE 123) 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
 load_escnn_weights_snr_override: -1  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set >= 0 to deliberately load a different-SNR-trained model (cross-SNR transfer test).
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
@@ -106,16 +106,9 @@ escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracke
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []
-slots_per_group: 1  # Number of consecutive slots forming one Kalman "epoch": predict() runs once per this many slots (injecting sigma_q / the ar1 pull once, not once per slot), then each slot in the group is its own sequential update() without re-predicting in between. 1 = today's per-slot cadence (raise this if one slot's worth of syndrome data isn't enough to move the estimate meaningfully). In the per-slot streaming loop (channel_drift), this is also how many consecutive slots share one channel realization before channel_drift_base_index advances - same epoch, same knob, so the two can't drift out of sync.
-
-# ekf.py only (streaming per-group channel-drift experiment; see that file's docstring)
-# channel_drift_base_index (above) is reused here as the starting point; each group advances
-# it by group_size_slots before transmitting, overwriting it for the rest of the run.
-# ekf.py's run length also comes from data_size (above), NOT a separate parameter:
-# it's truncated DOWN (not rounded up like evaluate.py's usage) to a whole number of groups of
-# NUM_SYMB_PER_SLOT * slots_per_group symbols; leftover data that doesn't fill a
-# complete group is discarded. data_size must be set > 0 for this script (no pilot_size fallback).
-# At mcs=2 (qm=2) and slots_per_group=1, data_size=560 -> 20 groups.
+slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
+weights_track_mode: 'ekf'  # ekf.py only: 'ekf' (unsupervised EKF) or 'sgd' (supervised BCE training).
+calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
 
 
 # general

@@ -15,9 +15,11 @@ What it does, given experiment tag <tag>:
      short names (long originals exceed Windows MAX_PATH at this depth).
   5. Writes <tag>.html: Part 1 = curves, Part 2 = histogram tables
      (rows = SNR, columns = detectors), each plot preceded by its parameters.
-Rerunning never overwrites a previous build: if C:\\Projects\\Scratchpad\\Analysis\\<tag>\\
-already exists, the new one is written to <tag>_2 instead (or <tag>_3, etc. - the lowest
-unused index), so old builds stick around until you delete them yourself.
+Rerunning never overwrites a previous build: the newest build always lands at
+C:\\Projects\\Scratchpad\\Analysis\\<tag>\\ (no suffix). If that already exists, it - and any
+older <tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2, <tag>_2 -> <tag>_3,
+etc., highest index first so renames never collide), so old builds stick around (just
+renumbered) until you delete them yourself.
 """
 import glob, os, re, shutil, sys
 
@@ -110,16 +112,23 @@ def tw_note(k):
         return f" &mdash; combined: {v}&middot;tent + {round(1-float(v), 2)}&middot;syndrome"
     return ""
 
-def _next_out_dir(tag):
-    """First choice is ANALYSIS/<tag> (no suffix); if that's taken, the lowest unused
-    ANALYSIS/<tag>_N (N starting at 2) - so a previous build is never overwritten."""
+def _rotate_out_dir(tag):
+    """The newest build always lands at ANALYSIS/<tag> (no suffix). If that's taken, it - and
+    any older ANALYSIS/<tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2,
+    <tag>_2 -> <tag>_3, ...), highest index first so the renames never collide - so a previous
+    build is never overwritten, just renumbered."""
     base = os.path.join(ANALYSIS, tag)
     if not os.path.isdir(base):
         return base
     idx = 2
     while os.path.isdir(os.path.join(ANALYSIS, f"{tag}_{idx}")):
         idx += 1
-    return os.path.join(ANALYSIS, f"{tag}_{idx}")
+    for n in range(idx - 1, 1, -1):
+        os.rename(os.path.join(ANALYSIS, f"{tag}_{n}"), os.path.join(ANALYSIS, f"{tag}_{n + 1}"))
+    os.rename(base, os.path.join(ANALYSIS, f"{tag}_2"))
+    print(f"Analysis dir for tag '{tag}' already existed; rotated it (and any older builds) up "
+          f"by one index, so this build gets the unsuffixed '{tag}' dir")
+    return base
 
 def purge_redundant_tw_variants(tag):
     """Delete tw=1.0 result files where tw has no effect on training, so
@@ -145,9 +154,7 @@ def build(tag):
     diffs = differing_tokens(keys)
     keys.sort(key=lambda k: sort_key(diffs[k]))
 
-    out_dir = _next_out_dir(tag)
-    if out_dir != os.path.join(ANALYSIS, tag):
-        print(f"Analysis dir for tag '{tag}' already exists; writing this build to {out_dir} instead")
+    out_dir = _rotate_out_dir(tag)
     os.makedirs(out_dir, exist_ok=True)
 
     # third plot panel is GFMI when nll=gf, plain BER otherwise

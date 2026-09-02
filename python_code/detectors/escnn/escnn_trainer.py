@@ -385,7 +385,13 @@ class ESCNNTrainer(Trainer):
                                   "make_64QAM_16QAM_percentage: 0 (LDPC structure required); skipping EKF update.", tag='ekf')
             return
 
-        num_slots = (rx_real.shape[0] * num_bits * conf.num_res) // helper.n
+        # Slot count from the actual symbol-domain slicing below (rx_prob[s*NUM_SYMB_PER_SLOT:...]),
+        # not from a bits-available/helper.n estimate: rx_real here is pilot-domain (num_bits ==
+        # num_bits_pilot), while helper.n is sized from the data qm (see ekf.py's ldpc_n). When
+        # mod_pilot's bit depth differs from the data MCS's (e.g. mod_pilot=16 -> num_bits_pilot=4
+        # vs MCS2's qm=2), that estimate is off by the qm ratio and can claim more slots than the
+        # tensor actually holds, indexing empty slices in the per-slot loops below.
+        num_slots = rx_real.shape[0] // NUM_SYMB_PER_SLOT
         if num_slots == 0:
             self._tsyn_warn_once('ekf_too_small', f"block has only {rx_real.shape[0]} symbols - too "
                                   f"small for one codeword (needs {helper.n} bits); skipping EKF update.", tag='ekf')

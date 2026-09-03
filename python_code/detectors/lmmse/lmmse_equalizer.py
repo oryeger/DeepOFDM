@@ -48,14 +48,16 @@ _LS_DEBUG_RES = {0, 20, 45, 62, 70}
 def _debug_dump_ls_channel(re, user, LS_channel, H_user, noise_var):
     """One-off per-symbol dump for _LS_DEBUG_RES REs at conf.save_loss_plot_snr SNRs: are the
     outlier symbols behind an inflated noise_var concentrated in a specific time-index range
-    (pilot/data boundary, wraparound) or scattered - and how far off is each one."""
+    (pilot/data boundary, wraparound) or scattered - and how far off is each one.
+    Reports antenna 0 only, whatever n_ants is - a representative per-RE sample, not a
+    per-antenna breakdown (LS_channel[:, 0] is one column of (n_symbols, n_ants))."""
     if re not in _LS_DEBUG_RES or conf.snr not in getattr(conf, 'save_loss_plot_snr', []):
         return
-    dev = torch.abs(LS_channel[:, 0] - H_user).cpu().numpy()
+    dev = torch.abs(LS_channel[:, 0] - H_user[0]).cpu().numpy()
     med = float(np.median(dev))
     outliers = np.flatnonzero(dev > 5 * max(med, 1e-12))
     print(f"[LS-perRE] SNR={conf.snr} RE={re} user={user} n_symbols={dev.shape[0]} "
-          f"|H|={abs(H_user.item()):.4f} noise_var={float(noise_var):.5f} "
+          f"|H|={abs(H_user[0].item()):.4f} noise_var={float(noise_var):.5f} "
           f"median|dev|={med:.4f} max|dev|={dev.max():.4f} "
           f"n_outliers(>5x median)={outliers.size} outlier_idx={outliers.tolist()[:40]}", flush=True)
 

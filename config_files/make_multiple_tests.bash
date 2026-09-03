@@ -9,15 +9,15 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=intermod  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=ekfsgd  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
-snrs=($(seq 5 45))
+snrs=($(seq -10 30))
 cfos=(0)
 cfo_drift_vals=(0.0)
-speed_vals=(0 10)
+speed_vals=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -37,9 +37,9 @@ escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
-# 'first_conv_and_scale_only'
  'all'
- 'none'
+ 'first_conv_and_scale_only'
+# 'none'
 )
 
 training_loss_vals=(
@@ -60,9 +60,9 @@ channel_drift_base_index_vals=(0)
 # ekf.py only
 weights_track_mode_vals=(
   'ekf'
-#  'sgd'
+  'sgd'
 )
-calib_slots_per_group_vals=(1)
+calib_slots_per_group_vals=(1 10 100)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -81,7 +81,7 @@ pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its 
 mcs_vals=(2)
 override_noise_var_vals=(False)
 
-mod_pilot_vals=(16)
+mod_pilot_vals=(-1)
 n_users_vals=(1)
 n_ants_vals=(1)
 num_res_vals=(96)
@@ -367,8 +367,25 @@ echo "$config_line"
 
 echo "Total configs generated: $total_count"
 
-# ---------------- Auto-update run_escnn_batch.bash ----------------
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---------------- Archive this generator script + its input config ----------------
+# Snapshot both the script itself (not the generated configs) and the base yaml it read,
+# under the same <date>_<time>_<cur_str> naming the CSVs use, so a past batch's exact
+# parameter sweep AND base config stay reconstructable after this file's Parameters
+# section (or the base yaml) get edited for the next run.
+archive_dir="$script_dir/archive"
+mkdir -p "$archive_dir"
+archive_ts="$(date +%Y%m%d_%H%M)"
+archive_script="$archive_dir/${archive_ts}_make_${cur_str}.bash"
+archive_yaml="$archive_dir/${archive_ts}_mult_${cur_str}.yaml"
+cp "${BASH_SOURCE[0]}" "$archive_script"
+cp "$input_file" "$archive_yaml"
+echo "Archived generator script to $archive_script"
+echo "Archived input config to $archive_yaml"
+
+# ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 

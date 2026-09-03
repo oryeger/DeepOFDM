@@ -4,8 +4,8 @@ Run as a module so the python_code package imports resolve:
     python -m python_code.utils.plot_drift_log <log_file> [--output out.png]
 
 Expects the per-group lines ekf.py's run_streaming_drift() prints, e.g.:
-    [drift] 1428 groups x 1 slot(s)/group, starting at channel_drift_base_index=0,
-        cfo=0.0 (drift=0.75 scs/sec), SNR=12dB, mcs=2
+    [drift] 1428 groups x 1 slot(s)/group + 10 calib slot(s)/group, track_mode=ekf,
+        starting at channel_drift_base_index=0, cfo=0.0 (drift=0.75 scs/sec), SNR=12dB, mcs=2
     [drift] group 0/1428 slots=0-0 ber_escnn=9.3006e-02 ber_lmmse=9.7842e-02
         bler_escnn=0.0000e+00 bler_lmmse=0.0000e+00 mi_escnn=0.7232 mi_lmmse=0.7057
         sinr_db(mean/min/max over REs+users)=2.9/-12.2/10.2
@@ -56,8 +56,11 @@ except ImportError:
         return _MCS_TABLE[index]
 
 HEADER_RE = re.compile(
-    r'\[drift\]\s+(?P<num_groups>\d+)\s+groups x (?P<group_size>\d+) slot\(s\)/group, '
-    r'starting at channel_drift_base_index=(?P<base_index>\d+), '
+    r'\[drift\]\s+(?P<num_groups>\d+)\s+groups x (?P<group_size>\d+) slot\(s\)/group'
+    # "+ N calib slot(s)/group, track_mode=X" - added alongside weights_track_mode/
+    # calib_slots_per_group; optional so logs from before that still parse.
+    r'(?:\s+\+\s+(?P<calib_slots>\d+)\s+calib slot\(s\)/group,\s+track_mode=(?P<track_mode>\w+))?'
+    r',\s+starting at channel_drift_base_index=(?P<base_index>\d+), '
     r'cfo=(?P<base_cfo>[-+\d.eE]+)(?:\s+\(drift=(?P<cfo_drift>[-+\d.eE]+)\s+scs/sec\))?, '
     r'SNR=(?P<snr>[-+\d.eE]+)dB, mcs=(?P<mcs>\d+)'
 )
@@ -146,6 +149,9 @@ def parse_drift_log(path: str) -> dict:
                         'snr': float(header_m.group('snr')),
                         'mcs': int(header_m.group('mcs')),
                     }
+                    if header_m.group('track_mode') is not None:
+                        meta['track_mode'] = header_m.group('track_mode')
+                        meta['calib_slots'] = int(header_m.group('calib_slots'))
                     if num_res is not None:
                         meta['num_res'] = num_res
                 continue

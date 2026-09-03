@@ -20,6 +20,7 @@ from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
 from python_code.utils.probs_utils import pilot_third_bit_mask
+from python_code.utils.probs_utils import relevant_indices
 
 Softmax = torch.nn.Softmax(dim=1)
 
@@ -385,6 +386,20 @@ class ESCNNTrainer(Trainer):
                                   "make_64QAM_16QAM_percentage: 0 (LDPC structure required); skipping EKF update.", tag='ekf')
             return
 
+        # When conf.mod_pilot pads the network to a wider num_bits than the data's real qm (see
+        # ekf.py's num_bits_pilot docstring), net(...)'s LLR output carries num_bits channels per
+        # symbol, only qm of which are real (the rest are the LLR=0/prob=0.5 padding channels).
+        # The syndrome measurement below must select the same real_bit_idx channels ekf.py's own
+        # BER scoring does before handing the stream to helper.p_vector() - otherwise the
+        # flattened prefix mixes in uninformative padding channels (or, when num_bits/qm divides
+        # evenly, silently drops later symbols instead), making the measurement structurally
+        # meaningless regardless of how good the real LLRs are.
+        qm = getattr(self, '_synd_qm', num_bits)
+        real_bit_idx = None
+        if num_bits != qm:
+            real_bit_idx = torch.as_tensor(relevant_indices(num_bits, num_bits / qm),
+                                            device=DEVICE, dtype=torch.long)
+
         # Slot count from the actual symbol-domain slicing below (rx_prob[s*NUM_SYMB_PER_SLOT:...]),
         # not from a bits-available/helper.n estimate: rx_real here is pilot-domain (num_bits ==
         # num_bits_pilot), while helper.n is sized from the data qm (see ekf.py's ldpc_n). When
@@ -404,7 +419,8 @@ class ESCNNTrainer(Trainer):
             self._tsyn_warn_once('ekf_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
             if getattr(conf, 'log_train_every_epochs', 0) > 0:
-                self._log_static_syndrome_stats(rx_real, num_bits, n_users, iterations, probs_in, helper, num_slots)
+                self._log_static_syndrome_stats(rx_real, num_bits, n_users, iterations, probs_in, helper,
+                                                 num_slots, real_bit_idx)
             return
 
         trackers = self._get_ekf_trackers()
@@ -453,8 +469,10 @@ class ESCNNTrainer(Trainer):
                     for s in range(group_start, group_end):
                         rx_slot = rx_prob[s * NUM_SYMB_PER_SLOT:(s + 1) * NUM_SYMB_PER_SLOT]
 
-                        def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n):
+                        def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n, _idx=real_bit_idx):
                             _, llrs = functional_call(_net, param_dict, (_rx,))
+                            if _idx is not None:
+                                llrs = llrs[:, _idx, :, :]
                             stream = llrs.squeeze(-1).reshape(-1)[:_n].reshape(1, _n)
                             return helper.p_vector(stream).reshape(-1)
 
@@ -473,7 +491,7 @@ class ESCNNTrainer(Trainer):
             probs_vec = next_probs_vec
 
     def _log_static_syndrome_stats(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
-                                    probs_in: torch.Tensor, helper, num_slots: int):
+                                    probs_in: torch.Tensor, helper, num_slots: int, real_bit_idx=None):
         """Diagnostic-only counterpart to the tracked path's per-slot mean_hard_sat prints
         (ekf_predict_update() above), for when escnn_load_freeze leaves nothing trainable and that
         function returns before ever computing a measurement. Needed to compare "tracking on" vs
@@ -506,6 +524,8 @@ class ESCNNTrainer(Trainer):
                     for s in range(num_slots):
                         rx_slot = rx_prob[s * NUM_SYMB_PER_SLOT:(s + 1) * NUM_SYMB_PER_SLOT]
                         _, llrs = net(rx_slot)
+                        if real_bit_idx is not None:
+                            llrs = llrs[:, real_bit_idx, :, :]
                         stream = llrs.squeeze(-1).reshape(-1)[:helper.n].reshape(1, helper.n)
                         p = helper.p_vector(stream).reshape(-1)
                         if p.numel() == 0:

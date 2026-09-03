@@ -131,9 +131,10 @@ def _genie_cfo_comp_vector(num_slots: int):
 def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code_rate) -> str:
     """Simplified analogue of evaluate.py's _build_escnn_filename_suffix: same spirit (readable
     tag=value pairs), but keeping only what this script actually uses. Deliberately drops
-    everything training-specific (epochs, train_samples, pilot_data_ratio, batch_size,
-    block_length_factor, learning_rate, dropout, weight_decay, training_loss/beta_balance/tw,
-    save-weights tag) since no training happens here - the EKF replaces it entirely."""
+    train_samples, pilot_data_ratio, batch_size, block_length_factor, learning_rate, dropout,
+    weight_decay, training_loss/beta_balance/tw, save-weights tag - none of those vary here.
+    epochs is the one training-specific knob included, and only for weights_track_mode='sgd'
+    (see module docstring), since it's meaningless/unused in 'ekf' mode."""
     freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
                     'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
                     'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
@@ -157,8 +158,11 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_sq=' + str(getattr(conf, 'escnn_ekf_sigma_q', 0.01))
     title_string += '_sr=' + str(getattr(conf, 'escnn_ekf_sigma_r', 0.5))
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
-    title_string += '_trk=' + getattr(conf, 'weights_track_mode', 'ekf')
+    track_mode = getattr(conf, 'weights_track_mode', 'ekf')
+    title_string += '_trk=' + track_mode
     title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
+    if track_mode == 'sgd':
+        title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
     title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:

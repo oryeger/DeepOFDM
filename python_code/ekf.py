@@ -131,16 +131,19 @@ def _genie_cfo_comp_vector(num_slots: int):
 def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code_rate) -> str:
     """Simplified analogue of evaluate.py's _build_escnn_filename_suffix: same spirit (readable
     tag=value pairs), but keeping only what this script actually uses. Deliberately drops
-    train_samples, pilot_data_ratio, batch_size, block_length_factor, learning_rate, dropout,
-    weight_decay, training_loss/beta_balance/tw, save-weights tag - none of those vary here.
-    epochs is the one training-specific knob included, and only for weights_track_mode='sgd'
-    (see module docstring), since it's meaningless/unused in 'ekf' mode."""
+    train_samples, pilot_data_ratio, batch_size, block_length_factor, dropout, weight_decay,
+    training_loss/beta_balance/tw, save-weights tag - none of those vary here. learning_rate
+    is included for both modes (even though 'ekf' mode's tracking has no optimizer and never
+    reads it - it's driven by the escnn_ekf_* noise/dynamics params already included above),
+    so it's visible in the filename whenever a batch sweeps it. epochs is 'sgd'-only, since
+    it's genuinely meaningless there (no epoch-per-group concept in EKF tracking)."""
     freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
                     'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
                     'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = (f"{chan_text}_sp={conf.speed}_{mod_text}_REs={conf.num_res}_UEs={n_users}"
                      f"_ant={conf.n_ants}_cfo={conf.cfo:.2f}_cfod={getattr(conf, 'cfo_drift', 0.0):.2f}"
+                     f"_iqg={getattr(conf, 'iqmm_gain', 0)}_iqp={getattr(conf, 'iqmm_phase', 0)}"
                      f"_kr={conf.kernel_size}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
@@ -161,6 +164,7 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
     title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
+    title_string += '_lr=' + str(getattr(conf, 'learning_rate', 5.0e-3))
     if track_mode == 'sgd':
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
     title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))

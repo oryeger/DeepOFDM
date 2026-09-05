@@ -79,7 +79,7 @@ iters_e2e: 1
 no_probs: False
 no_samples: False  # ESCNN-only: feed only LLRs (no rx samples). Mutually exclusive with no_probs.
 calc_mi: True
-mi_estimator: 'histogram'  # 'histogram' (binned differential-entropy estimate, needs sample density to bin well) | 'gmi' (closed-form genie-aided GMI from true tx bits, no histogram/binning - see _mi_from_flat in evaluate.py)
+mi_estimator: 'histogram'  # 'histogram' (binned differential-entropy estimate, needs sample density to bin well) | ' ' (closed-form genie-aided GMI from true tx bits, no histogram/binning - see _mi_from_flat in evaluate.py)
 mi_healthy_margin: 0.2  # mcs>-1 only: empirical margin above the LDPC code_rate that MI needs to clear for good BLER (e.g. MCS2 code_rate=0.30 -> target=0.50 at default). Printed live per-block ('[MI HEALTHY/LOW ...]') and saved as mi_target in the *_mi.csv
 llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2μ), 'fitted' (NLL with free σ²), 'both'
 training_loss: 'bce'  # 'bce', gfmi', 'tent', 'tsyn'

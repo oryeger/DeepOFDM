@@ -412,6 +412,8 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string + '_lr=' + f"{conf.learning_rate:.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
     title_string = title_string + '_dr=' + str(getattr(conf, 'escnn_dropout', 0.0))
     title_string = title_string + '_wd=' + str(getattr(conf, 'escnn_weight_decay', 0.0))
+    title_string = title_string + '_iqg=' + str(getattr(conf, 'iqmm_gain', 0))
+    title_string = title_string + '_iqp=' + str(getattr(conf, 'iqmm_phase', 0))
     return title_string
 
 
@@ -430,15 +432,19 @@ def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
     checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
-    num_res and modulation (mod_pilot's modulation if set - the network's own architecture width
-    - else mcs if set, else mod_data), and set conf.load_escnn_weights_tag to its tag (so the
-    caller doesn't have to hand-copy a hash out of the filename every time the config changes).
+    num_res, modulation (mod_pilot's modulation if set - the network's own architecture width
+    - else mcs if set, else mod_data), and iqmm_gain/iqmm_phase, and set
+    conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
+    of the filename every time the config changes).
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
     which_augment written raw vs mapped to its short code), so this matches on the handful of
     tag=value substrings that have stayed stable across every observed format (the leading
-    channel-model text, #UEs=, #REs=, _s=<seed>_SNR=, and the augment token) rather than
-    reconstructing the exact current filename suffix and requiring an exact match.
+    channel-model text, #UEs=, #REs=, _s=<seed>_SNR=, the augment token, and _iqg=/_iqp=) rather
+    than reconstructing the exact current filename suffix and requiring an exact match. A
+    filename missing _iqg=/_iqp= (saved before this field existed) never matches - rename such
+    files to include the tags for the gain/phase they were actually trained at if they should
+    still be auto-discoverable.
 
     Must be called after conf.reload_config() and before anything reads
     conf.load_escnn_weights_tag (in particular before ESCNNTrainer/ESCNN network construction,
@@ -488,6 +494,9 @@ def resolve_auto_escnn_weights_tag():
         mod_text = f'{mod_order}Q'
     mod_re = re.compile(r'(?:^|_)' + re.escape(mod_text) + r'(?:_|$)')
 
+    cur_iqmm_gain = float(getattr(conf, 'iqmm_gain', 0))
+    cur_iqmm_phase = float(getattr(conf, 'iqmm_phase', 0))
+
     matches = []
     for path in all_pt_files:
         name = os.path.basename(path)
@@ -508,6 +517,14 @@ def resolve_auto_escnn_weights_tag():
             continue
         if not mod_re.search(name):
             continue
+        iqg_m = re.search(r'_iqg=([^_]+)', name)
+        iqp_m = re.search(r'_iqp=([^_]+)', name)
+        if not (iqg_m and iqp_m):
+            continue
+        if float(iqg_m.group(1)) != cur_iqmm_gain:
+            continue
+        if float(iqp_m.group(1)) != cur_iqmm_phase:
+            continue
         tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
         if not tag_m:
             continue
@@ -518,7 +535,7 @@ def resolve_auto_escnn_weights_tag():
             f"load_escnn_weights_tag: 'auto' requested but no saved ESCNN weights in {weights_dir} "
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
             f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, num_res={conf.num_res}, "
-            f"modulation={mod_text}. "
+            f"modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, iqmm_phase={cur_iqmm_phase}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
             f"load_escnn_weights_tag to an explicit tag.")
 
@@ -534,7 +551,7 @@ def resolve_auto_escnn_weights_tag():
         print(f"[ESCNN] load_escnn_weights_tag='auto' matched {len(distinct_tags)} distinct "
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
               f"which_augment={conf.which_augment} n_users={conf.n_users} num_res={conf.num_res} "
-              f"modulation={mod_text}: "
+              f"modulation={mod_text} iqmm_gain={cur_iqmm_gain} iqmm_phase={cur_iqmm_phase}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
     else:
         print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)

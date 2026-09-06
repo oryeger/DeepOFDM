@@ -109,7 +109,7 @@ escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check row
 debug_zero_llr_res: []  # ekf.py only, diagnostic: zero LMMSE's LLRs at these RE indices (e.g. [0] to test the suspected RE0/DC anomaly - see plot_channel_diag.py) before LDPC decode and before they're used as the AUGMENT_LMMSE prior for ESCNN. [] = no-op (default).
 slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
 weights_track_mode: 'ekf'  # ekf.py only: 'ekf' (unsupervised EKF) or 'sgd' (supervised BCE training).
-calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
+calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data - CRC+LDPC-coded real codewords, needed for training_loss='tsyn' to form a meaningful syndrome term; see ekf.py docstring).
 
 # general
 seed: 0 # run seed

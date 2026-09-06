@@ -20,11 +20,12 @@ leaves unfrozen - depends on conf.weights_track_mode:
       ESCNNTrainer.ekf_predict_update, unchanged - handing it a group's worth of
       data makes it resolve num_slots == group size on its own); the calibration
       slots are LMMSE-only and never enter the EKF.
-  'sgd' - ordinary supervised BCEWithLogitsLoss training (ESCNNTrainer.
-      _online_training, the same code path evaluate.py's normal pilot training
-      uses) against the calibration slots' own known (uncoded) bits - a
-      ground-truth upper-bound baseline to compare the blind EKF against. The
-      data slots are never trained on in this mode either, so both modes score
+  'sgd' - ordinary supervised training (ESCNNTrainer._online_training, the same code path
+      evaluate.py's normal pilot training uses - conf.training_loss picks 'bce'/'tent'/
+      'gfmi'/'tsyn' same as there) against the calibration slots' own known, CRC+LDPC-coded
+      bits (see encode_pilots below) - a ground-truth upper-bound baseline to compare the
+      blind EKF against. The data slots are never trained on in this mode either, so both
+      modes score
       identically on data neither has seen.
 Setting slots_per_group=1 makes every data slot its own group, i.e. a new
 channel every slot (plus its own calibration block).
@@ -50,12 +51,17 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     path. <=0 (default): network sized to mcs's own modulation.
     escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF) or 'sgd'
-                                    (supervised BCE training on the calibration slots -
-                                    see module docstring above)
+                                    (supervised training on the calibration slots, loss
+                                    picked by conf.training_loss - see module docstring above)
     calib_slots_per_group         - calibration slots per group (LMMSE CE always; also
-                                    'sgd' mode's training data). Default 1; raise well
-                                    above 1 for 'sgd' - a single slot's worth of bits is
-                                    unlikely to move the weights via gradient descent
+                                    'sgd' mode's training data - CRC+LDPC-coded real
+                                    codewords, see encode_pilots below). Default 1; raise
+                                    well above 1 for 'sgd' - a single slot's worth of bits
+                                    is unlikely to move the weights via gradient descent.
+                                    training_loss='tsyn' needs it raised further still:
+                                    _train_model's train/val split rounds down to whole
+                                    slots, so too few calib slots leaves zero slots on one
+                                    side of the split
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path); 'ekf' mode only
     epochs                        - 'sgd' mode only: epochs of full training per group
@@ -310,11 +316,17 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     calib_slots = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
 
-    # Calibration slots: plain random bits (never decoded/scored, so no need for LDPC coding) -
-    # used for LMMSE channel estimation regardless of weights_track_mode, and (when
-    # weights_track_mode == 'sgd') as the ESCNN training data too, since plain BCE needs no code
-    # structure. calib_slots_per_group generalizes what used to be a single fixed slot.
-    calib_bits = rng.integers(0, 2, size=(calib_slots * NUM_SYMB_PER_SLOT * qm, n_users, num_res))
+    # Calibration slots: CRC+LDPC-coded real codewords, same encode_pilots() call/layout as the
+    # data region's tx_bits below - used for LMMSE channel estimation regardless of
+    # weights_track_mode, and (when weights_track_mode == 'sgd') as the ESCNN training data too.
+    # Coding these (rather than plain random bits) is what lets training_loss='tsyn' form a
+    # meaningful L_synd against them: L_synd penalizes LLR grids that don't satisfy the mother
+    # code's parity checks, which is only a correct training signal if the true bits actually are
+    # codewords. calib_slots_per_group generalizes what used to be a single fixed slot; it needs
+    # to be large enough that _train_model's train/val split still leaves >=1 whole slot on each
+    # side after tsyn's slot-boundary rounding (see conf.calib_slots_per_group's docstring).
+    calib_pilot_length = calib_slots * NUM_SYMB_PER_SLOT * qm
+    calib_bits = encode_pilots(rng, calib_pilot_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     rx_calib, rx_ce_calib, s_orig_calib = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, noise_var)
     calib_cfo_comp = _genie_cfo_comp_vector(calib_slots)
     if calib_cfo_comp is not None:

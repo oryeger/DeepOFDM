@@ -432,10 +432,14 @@ def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
     checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
-    num_res, modulation (mod_pilot's modulation if set - the network's own architecture width
-    - else mcs if set, else mod_data), and iqmm_gain/iqmm_phase, and set
+    n_ants, num_res, modulation (mod_pilot's modulation if set - the network's own architecture
+    width - else mcs if set, else mod_data), and iqmm_gain/iqmm_phase, and set
     conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
-    of the filename every time the config changes).
+    of the filename every time the config changes). n_ants (like n_users/num_res) affects
+    ESCNNDetector's fc1 input width (conv_num_channels = num_bits*n_users + n_ants*2, see
+    escnn_detector.py), so a mismatch there is a silent architecture mismatch, not just a
+    different-but-loadable checkpoint - caught here as a state_dict size-mismatch error instead
+    if this check is ever removed.
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
     which_augment written raw vs mapped to its short code), so this matches on the handful of
@@ -505,11 +509,14 @@ def resolve_auto_escnn_weights_tag():
         n_users_m = re.search(r'#UEs=(\d+)', name)
         num_res_m = re.search(r'#REs=(\d+)', name)
         seed_m = re.search(r'_s=(\d+)_SNR=', name)
-        if not (n_users_m and num_res_m and seed_m):
+        n_ants_m = re.search(r'_#ant=(\d+)', name)
+        if not (n_users_m and num_res_m and seed_m and n_ants_m):
             continue
         if int(n_users_m.group(1)) != conf.n_users:
             continue
         if int(num_res_m.group(1)) != conf.num_res:
+            continue
+        if int(n_ants_m.group(1)) != conf.n_ants:
             continue
         if int(seed_m.group(1)) != conf.channel_seed:
             continue
@@ -534,8 +541,9 @@ def resolve_auto_escnn_weights_tag():
         raise AssertionError(
             f"load_escnn_weights_tag: 'auto' requested but no saved ESCNN weights in {weights_dir} "
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
-            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, num_res={conf.num_res}, "
-            f"modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, iqmm_phase={cur_iqmm_phase}. "
+            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, n_ants={conf.n_ants}, "
+            f"num_res={conf.num_res}, modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, "
+            f"iqmm_phase={cur_iqmm_phase}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
             f"load_escnn_weights_tag to an explicit tag.")
 
@@ -550,8 +558,9 @@ def resolve_auto_escnn_weights_tag():
     if len(distinct_tags) > 1:
         print(f"[ESCNN] load_escnn_weights_tag='auto' matched {len(distinct_tags)} distinct "
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
-              f"which_augment={conf.which_augment} n_users={conf.n_users} num_res={conf.num_res} "
-              f"modulation={mod_text} iqmm_gain={cur_iqmm_gain} iqmm_phase={cur_iqmm_phase}: "
+              f"which_augment={conf.which_augment} n_users={conf.n_users} n_ants={conf.n_ants} "
+              f"num_res={conf.num_res} modulation={mod_text} iqmm_gain={cur_iqmm_gain} "
+              f"iqmm_phase={cur_iqmm_phase}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
     else:
         print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)

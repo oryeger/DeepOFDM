@@ -28,6 +28,10 @@ seeds = [123, 17, 41, 58, 1011, 3008, 1806, 912, 1807, 1109, 42]
 MIN_SNR = -np.inf
 MAX_SNR = np.inf
 
+# Master switch: False (default) = only the pooled/averaged-across-UEs plot is produced.
+# True = also produce the "all UEs overlaid" figure and one figure per individual UE.
+PLOT_PER_UE = False
+
 # ---- Missing / cleanup handling configuration ----
 CLEANUP_ENABLED = False              # Master switch: False = plot raw averaged data, no cleanup at all
 
@@ -489,8 +493,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
     if n_users_present:
         print(f"[INFO] Per-user metrics detected for {n_users_present} user(s).")
     # With a single UE, the "all UEs overlaid" and "per-UE" figures are
-    # identical to the main pooled plot -- skip producing them at all.
-    n_users_for_ue_plots = n_users_present if n_users_present > 1 else 0
+    # identical to the main pooled plot -- skip producing them at all. Also
+    # skipped whenever PLOT_PER_UE is off (the default), regardless of UE count.
+    n_users_for_ue_plots = n_users_present if (PLOT_PER_UE and n_users_present > 1) else 0
 
     pat_upper = (filter_pattern or "").upper()
     show_sphere = "SPHERE" in pat_upper and "PRIME_1" not in pat_upper

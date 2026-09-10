@@ -134,15 +134,27 @@ def _genie_cfo_comp_vector(num_slots: int):
     return np.tile(np.array(comp), num_slots)
 
 
+def _fmt_count(n: int) -> str:
+    """Compact tag=value form for a large integer count: whole thousands print as e.g. '20k'/'5k'
+    instead of '20000'/'5000' (filenames here are already NTFS's 255-char component limit away
+    from breaking - see the _bler.csv/_mi.csv write failures this shortening fixes); anything
+    else (not a whole thousand, or < 1000) prints as-is."""
+    if n >= 1000 and n % 1000 == 0:
+        return f'{n // 1000}k'
+    return str(n)
+
+
 def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code_rate) -> str:
     """Simplified analogue of evaluate.py's _build_escnn_filename_suffix: same spirit (readable
     tag=value pairs), but keeping only what this script actually uses. Deliberately drops
     train_samples, pilot_data_ratio, batch_size, block_length_factor, dropout, weight_decay,
-    training_loss/beta_balance/tw, save-weights tag - none of those vary here. learning_rate
-    is included for both modes (even though 'ekf' mode's tracking has no optimizer and never
-    reads it - it's driven by the escnn_ekf_* noise/dynamics params already included above),
-    so it's visible in the filename whenever a batch sweeps it. epochs is 'sgd'-only, since
-    it's genuinely meaningless there (no epoch-per-group concept in EKF tracking)."""
+    beta_balance, save-weights tag - none of those vary here. learning_rate is included for
+    both modes (even though 'ekf' mode's tracking has no optimizer and never reads it - it's
+    driven by the escnn_ekf_* noise/dynamics params already included above), so it's visible
+    in the filename whenever a batch sweeps it. epochs, training_loss and tw are 'sgd'-only:
+    'ekf' mode's tracking goes through ekf_predict_update's own syndrome measurement, never
+    _calculate_loss/conf.training_loss, so they're genuinely meaningless there (no
+    epoch-per-group or loss-function concept in EKF tracking)."""
     freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
                     'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
                     'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
@@ -150,7 +162,6 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string = (f"{chan_text}_sp={conf.speed}_{mod_text}_REs={conf.num_res}_UEs={n_users}"
                      f"_ant={conf.n_ants}_cfo={conf.cfo:.2f}_cfod={getattr(conf, 'cfo_drift', 0.0):.2f}"
                      f"_iqg={getattr(conf, 'iqmm_gain', 0)}_iqp={getattr(conf, 'iqmm_phase', 0)}"
-                     f"_kr={conf.kernel_size}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
     if getattr(conf, 'mod_pilot', -1) > 0:
@@ -173,7 +184,11 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_lr=' + str(getattr(conf, 'learning_rate', 5.0e-3))
     if track_mode == 'sgd':
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
-    title_string += '_ps=' + str(getattr(conf, 'pilot_size', -1))
+        loss_mode = getattr(conf, 'training_loss', 'bce')
+        title_string += '_loss=' + loss_mode
+        if loss_mode == 'tsyn':
+            title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
+    title_string += '_ps=' + _fmt_count(int(getattr(conf, 'pilot_size', -1)))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:
         title_string += '_zllr=' + '-'.join(str(r) for r in zllr)
@@ -661,7 +676,9 @@ def main():
     if conf.channel_model[0] == 'N':
         chan_text = 'Flat'
     elif conf.channel_model[0] in ('A', 'B', 'C'):
-        chan_text = 'TDL-' + conf.channel_model + '-' + str(int(round(float(conf.delay_spread) * 1e9)))
+        # 'T' + model letter (e.g. 'TA', 'TC') - delay spread dropped, kept only to distinguish
+        # TDL from the 'Flat'/env-name cases below, not to encode every channel parameter.
+        chan_text = 'T' + conf.channel_model
     else:
         chan_text = conf.channel_model
     title_string = _build_ekf_filename_suffix(chan_text, mod_text, n_users, code_rate)

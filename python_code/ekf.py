@@ -5,63 +5,77 @@ ekf.py -- Streaming per-group channel-drift + EKF/SGD parameter tracking.
 A deliberately different loop from evaluate.py's run_evaluate(): no train/val/test
 split, and the channel genuinely changes over the course of the run instead of
 being fixed per block. Every group of data slots is treated as fully known (a
-pilot) for BER scoring, but LMMSE's channel estimate (and the soft probs fed to
-ESCNN via AUGMENT_LMMSE) comes from a *separate*, dedicated block of calibration
-slots at the same channel realization - not from the slots being scored - so
-there's no leakage between "what LMMSE/ESCNN get to see" and "what gets judged."
+pilot) for BER scoring.
 
-Unit of work is a *group*: conf.slots_per_group data slots plus
-conf.calib_slots_per_group calibration slots, all sharing one channel realization
-(channel_drift_base_index only advances between groups, not within one). What
-happens to the calibration slots - and to whichever params escnn_load_freeze
+Channel estimation is in-band, 5G-style: every slot (both the scored data slots in
+conf.slots_per_group, and - for weights_track_mode='sgd' only - the separate
+conf.calib_slots_per_group training slots) carries its own embedded DMRS: 2 OFDM
+symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4 CDM-multiplexed ports -
+see _dmrs_layout) instead of the whole slot being a known pilot. The other
+NUM_SYMB_PER_SLOT-2=12 symbols of each slot carry real CRC+LDPC-coded payload bits
+(scored, for the data region; trained on, for the sgd calib region - never both for
+the same bits, so there's still no leakage between "what a region's own CE/training
+sees" and "what gets judged"). This replaces an earlier design that spent a whole
+extra calibration slot per group purely on LMMSE CE.
+
+Unit of work is a *group*: conf.slots_per_group data slots, all sharing one channel
+realization (channel_drift_base_index only advances between groups, not within
+one). What happens to the data slots - and to whichever params escnn_load_freeze
 leaves unfrozen - depends on conf.weights_track_mode:
   'ekf' (default) - unsupervised, syndrome-driven: the data slots get exactly one
       EKF predict() + one sequential update() per slot (see
       ESCNNTrainer.ekf_predict_update, unchanged - handing it a group's worth of
-      data makes it resolve num_slots == group size on its own); the calibration
-      slots are LMMSE-only and never enter the EKF.
+      data makes it resolve num_slots == group size on its own). There is no
+      training step and no calib region at all in this mode.
   'sgd' - ordinary supervised training (ESCNNTrainer._online_training, the same code path
       evaluate.py's normal pilot training uses - conf.training_loss picks 'bce'/'tent'/
-      'gfmi'/'tsyn' same as there) against the calibration slots' own known, CRC+LDPC-coded
-      bits (see encode_pilots below) - a ground-truth upper-bound baseline to compare the
-      blind EKF against. The data slots are never trained on in this mode either, so both
-      modes score
-      identically on data neither has seen.
+      'gfmi'/'tsyn' same as there) against a separate conf.calib_slots_per_group-sized
+      region's own known, CRC+LDPC-coded payload bits (see encode_pilots below) - a
+      ground-truth upper-bound baseline to compare the blind EKF against. The data
+      slots are never trained on in this mode either, so both modes score identically
+      on data neither has seen. That calib region has the exact same 2-DMRS+12-payload
+      structure as the data region, and gets its own CE from its own embedded DMRS too
+      (not a whole-slot-known-pilot estimate).
 Setting slots_per_group=1 makes every data slot its own group, i.e. a new
-channel every slot (plus its own calibration block).
+channel every slot.
+
+which_augment: DMRS is transmitted (and its CE computed, for the LMMSE baseline
+metrics always reported below) regardless of which_augment - only whether that CE
+is *fed into ESCNN* as a prior is conditional. 'NO_AUGMENT' and 'AUGMENT_LMMSE' are
+supported (see main()); ESCNNTrainer's own NO_AUGMENT branch never reads probs_in,
+so an empty tensor is passed there, matching evaluate.py's own convention.
+AUGMENT_DEEPSIC/AUGMENT_DEEPRX would need a DeepSIC/DeepRx trainer wired into this
+file too (evaluate.py runs a real separate forward pass for those), which isn't
+implemented here - main() raises NotImplementedError rather than silently doing the
+wrong thing.
 
 Reuses, unmodified: ESCNNTrainer (construction/weight loading/freezing/EKF/
 _online_training/_forward), EkfParamTracker, SyndromeLoss, SEDChannel (channel
-generation, including the TDL channel_drift_base_index machinery), ChannelEstimate/
-LmmseDemod, encode_pilots, the LDPC/CRC codecs. Nothing here duplicates any of
-that - this file is only the orchestration loop for a shape those pieces don't
-otherwise support (streaming, calibration-slot LMMSE, per-group tracking).
+generation, including the TDL channel_drift_base_index machinery), LmmseDemod,
+encode_pilots, the LDPC/CRC codecs. Nothing here duplicates any of that - this file
+is only the orchestration loop plus the DMRS pilot mechanism those pieces don't
+otherwise support.
 
 Usage:
     python -m python_code.ekf --config path/to/config.yaml
 
 Relevant config keys (see config.yaml for the full list/defaults):
     load_escnn_weights_tag       - required: the pretrained checkpoint to track from
-    mod_pilot                     - >0: run a checkpoint trained at a higher constellation
-                                    (network sized num_bits_pilot=log2(mod_pilot)) against real
-                                    data at mcs's smaller modulation. LmmseDemod pads the real
-                                    qm bits/symbol out to num_bits_pilot (extra channels at
-                                    LLR=0/prob=0.5); only QPSK-under-16QAM/16QAM-under-64QAM
-                                    (qm=2 or 4) are supported, matching evaluate.py's AUGMENT_LMMSE
-                                    path. <=0 (default): network sized to mcs's own modulation.
+    mod_pilot                     - unsupported with DMRS (must be <= 0): the payload region
+                                    carries real coded bits at num_bits_pilot == qm, no padded
+                                    channels for a wider network to train/score against.
     escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF) or 'sgd'
-                                    (supervised training on the calibration slots, loss
+                                    (supervised training on a separate calib region, loss
                                     picked by conf.training_loss - see module docstring above)
-    calib_slots_per_group         - calibration slots per group (LMMSE CE always; also
-                                    'sgd' mode's training data - CRC+LDPC-coded real
-                                    codewords, see encode_pilots below). Default 1; raise
-                                    well above 1 for 'sgd' - a single slot's worth of bits
-                                    is unlikely to move the weights via gradient descent.
-                                    training_loss='tsyn' needs it raised further still:
-                                    _train_model's train/val split rounds down to whole
-                                    slots, so too few calib slots leaves zero slots on one
-                                    side of the split
+    calib_slots_per_group         - 'sgd' mode only: slots in the separate training-only region
+                                    (2-DMRS+12-payload structure, same as the data region). Not
+                                    used at all in 'ekf' mode. Default 1; raise well above 1 for
+                                    'sgd' - a single slot's worth of bits is unlikely to move the
+                                    weights via gradient descent. training_loss='tsyn' needs it
+                                    raised further still: _train_model's train/val split rounds
+                                    down to whole slots, so too few calib slots leaves zero slots
+                                    on one side of the split
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path); 'ekf' mode only
     epochs                        - 'sgd' mode only: epochs of full training per group
@@ -71,6 +85,10 @@ Relevant config keys (see config.yaml for the full list/defaults):
     cfo                           - base/starting CFO (scs); constant within a group
     cfo_drift                     - CFO drift rate (scs/sec); advances cfo by cfo_drift *
                                     elapsed-seconds at each group boundary, can be negative
+    delay_spread                  - RMS delay spread (s); feeds the DMRS frequency-domain
+                                    denoise/interpolation's delay-domain truncation (see
+                                    _estimate_channel_from_dmrs) - already set from channel_model
+                                    (config_singleton.py), no new key needed
     pilot_size                   - total data budget in bits (this script's own run length,
                                     not the regular pass's pilot_size); truncated down to a
                                     whole number of groups, see main(). Named pilot_size, not
@@ -97,15 +115,25 @@ from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
-from python_code.detectors.lmmse.lmmse_equalizer import ChannelEstimate, LmmseDemod
+from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
 from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
 from python_code.utils.constants import (CP, FFT_size, FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
-                                          NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC)
+                                          NUM_SYMB_PER_SLOT, SAMPLING_RATE, SLOT_LENGTH_SEC)
 from python_code.utils.probs_utils import relevant_indices
 
 # M-QAM average-energy normalization constants (2*(M-1)/3), same table evaluate.py
 # uses to turn an SNR into a noise variance.
 CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
+
+# --- In-slot DMRS pilots (replaces the old dedicated-calibration-slot CE mechanism for the
+# scored data region, and - for weights_track_mode='sgd' - for the calib region too; see module
+# docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
+# CDM-multiplexed ports (FD-OCC). These are concrete numbers from the design, not tunables, so
+# they're kept as constants rather than new config.yaml keys.
+_DMRS_SYMBOL_LOCAL_IDX = (2, 11)            # slot-local OFDM symbol indices carrying DMRS
+_DMRS_NUM_PAYLOAD_SYMB = NUM_SYMB_PER_SLOT - len(_DMRS_SYMBOL_LOCAL_IDX)  # 12
+_DMRS_POWER_BOOST_1UE_DB = 3.0               # extra pilot EPRE (dB) when only 1 UE is multiplexed
+_DMRS_DELAY_TRUNC_MARGIN = 4                 # L_taps = ceil(margin * delay_spread / delay_bin_width)
 
 
 def _long_path(p: str) -> str:
@@ -164,8 +192,6 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
                      f"_iqg={getattr(conf, 'iqmm_gain', 0)}_iqp={getattr(conf, 'iqmm_phase', 0)}"
                      f"_Clp={conf.clip_percentage_in_tx}")
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
-    if getattr(conf, 'mod_pilot', -1) > 0:
-        title_string += '_mp=' + str(conf.mod_pilot)
     if conf.mcs > -1:
         title_string += f'_R={code_rate:.2f}'
     if conf.load_escnn_weights_tag:
@@ -180,7 +206,10 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
-    title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
+    if track_mode == 'sgd':
+        # calib_slots_per_group is 'sgd'-training-only now (its old general-CE role is gone -
+        # see module docstring) so it's only meaningful, and only printed, in that mode.
+        title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_lr=' + str(getattr(conf, 'learning_rate', 5.0e-3))
     if track_mode == 'sgd':
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
@@ -214,10 +243,10 @@ def modulate_bits(tx_bits: np.ndarray, mod_order: int, n_users: int, num_res: in
 
 def lmmse_equalize_with_H(H: torch.Tensor, rx_c: torch.Tensor, noise_var: float, re: int) -> Tuple[torch.Tensor, torch.Tensor]:
     """Same linear-MMSE equalization math as LmmseEqualize (lmmse_equalizer.py lines 61-70),
-    but against an H estimated elsewhere (a dedicated calibration slot here) instead of
-    re-estimating it from rx_c itself - LmmseEqualize always re-estimates H from whatever it's
-    given, which would leak the answer if rx_c were the same symbols being scored (see the
-    calibration-slot discussion this replaces)."""
+    but against an H estimated elsewhere (from that region's own embedded DMRS here - see
+    _estimate_channel_from_dmrs) instead of re-estimating it from rx_c itself - LmmseEqualize
+    always re-estimates H from whatever it's given, which would leak the answer if rx_c were the
+    same symbols being scored."""
     n_users = H.shape[1]
     I_users = torch.eye(n_users, dtype=H.dtype, device=H.device)
     W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()
@@ -258,17 +287,19 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer):
     print(f"[drift] loaded pretrained weights: {best_weights_path}", flush=True)
 
 
-def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: int, h: np.ndarray,
-                       noise_var: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Modulate+transmit bits through SEDChannel (at whatever conf.channel_drift_base_index is
-    currently set to) and return (rx, rx_ce, s_orig) ready for ChannelEstimate /
-    lmmse_equalize_with_H: complex128, symbol-major, and (for conf.separate_pilots) with the
-    leading user axis on rx_ce."""
-    s = modulate_bits(bits, mod_data, n_users, num_res)
+def transmit_symbols(s: np.ndarray, n_users: int, num_res: int, h: np.ndarray,
+                      noise_var: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Transmit an already-modulated symbol array (n_users, num_symbols, num_res) through
+    SEDChannel (at whatever conf.channel_drift_base_index is currently set to) and return
+    (rx, rx_ce, s_orig): complex128, symbol-major. rx_ce (the genie per-user channel-estimation
+    array) is unused by the DMRS CE path below - _estimate_channel_from_dmrs works from the
+    plain composite rx instead, since DMRS's CDM ports are genuinely superimposed on the same
+    REs and need real deocc, not a per-user-interference-free shortcut - kept in the return only
+    for signature parity."""
     s_orig = np.copy(s)
     rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,
                                      cfo_and_iqmm_in_rx=conf.cfo_and_iqmm_in_rx,
-                                     n_users=n_users, pilot_length=bits.shape[0])
+                                     n_users=n_users, pilot_length=s.shape[1])
     # SEDChannel.transmit's TDL path returns rx as complex64 (via apply_td_and_impairments's
     # internal np.complex64 buffer) but rx_ce as complex128 (assigned into a dtype=complex
     # container, which upcasts it) - channel_dataset.py normally papers over this by
@@ -278,11 +309,6 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
     rx = np.transpose(rx, (1, 0, 2))                        # (symbols, n_ants, num_res)
     s_orig = np.transpose(s_orig, (1, 0, 2))                 # (symbols, n_users, num_res)
     if conf.separate_pilots:
-        # SEDChannel.transmit returns one combined (n_ants, symbols, num_res) array for
-        # separate_pilots=True (each user's own samples already live at their own
-        # round-robin positions within it); ChannelEstimate/lmmse_equalize_with_H still
-        # index a leading user axis, so replicate it - matches what channel_dataset.py's
-        # broadcasting assignment into its 4D rx_ce_full array does implicitly.
         rx_ce = np.transpose(rx_ce, (1, 0, 2))               # (symbols, n_ants, num_res)
         rx_ce = np.broadcast_to(rx_ce[None, :, :, :], (n_users,) + rx_ce.shape).copy()
     else:
@@ -293,27 +319,234 @@ def transmit_and_prep(bits: np.ndarray, mod_data: int, n_users: int, num_res: in
     return rx, rx_ce, s_orig
 
 
+def _dmrs_layout(n_users: int, num_res: int) -> dict:
+    """Per-user DMRS RE/OCC assignment (comb-2 Type-1 FD-OCC, up to 4 CDM-multiplexed ports -
+    see module docstring). Returns {user: {'comb': 'even'|'odd', 'pairs': [(re_a, re_b_or_None), ...],
+    'sign': (s_a, s_b_or_None), 'occ_active': bool}}. Pairing (for FD-OCC and for the shared
+    reference sequence) groups consecutive same-comb REs two at a time; a trailing unpaired RE
+    (only when a comb has an odd count) becomes a trivial single-port pair. 'occ_active' is True
+    only when two users genuinely share a comb (n_users==4) - it tells
+    _estimate_channel_from_dmrs whether Step 1 must deocc-combine each RE-pair into one estimate
+    (spacing 4) or can treat every comb RE as its own independent pilot point (spacing 2,
+    n_users in (1,2))."""
+    if n_users not in (1, 2, 4):
+        raise NotImplementedError(f"DMRS layout only supports n_users in (1, 2, 4); got {n_users}.")
+    evens, odds = list(range(0, num_res, 2)), list(range(1, num_res, 2))
+
+    def _pairs(comb_res):
+        pairs = [(comb_res[i], comb_res[i + 1]) for i in range(0, len(comb_res) - 1, 2)]
+        if len(comb_res) % 2 == 1:
+            pairs.append((comb_res[-1], None))
+        return pairs
+
+    even_pairs, odd_pairs = _pairs(evens), _pairs(odds)
+    layout = {}
+    for user in range(n_users):
+        if n_users in (1, 2):
+            comb, pairs, sign = (('even', even_pairs, (1, 1)) if user == 0
+                                  else ('odd', odd_pairs, (1, 1)))
+        else:  # n_users == 4
+            comb, pairs = ('even', even_pairs) if user in (0, 2) else ('odd', odd_pairs)
+            sign = (1, 1) if user in (0, 1) else (1, -1)
+        layout[user] = {'comb': comb, 'pairs': pairs, 'sign': sign, 'occ_active': n_users == 4}
+    return layout
+
+
+def _dmrs_reference_values(rng: np.random.Generator, num_res: int) -> dict:
+    """One random unit-average-energy QPSK value per comb RE-pair - shared by both members of a
+    pair (required for FD-OCC deocc to work; harmless for the non-OCC n_users in (1,2) case,
+    where it just means both REs of a pair happen to carry the same known value). Independent of
+    qm/mcs - closer to real DMRS (always QPSK regardless of the data's own modulation), and it
+    means DMRS carries no codeword structure."""
+    evens, odds = list(range(0, num_res, 2)), list(range(1, num_res, 2))
+    n_even_pairs, n_odd_pairs = (len(evens) + 1) // 2, (len(odds) + 1) // 2
+
+    def _qpsk(n):
+        bits = rng.integers(0, 2, size=(2, n))
+        return ((1 - 2 * bits[0]) + 1j * (1 - 2 * bits[1])) / np.sqrt(2)
+
+    return {'even': _qpsk(n_even_pairs), 'odd': _qpsk(n_odd_pairs)}
+
+
+def _dmrs_known_tx(layout: dict, ref_values: dict, n_users: int, mod_data: int) -> dict:
+    """Per user: {'occ_active': bool, 'entries': [(re_a, re_b_or_None, val_a, val_b_or_None), ...]}
+    - the exact known complex symbol each of that user's DMRS REs carries (comb reference value
+    x OCC sign x amplitude). Amplitude is scaled so nominal per-RE energy equals
+    CONSTELLATION_FACTOR[mod_data] (the same Es convention noise_var is derived from), so DMRS
+    sits at the same nominal EPRE as a payload RE - plus the +3dB (linear sqrt(2) amplitude)
+    boost when only 1 UE is multiplexed (module docstring's multiplexing design). Shared by
+    _build_dmrs_tx_symbols (what gets transmitted) and _estimate_channel_from_dmrs (what the
+    LS/deocc division uses)."""
+    amp = np.sqrt(CONSTELLATION_FACTOR[mod_data])
+    if n_users == 1:
+        amp *= 10 ** (_DMRS_POWER_BOOST_1UE_DB / 20.0)  # dB -> linear amplitude factor
+    out = {}
+    for user, info in layout.items():
+        ref = ref_values[info['comb']]
+        sign_a, sign_b = info['sign']
+        entries = []
+        for pair_idx, (re_a, re_b) in enumerate(info['pairs']):
+            val = amp * ref[pair_idx]
+            val_a = sign_a * val
+            val_b = (sign_b * val) if re_b is not None else None
+            entries.append((re_a, re_b, val_a, val_b))
+        out[user] = {'occ_active': info['occ_active'], 'entries': entries}
+    return out
+
+
+def _build_dmrs_tx_symbols(known_tx: dict, n_users: int, num_res: int, num_occasions: int) -> np.ndarray:
+    """(n_users, num_occasions, num_res) complex DMRS tx symbols from _dmrs_known_tx's per-user
+    known values - constant across every occasion (only the channel/noise differ between
+    occasions), so Step 1's time-averaging in _estimate_channel_from_dmrs is coherent. No data is
+    multiplexed onto any DMRS RE, including off-comb ones (module docstring) - everything else
+    in the array stays zero."""
+    s = np.zeros((n_users, num_occasions, num_res), dtype=complex)
+    for user, info in known_tx.items():
+        for re_a, re_b, val_a, val_b in info['entries']:
+            s[user, :, re_a] = val_a
+            if re_b is not None:
+                s[user, :, re_b] = val_b
+    return s
+
+
+def _interleave_group_symbols(payload_s: np.ndarray, dmrs_s: np.ndarray, num_slots: int) -> np.ndarray:
+    """Interleave a region's payload symbols (n_users, num_slots*_DMRS_NUM_PAYLOAD_SYMB, num_res)
+    and DMRS symbols (n_users, num_slots*len(_DMRS_SYMBOL_LOCAL_IDX), num_res) into
+    (n_users, num_slots*NUM_SYMB_PER_SLOT, num_res): DMRS at _DMRS_SYMBOL_LOCAL_IDX within every
+    slot, payload at the other slot-local positions, in order - so the combined array is a
+    genuine contiguous per-slot symbol sequence, letting the existing CP/CFO machinery
+    (_genie_cfo_comp_vector) treat it exactly like any other slot-based transmission with no
+    changes needed there."""
+    n_users, _, num_res = payload_s.shape
+    s = np.zeros((n_users, num_slots * NUM_SYMB_PER_SLOT, num_res), dtype=complex)
+    dmrs_set = set(_DMRS_SYMBOL_LOCAL_IDX)
+    payload_local_idx = [i for i in range(NUM_SYMB_PER_SLOT) if i not in dmrs_set]
+    for slot in range(num_slots):
+        base = slot * NUM_SYMB_PER_SLOT
+        for j, local_idx in enumerate(payload_local_idx):
+            s[:, base + local_idx, :] = payload_s[:, slot * _DMRS_NUM_PAYLOAD_SYMB + j, :]
+        for j, local_idx in enumerate(_DMRS_SYMBOL_LOCAL_IDX):
+            s[:, base + local_idx, :] = dmrs_s[:, slot * len(_DMRS_SYMBOL_LOCAL_IDX) + j, :]
+    return s
+
+
+def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: int, num_res: int,
+                                 n_users: int) -> torch.Tensor:
+    """Per user, per antenna: LS+deocc at each DMRS pilot position (averaged over every DMRS
+    occasion in the region - the two in-slot symbols x every slot in it), then an IFFT
+    delay-domain denoise/interpolate to fill every RE. Returns (num_res, n_ants, n_users)
+    complex128 (matching rx's own dtype - see transmit_symbols - so lmmse_equalize_with_H's
+    matmul against rx_c doesn't hit a complex64/complex128 dtype mismatch), replacing what a
+    dedicated-calibration-slot ChannelEstimate used to produce.
+
+    Step 1 (LS + deocc + time-average): for occ_active users (n_users==4), each RE-pair is
+    deocc-combined into one estimate (spacing-4 resolution across num_res - "3 missing REs out
+    of 4"); otherwise (n_users in (1,2)) every comb RE gets its own independent estimate
+    (spacing-2 - "every other RE") since there's no second port sharing it to separate out.
+
+    Step 2 (delay domain): IFFT the user's M uniformly-spaced pilot estimates -> an aliased
+    delay-domain estimate; white noise spreads evenly across all M delay bins while true channel
+    energy concentrates within the delay spread, so truncating to L_taps (from conf.delay_spread)
+    and zeroing the rest is a large, SNR-independent noise reduction. Only the last quarter of
+    the retained taps gets a raised-cosine taper down to 0 (fighting the Gibbs ringing a hard
+    cutoff would otherwise introduce) - the earlier taps stay at full weight, since a taper
+    spanning the *whole* retained window would attenuate genuine mid-window channel energy for
+    an exponential PDP, not just smooth the edge. Zero-pad back to num_res and FFT ->
+    full-resolution H, including at the original pilot REs (denoised the same as everywhere
+    else, not left as their raw single-shot LS value)."""
+    delta_f = SAMPLING_RATE / FFT_size  # real subcarrier spacing (Hz)
+    delay_bin = 1.0 / (num_res * delta_f)
+    rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
+    H = np.zeros((num_res, n_ants, n_users), dtype=complex)
+    for user, info in known_tx.items():
+        pair_est = []
+        for re_a, re_b, val_a, val_b in info['entries']:
+            if info['occ_active']:
+                if re_b is not None:
+                    est = 0.5 * (rx_np[:, :, re_a] / val_a + rx_np[:, :, re_b] / val_b)
+                else:
+                    est = rx_np[:, :, re_a] / val_a
+                pair_est.append(est.mean(axis=0))
+            else:
+                pair_est.append((rx_np[:, :, re_a] / val_a).mean(axis=0))
+                if re_b is not None:
+                    pair_est.append((rx_np[:, :, re_b] / val_b).mean(axis=0))
+        pair_est = np.stack(pair_est, axis=0)              # (M, n_ants)
+        M = pair_est.shape[0]
+
+        h_alias = np.fft.ifft(pair_est, axis=0)             # (M, n_ants), aliased delay-domain estimate
+        L_taps = int(np.clip(np.ceil(_DMRS_DELAY_TRUNC_MARGIN * conf.delay_spread / delay_bin), 1, M))
+        taper = np.ones(L_taps)
+        edge_len = max(1, L_taps // 4)
+        taper[L_taps - edge_len:] = 0.5 * (1 + np.cos(np.pi * np.arange(edge_len) / edge_len))
+        h_trunc = np.zeros((num_res, n_ants), dtype=complex)
+        h_trunc[:L_taps] = h_alias[:L_taps] * taper[:, None]
+        H[:, :, user] = np.fft.fft(h_trunc, axis=0)          # (num_res, n_ants), full-resolution
+    return torch.from_numpy(H)
+
+
+def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: int, num_res: int,
+                              qm: int, mod_data: int, layout: dict, codec: LDPC5GCodec,
+                              crc: CRC5GCodec, ldpc_k: int, ldpc_n: int) -> dict:
+    """Generate one region's worth of known content - num_slots slots of
+    _DMRS_NUM_PAYLOAD_SYMB CRC+LDPC-coded payload symbols plus _DMRS_SYMBOL_LOCAL_IDX DMRS
+    symbols per slot (see module docstring) - without transmitting it yet, so the exact same
+    content can be sent twice (noisy, then noise_var=0 for save_diag) without re-drawing rng."""
+    num_occasions = num_slots * len(_DMRS_SYMBOL_LOCAL_IDX)
+    payload_bit_length = num_slots * _DMRS_NUM_PAYLOAD_SYMB * qm
+    tx_bits = encode_pilots(rng, payload_bit_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
+    payload_s = modulate_bits(tx_bits, mod_data, n_users, num_res)
+    ref_values = _dmrs_reference_values(rng, num_res)
+    known_tx = _dmrs_known_tx(layout, ref_values, n_users, mod_data)
+    dmrs_s = _build_dmrs_tx_symbols(known_tx, n_users, num_res, num_occasions)
+    s = _interleave_group_symbols(payload_s, dmrs_s, num_slots)
+    return {'tx_bits': tx_bits, 'known_tx': known_tx, 's': s, 'num_slots': num_slots}
+
+
+def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: int, h: np.ndarray,
+                            noise_var: float) -> dict:
+    """Transmit one region's content (from _generate_region_content) through SEDChannel, split
+    the returned samples into payload rows and DMRS-occasion rows by slot-local symbol index,
+    and estimate that region's own channel from its own DMRS (_estimate_channel_from_dmrs) -
+    replaces both today's calib-block transmit+ChannelEstimate and the old data-block transmit."""
+    num_slots = content['num_slots']
+    rx, _, _ = transmit_symbols(content['s'], n_users, num_res, h, noise_var)
+    cfo_comp = _genie_cfo_comp_vector(num_slots)
+    if cfo_comp is not None:
+        rx = rx * cfo_comp[:, None, None]
+    dmrs_set = set(_DMRS_SYMBOL_LOCAL_IDX)
+    payload_local_idx = [i for i in range(NUM_SYMB_PER_SLOT) if i not in dmrs_set]
+    payload_rows, dmrs_rows = [], []
+    for slot in range(num_slots):
+        base = slot * NUM_SYMB_PER_SLOT
+        payload_rows.extend(base + i for i in payload_local_idx)
+        dmrs_rows.extend(base + i for i in _DMRS_SYMBOL_LOCAL_IDX)
+    rx_payload = rx[payload_rows]
+    rx_dmrs = torch.from_numpy(rx[dmrs_rows])
+    H_est = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users)
+    return {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload, 'H_est': H_est}
+
+
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
               ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
-              group_idx: int, base_index: int, base_cfo: float = 0.0, cfo_drift: float = 0.0,
-              save_diag: bool = False) -> dict:
-    """Generate, transmit, LMMSE-estimate/equalize, EKF-update, and score one group of
-    group_size_slots consecutive slots sharing a single channel realization - plus one extra
-    calibration slot at the same channel_drift_base_index, used only to estimate H for LMMSE (and,
-    via AUGMENT_LMMSE, to feed ESCNN's auxiliary input). The calibration slot is never scored
-    and never enters the EKF, so LMMSE's estimate can't leak the answer for the slots being
-    judged (see the augmentation-leakage discussion this replaces).
+              calib_slots: int, layout: dict, group_idx: int, base_index: int, base_cfo: float = 0.0,
+              cfo_drift: float = 0.0, save_diag: bool = False) -> dict:
+    """Generate, transmit, LMMSE-estimate/equalize, EKF/SGD-update, and score one group of
+    group_size_slots consecutive slots sharing a single channel realization. Each slot carries
+    its own embedded DMRS used to estimate H for that same slot's payload - no separate
+    calibration slot in 'ekf' mode any more (see module docstring). 'sgd' mode still builds a
+    separate calib_slots-sized region purely as supervised training data (it can't train and be
+    scored on the same bits), built the exact same DMRS+payload way, with its own CE from its
+    own embedded DMRS - not a whole-slot-known-pilot estimate like before.
 
-    qm is the real data modulation (mcs); num_bits_pilot is the ESCNN network's own bit-width
-    (>= qm, see conf.mod_pilot in main()). When they differ, LmmseDemod pads the qm real bits/symbol
-    out to num_bits_pilot (extra channels at LLR=0/prob=0.5, mirroring evaluate.py's AUGMENT_LMMSE
-    path), and real_bit_idx below picks the qm real channels back out of the network's
-    num_bits_pilot-wide output for BER/BLER/MI scoring.
+    qm is the real data modulation (mcs); num_bits_pilot equals qm - DMRS's payload-only region
+    needs real coded bits at the network's own bit-width, so the mod_pilot padding path older
+    versions of this file (and evaluate.py) support isn't compatible here (see main()'s guard).
 
-    save_diag gates the noise-free reference-channel diagnostics (an extra transmit + per-RE
-    LS estimate, only worth paying for at the handful of SNRs in conf.save_loss_plot_snr - see
-    main()) - off by default so a plain run_group() call stays as cheap as before this existed.
+    save_diag gates the noise-free reference-channel diagnostics (re-transmits the data region's
+    exact same content at noise_var=0), only worth paying for at the handful of SNRs in
+    conf.save_loss_plot_snr - see main().
 
     base_index/base_cfo are passed in explicitly (not re-read from conf) because
     conf.channel_drift_base_index/conf.cfo are also the attributes TLD_channel.py/SEDChannel
@@ -329,110 +562,45 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     conf.set_value('cfo', base_cfo + cfo_drift * elapsed_slots * SLOT_LENGTH_SEC)
 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    calib_slots = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
+    which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
 
-    # Calibration slots: CRC+LDPC-coded real codewords, same encode_pilots() call/layout as the
-    # data region's tx_bits below - used for LMMSE channel estimation regardless of
-    # weights_track_mode, and (when weights_track_mode == 'sgd') as the ESCNN training data too.
-    # Coding these (rather than plain random bits) is what lets training_loss='tsyn' form a
-    # meaningful L_synd against them: L_synd penalizes LLR grids that don't satisfy the mother
-    # code's parity checks, which is only a correct training signal if the true bits actually are
-    # codewords. calib_slots_per_group generalizes what used to be a single fixed slot; it needs
-    # to be large enough that _train_model's train/val split still leaves >=1 whole slot on each
-    # side after tsyn's slot-boundary rounding (see conf.calib_slots_per_group's docstring).
-    calib_pilot_length = calib_slots * NUM_SYMB_PER_SLOT * qm
-    calib_bits = encode_pilots(rng, calib_pilot_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
-    rx_calib, rx_ce_calib, s_orig_calib = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, noise_var)
-    calib_cfo_comp = _genie_cfo_comp_vector(calib_slots)
-    if calib_cfo_comp is not None:
-        rx_ce_calib = rx_ce_calib * calib_cfo_comp[None, :, None, None]
-        rx_calib = rx_calib * calib_cfo_comp[:, None, None]
-    rx_ce_calib_t = torch.from_numpy(rx_ce_calib)
-    s_orig_calib_t = torch.from_numpy(s_orig_calib)
+    data_content = _generate_region_content(rng, group_size_slots, n_users, num_res, qm, mod_data,
+                                             layout, codec, crc, ldpc_k, ldpc_n)
+    data_result = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, noise_var)
+    tx_bits, rx_data, H_data = data_result['tx_bits'], data_result['rx_payload'], data_result['H_est']
+    rx_data_t = torch.from_numpy(rx_data)
 
-    # Noise-free reference channel: same calib_bits (so same symbols) and same channel
-    # realization (conf.channel_seed/channel_drift_base_index unchanged since the call above),
-    # just noise_var=0 - mirrors the existing rx_clean idiom in mimo_channel_dataset.py
-    # (run_tdcnn). Feeding this through the same ChannelEstimate() LS estimator as the noisy
-    # path gives a genuinely noise-free |H| per RE for free, without re-deriving it from
-    # Sionna's internal CIR tensor (which would mean re-implementing ApplyTimeChannel's own
-    # delay-alignment/CP-removal logic by hand just to get the same answer). Only worth the
-    # extra transmit when save_diag is set.
-    if save_diag:
-        _, rx_ce_calib_true, s_orig_calib_true = transmit_and_prep(calib_bits, mod_data, n_users, num_res, h, 0.0)
-        rx_ce_calib_true_t = torch.from_numpy(rx_ce_calib_true)
-        s_orig_calib_true_t = torch.from_numpy(s_orig_calib_true)
-
-    pilot_length = group_size_slots * NUM_SYMB_PER_SLOT * qm
-    tx_bits = encode_pilots(rng, pilot_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
-    rx, _, _ = transmit_and_prep(tx_bits, mod_data, n_users, num_res, h, noise_var)
-    data_cfo_comp = _genie_cfo_comp_vector(group_size_slots)
-    if data_cfo_comp is not None:
-        rx = rx * data_cfo_comp[:, None, None]
-    # lmmse_equalize_with_H creates its output on CPU unconditionally, so inputs need to be
-    # CPU too (mirrors evaluate.py's own rx_c = rx.cpu()).
-    rx_c = torch.from_numpy(rx)
-
-    num_symbols = rx.shape[0]
-    # pilot_data_ratio/real_bit_idx: see the num_bits_pilot docstring note above. ratio=1.0 (the
-    # default, mod_pilot unset) makes real_bit_idx the identity arange(qm) - a no-op.
-    pilot_data_ratio = num_bits_pilot / qm
+    num_symbols = rx_data.shape[0]
+    pilot_data_ratio = 1.0  # mod_pilot padding unsupported with DMRS - see main()'s guard
     real_bit_idx = relevant_indices(num_bits_pilot, pilot_data_ratio)
     detected_word_lmmse = np.zeros((num_symbols * num_bits_pilot, n_users, num_res))
     llrs_mat_lmmse = np.zeros((num_symbols, num_bits_pilot * n_users, num_res, 1))
-
-    # sgd tracking mode trains directly against tx bits, so it needs num_bits_pilot == qm - no
-    # padded (LLR=0/prob=0.5) channels for a supervised loss to be trained against. The EKF path
-    # never needs this (its syndrome measurement is unsupervised), which is why mod_pilot padding
-    # only works with weights_track_mode == 'ekf' today.
-    if weights_track_mode == 'sgd' and num_bits_pilot != qm:
-        raise NotImplementedError(f"weights_track_mode='sgd' doesn't support mod_pilot padding yet "
-                                   f"(num_bits_pilot={num_bits_pilot} != qm={qm}) - the padded "
-                                   f"channels have no real tx bits to train a supervised loss "
-                                   f"against. Use weights_track_mode='ekf', or set mod_pilot<=0.")
-    if weights_track_mode == 'sgd':
-        rx_calib_c = torch.from_numpy(rx_calib)
-        num_calib_symbols = rx_calib.shape[0]
-        detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
-        llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
-    # Per-RE diagnostics for the EKF-divergence investigation: |H| and angle(H) (calibration-slot
-    # channel estimate, noisy and noise-free) and post-equalization SINR, all independent of the
-    # ESCNN/syndrome measurement the EKF actually tracks - a candidate "trust signal" for
-    # gating that update (see ekf_tracker.py's update()) without the circularity of using the
-    # syndrome innovation itself. The _per_re (no "true") arrays are what LMMSE/EKF actually see
-    # (noise and all); the _true_per_re arrays are the noise_var=0 reference, so channel dips (or
-    # a shift in the channel's frequency-domain phase structure vs. training) can be told apart
-    # from estimation noise when comparing across SNRs at the same cdi.
     h_abs_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
-    h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_angle_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_angle_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
     for re in range(num_res):
-        H = ChannelEstimate(rx_ce_calib_t, s_orig_calib_t, calib_slots * NUM_SYMB_PER_SLOT, re)
-        equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var, re)
+        equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, noise_var, re)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio)
-        h_abs_per_re[re] = H.abs().cpu().numpy()
-        h_angle_per_re[re] = H.angle().cpu().numpy()
+        h_abs_per_re[re] = H_data[re].abs().cpu().numpy()
+        h_angle_per_re[re] = H_data[re].angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
-        if save_diag:
-            H_true = ChannelEstimate(rx_ce_calib_true_t, s_orig_calib_true_t, calib_slots * NUM_SYMB_PER_SLOT, re)
-            h_abs_true_per_re[re] = H_true.abs().cpu().numpy()
-            h_angle_true_per_re[re] = H_true.angle().cpu().numpy()
-        if weights_track_mode == 'sgd':
-            # Same H (this calibration block's own estimate) equalizing this same block's own
-            # symbols - an AUGMENT_LMMSE prior for what ESCNN is about to train on, exactly the
-            # relationship evaluate.py's own pilot training has (LMMSE prior computed from the
-            # same region being trained), not the scored data block above.
-            equalized_calib, postEqSINR_calib = lmmse_equalize_with_H(H, rx_calib_c, noise_var, re)
-            LmmseDemod(equalized_calib, postEqSINR_calib, qm, re, llrs_mat_lmmse_calib,
-                       detected_word_lmmse_calib, pilot_data_ratio)
+
+    if save_diag:
+        # Same content (tx_bits/DMRS reference values unchanged), noise_var=0 - a genuinely
+        # noise-free reference H for comparison, mirroring the old rx_clean idiom.
+        data_result_true = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, 0.0)
+        H_true = data_result_true['H_est']
+        for re in range(num_res):
+            h_abs_true_per_re[re] = H_true[re].abs().cpu().numpy()
+            h_angle_true_per_re[re] = H_true[re].angle().cpu().numpy()
 
     # Diagnostic only: zero out LMMSE's LLRs at the given RE indices (e.g. RE 0, suspected of an
     # anomalous |H| - see plot_channel_diag.py) before they're used for anything downstream -
     # LDPC decoding (lmmse_stream, below) and the AUGMENT_LMMSE prior fed to ESCNN
     # (probs_for_aug, also below, since it's sigmoid(llrs_mat_lmmse)). Zeroing (not removing the
-    # RE) keeps ldpc_n/the code rate unchanged; a zeroed LLR just tells the decoder "no
+    # RE) keeps ldpc_n/the code rate unchanged - a zeroed LLR just tells the decoder "no
     # information here" for that RE's bits instead of the possibly-corrupted value it had.
     # conf.debug_zero_llr_res defaults to [] (no-op) - only set it to test this hypothesis.
     debug_zero_llr_res = getattr(conf, 'debug_zero_llr_res', [])
@@ -448,13 +616,19 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                   flush=True)
 
     rx_real = np.empty((num_symbols, n_ants * 2, num_res), dtype=np.float32)
-    rx_real[:, 0::2, :] = rx.real.astype(np.float32)
-    rx_real[:, 1::2, :] = rx.imag.astype(np.float32)
+    rx_real[:, 0::2, :] = rx_data.real.astype(np.float32)
+    rx_real[:, 1::2, :] = rx_data.imag.astype(np.float32)
     rx_real_t = torch.from_numpy(rx_real)
 
-    # AUGMENT_LMMSE: safe here specifically because llrs_mat_lmmse came from the calibration
-    # slot's own channel estimate, never from the data slots being scored below - no leakage.
-    probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse, dtype=torch.float32))
+    # DMRS is transmitted (and its CE computed, for the LMMSE baseline scoring below) regardless
+    # of which_augment - only whether it's fed into ESCNN as a prior is conditional.
+    # which_augment == 'NO_AUGMENT': ESCNNTrainer self-inits a flat-0.5 prior and never reads
+    # probs_in in that branch (escnn_trainer.py's _forward/ekf_predict_update/_online_training),
+    # so an empty tensor here (matching evaluate.py's own NO_AUGMENT convention) is safe.
+    if which_augment == 'AUGMENT_LMMSE':
+        probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse, dtype=torch.float32))
+    else:
+        probs_for_aug = torch.tensor([], dtype=torch.float32)
 
     if weights_track_mode == 'sgd':
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
@@ -467,12 +641,27 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                            "trainable - skipping SGD update (running loaded "
                                            "weights statically).", tag='sgd')
         else:
-            rx_calib_real = np.empty((rx_calib.shape[0], n_ants * 2, num_res), dtype=np.float32)
+            # Separate calib_slots-sized region, built the same DMRS+payload way as the scored
+            # data above - never scored, only trained on (see module docstring).
+            calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
+                                                       mod_data, layout, codec, crc, ldpc_k, ldpc_n)
+            calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var)
+            calib_tx_bits = calib_result['tx_bits']
+            rx_calib, H_calib = calib_result['rx_payload'], calib_result['H_est']
+            num_calib_symbols = rx_calib.shape[0]
+            rx_calib_t = torch.from_numpy(rx_calib)
+            detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
+            llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
+            for re in range(num_res):
+                equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, noise_var, re)
+                LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
+                           detected_word_lmmse_calib, pilot_data_ratio)
+            rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
             rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
             rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
             rx_calib_real_t = torch.from_numpy(rx_calib_real)
             probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
-            tx_calib_t = torch.from_numpy(calib_bits.astype(np.float32))
+            tx_calib_t = torch.from_numpy(calib_tx_bits.astype(np.float32))
             escnn_trainer._online_training(tx_calib_t, rx_calib_real_t, num_bits_pilot, n_users,
                                             conf.iterations, conf.epochs, False, probs_for_aug_calib)
     else:
@@ -492,8 +681,6 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     for user in range(n_users):
         tx_user = tx_bits[:, user, :].reshape(num_symbols, qm, num_res)
 
-        # Select the qm real bit-channels back out of each user's num_bits_pilot-wide block
-        # (real_bit_idx is the identity when num_bits_pilot==qm, i.e. mod_pilot unset).
         escnn_user_llr = escnn_llrs[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, :][:, real_bit_idx, :]
         escnn_user = (escnn_user_llr > 0).astype(int)
         n_err_escnn = int((escnn_user != tx_user).sum())
@@ -513,8 +700,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         tx_stream[user] = tx_user.reshape(-1)
 
     # BLER: per-slot LDPC decode + CRC check, same mechanism evaluate.py uses
-    # (codec.decode -> crc.decode -> crc_fail_mask), over the data slots only - the
-    # calibration slot is never LDPC-coded and never enters this.
+    # (codec.decode -> crc.decode -> crc_fail_mask), over the data slots only.
     bler_escnn_fail = np.zeros(n_users, dtype=int)
     bler_lmmse_fail = np.zeros(n_users, dtype=int)
     for slot in range(group_size_slots):
@@ -554,39 +740,41 @@ def main():
 
     conf.reload_config(args.config)
     resolve_auto_escnn_weights_tag()
-    # Always AUGMENT_LMMSE here, regardless of what's in the config: run_group() builds its
-    # own leakage-free probs_for_aug from a dedicated calibration slot every call, so this is
-    # never actually reading LMMSE priors computed elsewhere.
-    conf.set_value('which_augment', 'AUGMENT_LMMSE')
+    # DMRS is transmitted (and its CE computed for the always-reported LMMSE baseline) regardless
+    # of which_augment - only whether ESCNN gets fed that CE as a prior depends on the mode (see
+    # module docstring/run_group). Only NO_AUGMENT/AUGMENT_LMMSE are wired up here.
+    which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
+    if which_augment not in ('NO_AUGMENT', 'AUGMENT_LMMSE'):
+        raise NotImplementedError(f"ekf.py's DMRS-based CE only supports which_augment in "
+                                   f"('NO_AUGMENT', 'AUGMENT_LMMSE') so far - {which_augment!r} "
+                                   f"would need a DeepSIC/DeepRx trainer wired into this file too "
+                                   f"(evaluate.py runs a real separate forward pass for those), "
+                                   f"which isn't implemented here yet.")
 
     n_users, n_ants, num_res = conf.n_users, conf.n_ants, conf.num_res
     qm, code_rate = get_mcs(conf.mcs)
     qm = int(qm)
     mod_data = int(2 ** qm)
-    ldpc_n = int(num_res * NUM_SYMB_PER_SLOT * qm)
+    # Unified codeword sizing: every region (scored data, and - 'sgd' only - the separate calib
+    # region) now has the same 2-DMRS + _DMRS_NUM_PAYLOAD_SYMB-payload per-slot structure, so one
+    # (ldpc_n, ldpc_k) covers both - no second codec needed.
+    ldpc_n = int(num_res * _DMRS_NUM_PAYLOAD_SYMB * qm)
     ldpc_k = int(ldpc_n * code_rate)
     crc_length = 24 if ldpc_k > 3824 else 16
     codec = LDPC5GCodec(k=ldpc_k + crc_length, n=ldpc_n)
     crc = CRC5GCodec(crc_length)
     rng = np.random.default_rng(seed=conf.seed)
 
-    # num_bits_pilot: the ESCNN network's own bit-width (mirrors evaluate.py's num_bits_pilot,
-    # evaluate.py:2720-2725). Set conf.mod_pilot to a higher order than mcs's real modulation
-    # (e.g. mod_pilot=16 with mcs=2/QPSK) to run a checkpoint trained at that higher order
-    # against the real smaller-modulation data - run_group's LmmseDemod call pads the qm real
-    # bits/symbol out to num_bits_pilot (extra channels at LLR=0/prob=0.5) and selects them back
-    # out for scoring, same as evaluate.py's AUGMENT_LMMSE path for this case.
-    if conf.mod_pilot > 0:
-        num_bits_pilot = int(np.log2(conf.mod_pilot))
-    else:
-        num_bits_pilot = qm
-    if num_bits_pilot < qm:
-        raise ValueError(f"mod_pilot implies num_bits_pilot={num_bits_pilot} < mcs's num_bits_data={qm} - "
-                          f"the network must be sized for at least as many bits as the real data.")
-    if num_bits_pilot != qm and qm not in (2, 4):
-        raise NotImplementedError(f"LmmseDemod only supports padding real data of num_bits_data=2 (QPSK) or "
-                                   f"4 (16QAM) up to a wider num_bits_pilot={num_bits_pilot}; mcs={conf.mcs} "
-                                   f"gives num_bits_data={qm}.")
+    # num_bits_pilot: DMRS's payload REs carry real coded bits at the network's own bit-width, so
+    # (unlike evaluate.py's AUGMENT_LMMSE path) there's no padded-channel mechanism to size a
+    # wider network against a smaller real modulation - mod_pilot isn't supported here.
+    if getattr(conf, 'mod_pilot', -1) > 0:
+        raise NotImplementedError("ekf.py's DMRS-based CE needs num_bits_pilot == qm (payload REs "
+                                   "carry real coded bits, not padded LLR=0/prob=0.5 channels) - "
+                                   "mod_pilot padding isn't supported. Set mod_pilot <= 0.")
+    num_bits_pilot = qm
+
+    layout = _dmrs_layout(n_users, num_res)
 
     noise_var = 10 ** (-0.1 * conf.snr) * CONSTELLATION_FACTOR[mod_data]
     h = SEDChannel.calculate_channel(n_ants, n_users, num_res)
@@ -617,7 +805,9 @@ def main():
     # pilot_size*(block_length_factor-1)). And unlike evaluate.py's get_next_divisible (which
     # rounds the bit count UP so nothing is lost), this truncates DOWN: pilot_size here is a
     # budget, and running past it isn't wanted, so any leftover data that doesn't fill a
-    # complete group is simply discarded.
+    # complete group is simply discarded. Every physical OFDM symbol still counts here (even
+    # though 2/14 of each slot's symbols are DMRS, not payload) - pilot_size is the run's
+    # wall-clock/slot budget, not a payload-bit budget.
     pilot_size_bits = int(getattr(conf, 'pilot_size', -1))
     if pilot_size_bits <= 0:
         raise ValueError(f"pilot_size={pilot_size_bits} - ekf.py needs pilot_size set > 0 "
@@ -640,24 +830,27 @@ def main():
 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
+    calib_note = (f", {calib_slots_per_group} calib slot(s)/group for sgd training"
+                  if weights_track_mode == 'sgd' else "")
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group "
-          f"+ {calib_slots_per_group} calib slot(s)/group, track_mode={weights_track_mode}, starting at "
+          f"({_DMRS_NUM_PAYLOAD_SYMB}/{NUM_SYMB_PER_SLOT} payload symbols/slot, "
+          f"{len(_DMRS_SYMBOL_LOCAL_IDX)} DMRS){calib_note}, track_mode={weights_track_mode}, "
+          f"which_augment={which_augment}, starting at "
           f"channel_drift_base_index={base_index}, cfo={base_cfo}{'' if cfo_drift == 0 else f' (drift={cfo_drift} scs/sec)'}, "
-          f"SNR={conf.snr}dB, mcs={conf.mcs}"
-          f"{'' if num_bits_pilot == qm else f' (mod_pilot={conf.mod_pilot} -> num_bits_pilot={num_bits_pilot}, padded from qm={qm})'}",
+          f"SNR={conf.snr}dB, mcs={conf.mcs}",
           flush=True)
 
     results = []
     for g in range(num_groups):
         stats = run_group(escnn_trainer, codec, crc, rng, qm, num_bits_pilot, mod_data, n_users, n_ants, num_res,
-                           ldpc_k, ldpc_n, noise_var, h, group_size_slots, g, base_index,
-                           base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
+                           ldpc_k, ldpc_n, noise_var, h, group_size_slots, calib_slots_per_group, layout,
+                           g, base_index, base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
         slot_lo = base_index + g * group_size_slots
         slot_hi = slot_lo + group_size_slots - 1
         stats['channel_drift_base_index'] = slot_lo
         results.append(stats)
         # SINR summary prints every group regardless of save_diag - it's a cheap byproduct of
-        # the (always-computed) noisy calibration-slot H, unlike h_abs_true_per_re below, which
+        # the (always-computed) noisy DMRS-based H, unlike h_abs_true_per_re below, which
         # needs its own extra transmit and stays gated to save_loss_plot_snr.
         sinr_db_re = 10 * np.log10(stats['sinr_per_re'])
         print(f"[drift] group {g}/{num_groups} slots={slot_lo}-{slot_hi} "
@@ -749,9 +942,9 @@ def main():
             diag_h5.attrs["num_res"] = num_res
             diag_h5.attrs["n_ants"] = n_ants
             diag_h5.attrs["n_users"] = n_users
-            diag_h5.attrs["h_abs_per_re_note"] = "LS estimate from the noisy calibration slot - what LMMSE/EKF actually see"
-            diag_h5.attrs["h_abs_true_per_re_note"] = "same LS estimator, noise_var=0 - noise-free reference channel"
-            diag_h5.attrs["h_angle_per_re_note"] = "angle(H), noisy calibration-slot estimate, radians, not unwrapped"
+            diag_h5.attrs["h_abs_per_re_note"] = "DMRS-based LS+IFFT-denoise estimate - what LMMSE/EKF actually see"
+            diag_h5.attrs["h_abs_true_per_re_note"] = "same estimator, noise_var=0 - noise-free reference channel"
+            diag_h5.attrs["h_angle_per_re_note"] = "angle(H), noisy DMRS-based estimate, radians, not unwrapped"
             diag_h5.attrs["h_angle_true_per_re_note"] = "angle(H), noise-free reference, radians, not unwrapped"
             for r in results:
                 grp = diag_h5.create_group(f"cdi_{r['channel_drift_base_index']}")

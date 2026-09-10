@@ -133,7 +133,7 @@ CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 _DMRS_SYMBOL_LOCAL_IDX = (2, 11)            # slot-local OFDM symbol indices carrying DMRS
 _DMRS_NUM_PAYLOAD_SYMB = NUM_SYMB_PER_SLOT - len(_DMRS_SYMBOL_LOCAL_IDX)  # 12
 _DMRS_POWER_BOOST_1UE_DB = 3.0               # extra pilot EPRE (dB) when only 1 UE is multiplexed
-_DMRS_DELAY_TRUNC_MARGIN = 4                 # L_taps = ceil(margin * delay_spread / delay_bin_width)
+_DMRS_DELAY_TRUNC_MARGIN = 12                # L_taps = ceil(margin * delay_spread / delay_bin_width)
 
 
 def _long_path(p: str) -> str:
@@ -319,6 +319,41 @@ def transmit_symbols(s: np.ndarray, n_users: int, num_res: int, h: np.ndarray,
     return rx, rx_ce, s_orig
 
 
+def _generate_full_re_reference(rng: np.random.Generator, n_users: int, num_res: int) -> np.ndarray:
+    """One random unit-energy QPSK value per RE per user - full frequency resolution, no comb
+    decimation at all (diagnostic-only, see run_group's save_diag ground-truth pass)."""
+    bits = rng.integers(0, 2, size=(2, n_users, num_res))
+    return ((1 - 2 * bits[0]) + 1j * (1 - 2 * bits[1])) / np.sqrt(2)
+
+
+def _ground_truth_channel(rng: np.random.Generator, n_users: int, n_ants: int, num_res: int,
+                           h: np.ndarray) -> torch.Tensor:
+    """Diagnostic-only (save_diag): a dense, full-resolution per-RE LS channel estimate that
+    bypasses the DMRS comb/delay-domain machinery entirely - round-robin blocks of
+    NUM_SYMB_PER_SLOT repeated symbols per user (only that user transmits, at the same known
+    reference value on every RE for the whole block; everyone else silent, so each user's
+    estimate is exactly interference-free), noise_var=0, direct per-RE division averaged over the
+    block. A single symbol per user isn't long enough for the TDL/discrete-time channel
+    convolution to settle into a valid steady state (confirmed empirically - it produced garbage:
+    ~0 power, effectively random phase); a full slot's worth is the same duration every other
+    transmission in this file already uses safely. This is the independent ground truth
+    _estimate_channel_from_dmrs's output (both truncated and untruncated) should be compared
+    against - the truncated-vs-untruncated comparison alone can only show what truncation itself
+    changes, never whether either one matches the real channel. CFO compensation isn't applied
+    here (this isn't a group-aligned transmission) - only meaningful for conf.cfo == 0 diagnostic
+    runs. Returns (num_res, n_ants, n_users) complex128."""
+    ref = _generate_full_re_reference(rng, n_users, num_res)
+    s = np.zeros((n_users, n_users * NUM_SYMB_PER_SLOT, num_res), dtype=complex)
+    for user in range(n_users):
+        s[user, user * NUM_SYMB_PER_SLOT:(user + 1) * NUM_SYMB_PER_SLOT, :] = ref[user, :][None, :]
+    rx, _, _ = transmit_symbols(s, n_users, num_res, h, 0.0)  # (n_users*NUM_SYMB_PER_SLOT, n_ants, num_res)
+    H_gt = np.zeros((num_res, n_ants, n_users), dtype=complex)
+    for user in range(n_users):
+        block = rx[user * NUM_SYMB_PER_SLOT:(user + 1) * NUM_SYMB_PER_SLOT]  # (NUM_SYMB_PER_SLOT, n_ants, num_res)
+        H_gt[:, :, user] = (block / ref[user, :][None, None, :]).mean(axis=0).T
+    return torch.from_numpy(H_gt)
+
+
 def _dmrs_layout(n_users: int, num_res: int) -> dict:
     """Per-user DMRS RE/OCC assignment (comb-2 Type-1 FD-OCC, up to 4 CDM-multiplexed ports -
     see module docstring). Returns {user: {'comb': 'even'|'odd', 'pairs': [(re_a, re_b_or_None), ...],
@@ -430,8 +465,44 @@ def _interleave_group_symbols(payload_s: np.ndarray, dmrs_s: np.ndarray, num_slo
     return s
 
 
+def _edge_taper(length: int) -> np.ndarray:
+    """Length-`length` array of 1s except the last quarter (min 1 tap), which raised-cosine
+    tapers down to 0 - used to fight Gibbs ringing at the *discarded* edge of a kept delay-domain
+    segment, without attenuating the (presumably larger) energy nearer delay 0."""
+    w = np.ones(length)
+    edge = max(1, length // 4)
+    w[length - edge:] = 0.5 * (1 + np.cos(np.pi * np.arange(edge) / edge))
+    return w
+
+
+def _fold_delay_taps(h_alias: np.ndarray, num_res: int, causal_len: int, anticausal_len: int,
+                      taper: bool) -> np.ndarray:
+    """Place an M-point aliased delay-domain sequence into a full num_res-length array, split
+    between its causal (near-zero, non-negative-delay) front and its *wrapped* tail - IFFT/DFT
+    periodicity puts negative delays at the far end of h_alias (index M-1 = delay -1, M-2 = delay
+    -2, ...; this is where a pulse-shaping filter's pre-cursor taps - e.g. TLD_channel.py's
+    negative l_min - show up). Zero-padding by naively appending zeros after index
+    causal_len+anticausal_len-1 would jam a hard discontinuity right against any real wrapped
+    content, ringing across the whole spectrum on FFT - this is what the untruncated diagnostic
+    surfaced (see _estimate_channel_from_dmrs). Correct placement: causal part goes at the front,
+    anticausal part goes at the *end* of the full-length array, zeros in between.
+
+    taper=True raised-cosine-tapers the *discarded* edge of each kept segment - the end farthest
+    from delay 0 (only meaningful when causal_len/anticausal_len are a truncation, not the full M;
+    the untruncated caller passes taper=False since nothing is being discarded)."""
+    M = h_alias.shape[0]
+    h_out = np.zeros((num_res,) + h_alias.shape[1:], dtype=complex)
+    if causal_len > 0:
+        w = _edge_taper(causal_len) if taper else np.ones(causal_len)
+        h_out[:causal_len] = h_alias[:causal_len] * w[:, None]
+    if anticausal_len > 0:
+        w = _edge_taper(anticausal_len)[::-1] if taper else np.ones(anticausal_len)
+        h_out[num_res - anticausal_len:] = h_alias[M - anticausal_len:] * w[:, None]
+    return h_out
+
+
 def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: int, num_res: int,
-                                 n_users: int) -> torch.Tensor:
+                                 n_users: int, return_untruncated: bool = False):
     """Per user, per antenna: LS+deocc at each DMRS pilot position (averaged over every DMRS
     occasion in the region - the two in-slot symbols x every slot in it), then an IFFT
     delay-domain denoise/interpolate to fill every RE. Returns (num_res, n_ants, n_users)
@@ -447,17 +518,30 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
     Step 2 (delay domain): IFFT the user's M uniformly-spaced pilot estimates -> an aliased
     delay-domain estimate; white noise spreads evenly across all M delay bins while true channel
     energy concentrates within the delay spread, so truncating to L_taps (from conf.delay_spread)
-    and zeroing the rest is a large, SNR-independent noise reduction. Only the last quarter of
-    the retained taps gets a raised-cosine taper down to 0 (fighting the Gibbs ringing a hard
-    cutoff would otherwise introduce) - the earlier taps stay at full weight, since a taper
-    spanning the *whole* retained window would attenuate genuine mid-window channel energy for
-    an exponential PDP, not just smooth the edge. Zero-pad back to num_res and FFT ->
-    full-resolution H, including at the original pilot REs (denoised the same as everywhere
-    else, not left as their raw single-shot LS value)."""
+    and zeroing the rest is a large, SNR-independent noise reduction. L_taps is split evenly
+    between causal and anticausal (wrapped/pre-cursor - see _fold_delay_taps), the same ratio the
+    untruncated path uses (there, an even split isn't a policy choice, it's the only correct one -
+    see below) - an earlier draft here reserved only 1/4 of the budget for the anticausal side on
+    the (real but overstated) assumption that pre-cursor content is much smaller than the main
+    response; the ground-truth-vs-truncated diagnostic showed that assumption starving one side of
+    the seam of resolution while the other side (which happened to get more of the budget) matched
+    well - an artifact of the ratio, not of L_taps overall. Zero-pad back to num_res (correctly
+    split, not just appended - _fold_delay_taps) and FFT -> full-resolution H, including at the
+    original pilot REs (denoised the same as everywhere else, not left as their raw single-shot LS
+    value).
+
+    return_untruncated (diagnostic only - see run_group's save_diag path): also returns a second
+    (num_res, n_ants, n_users) estimate from the *same* h_alias with no truncation/taper at all
+    (L_taps=M, i.e. plain DFT interpolation of the raw pilot estimates, no denoising assumption) -
+    split exactly at the Nyquist point M//2 (the only correct split when nothing is discarded,
+    unlike L_taps's causal/anticausal ratio above, which is a truncation policy choice). Comparing
+    the two on a noise_var=0 pass isolates exactly what the L_taps truncation choice is doing to
+    the estimate, with noise out of the picture entirely."""
     delta_f = SAMPLING_RATE / FFT_size  # real subcarrier spacing (Hz)
     delay_bin = 1.0 / (num_res * delta_f)
     rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
     H = np.zeros((num_res, n_ants, n_users), dtype=complex)
+    H_untrunc = np.zeros((num_res, n_ants, n_users), dtype=complex) if return_untruncated else None
     for user, info in known_tx.items():
         pair_est = []
         for re_a, re_b, val_a, val_b in info['entries']:
@@ -475,13 +559,21 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
         M = pair_est.shape[0]
 
         h_alias = np.fft.ifft(pair_est, axis=0)             # (M, n_ants), aliased delay-domain estimate
+
         L_taps = int(np.clip(np.ceil(_DMRS_DELAY_TRUNC_MARGIN * conf.delay_spread / delay_bin), 1, M))
-        taper = np.ones(L_taps)
-        edge_len = max(1, L_taps // 4)
-        taper[L_taps - edge_len:] = 0.5 * (1 + np.cos(np.pi * np.arange(edge_len) / edge_len))
-        h_trunc = np.zeros((num_res, n_ants), dtype=complex)
-        h_trunc[:L_taps] = h_alias[:L_taps] * taper[:, None]
+        anticausal_trunc = L_taps // 2
+        causal_trunc = L_taps - anticausal_trunc
+        h_trunc = _fold_delay_taps(h_alias, num_res, causal_trunc, anticausal_trunc, taper=True)
         H[:, :, user] = np.fft.fft(h_trunc, axis=0)          # (num_res, n_ants), full-resolution
+
+        if return_untruncated:
+            anticausal_full = M // 2
+            causal_full = M - anticausal_full
+            h_full = _fold_delay_taps(h_alias, num_res, causal_full, anticausal_full, taper=False)
+            H_untrunc[:, :, user] = np.fft.fft(h_full, axis=0)
+
+    if return_untruncated:
+        return torch.from_numpy(H), torch.from_numpy(H_untrunc)
     return torch.from_numpy(H)
 
 
@@ -504,11 +596,14 @@ def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: 
 
 
 def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: int, h: np.ndarray,
-                            noise_var: float) -> dict:
+                            noise_var: float, return_untruncated: bool = False) -> dict:
     """Transmit one region's content (from _generate_region_content) through SEDChannel, split
     the returned samples into payload rows and DMRS-occasion rows by slot-local symbol index,
     and estimate that region's own channel from its own DMRS (_estimate_channel_from_dmrs) -
-    replaces both today's calib-block transmit+ChannelEstimate and the old data-block transmit."""
+    replaces both today's calib-block transmit+ChannelEstimate and the old data-block transmit.
+
+    return_untruncated: diagnostic-only passthrough to _estimate_channel_from_dmrs - when True,
+    the result dict also carries 'H_est_untrunc' (see run_group's save_diag path)."""
     num_slots = content['num_slots']
     rx, _, _ = transmit_symbols(content['s'], n_users, num_res, h, noise_var)
     cfo_comp = _genie_cfo_comp_vector(num_slots)
@@ -523,8 +618,13 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
         dmrs_rows.extend(base + i for i in _DMRS_SYMBOL_LOCAL_IDX)
     rx_payload = rx[payload_rows]
     rx_dmrs = torch.from_numpy(rx[dmrs_rows])
-    H_est = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users)
-    return {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload, 'H_est': H_est}
+    result = {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload}
+    if return_untruncated:
+        result['H_est'], result['H_est_untrunc'] = _estimate_channel_from_dmrs(
+            rx_dmrs, content['known_tx'], n_ants, num_res, n_users, return_untruncated=True)
+    else:
+        result['H_est'] = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users)
+    return result
 
 
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
@@ -579,6 +679,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     h_angle_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_angle_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_abs_true_untrunc_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_angle_true_untrunc_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_abs_ground_truth_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
+    h_angle_ground_truth_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
     for re in range(num_res):
         equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, noise_var, re)
@@ -590,11 +694,27 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     if save_diag:
         # Same content (tx_bits/DMRS reference values unchanged), noise_var=0 - a genuinely
         # noise-free reference H for comparison, mirroring the old rx_clean idiom.
-        data_result_true = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, 0.0)
-        H_true = data_result_true['H_est']
+        # return_untruncated=True also gets an L_taps=M (no truncation/taper) estimate from the
+        # exact same noiseless pass - comparing it against H_true isolates what the truncation
+        # choice itself is doing, with noise out of the picture entirely (see
+        # _estimate_channel_from_dmrs's docstring - this is the truncated-vs-untruncated
+        # diagnostic, not the noisy-vs-true one, which can't tell truncation bias from noise
+        # since both noisy and true pass through the same truncation).
+        data_result_true = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, 0.0,
+                                                    return_untruncated=True)
+        H_true, H_true_untrunc = data_result_true['H_est'], data_result_true['H_est_untrunc']
+        # Independent ground truth (bypasses the DMRS comb/delay-domain machinery entirely - see
+        # _ground_truth_channel's docstring): what the truncated-vs-untruncated comparison alone
+        # can't tell us is whether either one matches the real channel, only what truncation
+        # itself changes between them.
+        H_gt = _ground_truth_channel(rng, n_users, n_ants, num_res, h)
         for re in range(num_res):
             h_abs_true_per_re[re] = H_true[re].abs().cpu().numpy()
             h_angle_true_per_re[re] = H_true[re].angle().cpu().numpy()
+            h_abs_true_untrunc_per_re[re] = H_true_untrunc[re].abs().cpu().numpy()
+            h_angle_true_untrunc_per_re[re] = H_true_untrunc[re].angle().cpu().numpy()
+            h_abs_ground_truth_per_re[re] = H_gt[re].abs().cpu().numpy()
+            h_angle_ground_truth_per_re[re] = H_gt[re].angle().cpu().numpy()
 
     # Diagnostic only: zero out LMMSE's LLRs at the given RE indices (e.g. RE 0, suspected of an
     # anomalous |H| - see plot_channel_diag.py) before they're used for anything downstream -
@@ -729,6 +849,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         'num_symbols': num_symbols,
         'h_abs_per_re': h_abs_per_re, 'h_abs_true_per_re': h_abs_true_per_re,
         'h_angle_per_re': h_angle_per_re, 'h_angle_true_per_re': h_angle_true_per_re,
+        'h_abs_true_untrunc_per_re': h_abs_true_untrunc_per_re,
+        'h_angle_true_untrunc_per_re': h_angle_true_untrunc_per_re,
+        'h_abs_ground_truth_per_re': h_abs_ground_truth_per_re,
+        'h_angle_ground_truth_per_re': h_angle_ground_truth_per_re,
         'sinr_per_re': sinr_per_re,
     }
 
@@ -938,6 +1062,10 @@ def main():
             diag_h5.attrs["h_abs_true_per_re_dims"] = "RE, ant, user"
             diag_h5.attrs["h_angle_per_re_dims"] = "RE, ant, user"
             diag_h5.attrs["h_angle_true_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_abs_true_untrunc_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_angle_true_untrunc_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_abs_ground_truth_per_re_dims"] = "RE, ant, user"
+            diag_h5.attrs["h_angle_ground_truth_per_re_dims"] = "RE, ant, user"
             diag_h5.attrs["sinr_per_re_dims"] = "RE, user"
             diag_h5.attrs["num_res"] = num_res
             diag_h5.attrs["n_ants"] = n_ants
@@ -946,6 +1074,21 @@ def main():
             diag_h5.attrs["h_abs_true_per_re_note"] = "same estimator, noise_var=0 - noise-free reference channel"
             diag_h5.attrs["h_angle_per_re_note"] = "angle(H), noisy DMRS-based estimate, radians, not unwrapped"
             diag_h5.attrs["h_angle_true_per_re_note"] = "angle(H), noise-free reference, radians, not unwrapped"
+            diag_h5.attrs["h_abs_true_untrunc_per_re_note"] = ("same noise_var=0 pass as h_abs_true_per_re, but "
+                                                                 "with the L_taps delay-domain truncation/taper "
+                                                                 "skipped entirely (plain DFT interpolation of the "
+                                                                 "raw pilot estimates) - compare against "
+                                                                 "h_abs_true_per_re to isolate what truncation "
+                                                                 "itself is doing, with noise out of the picture")
+            diag_h5.attrs["h_angle_true_untrunc_per_re_note"] = "angle(H) for h_abs_true_untrunc_per_re, radians, not unwrapped"
+            diag_h5.attrs["h_abs_ground_truth_per_re_note"] = ("independent ground truth (_ground_truth_channel) - "
+                                                                 "a dense, full-resolution, noise_var=0 per-RE LS "
+                                                                 "estimate that bypasses the DMRS comb/delay-domain "
+                                                                 "machinery entirely; compare h_abs_true_per_re and "
+                                                                 "h_abs_true_untrunc_per_re against this, not just "
+                                                                 "against each other, to tell whether either DMRS "
+                                                                 "reconstruction matches the real channel")
+            diag_h5.attrs["h_angle_ground_truth_per_re_note"] = "angle(H) for h_abs_ground_truth_per_re, radians, not unwrapped"
             for r in results:
                 grp = diag_h5.create_group(f"cdi_{r['channel_drift_base_index']}")
                 grp.create_dataset("h_abs_per_re", data=r['h_abs_per_re'].astype(np.float16),
@@ -955,6 +1098,14 @@ def main():
                 grp.create_dataset("h_angle_per_re", data=r['h_angle_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)
                 grp.create_dataset("h_angle_true_per_re", data=r['h_angle_true_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_abs_true_untrunc_per_re", data=r['h_abs_true_untrunc_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_angle_true_untrunc_per_re", data=r['h_angle_true_untrunc_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_abs_ground_truth_per_re", data=r['h_abs_ground_truth_per_re'].astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("h_angle_ground_truth_per_re", data=r['h_angle_ground_truth_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)
                 grp.create_dataset("sinr_per_re", data=r['sinr_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)

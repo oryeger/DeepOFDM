@@ -629,6 +629,43 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
     return result
 
 
+def _llr_diag_line(snr, group_idx: int, slot: int, user: int, llr_scored: np.ndarray,
+                    hard_user: np.ndarray, tx_user: np.ndarray, crc_fail: bool) -> str:
+    """LMMSE-only diagnostic: recomputes the gmi estimator's term by hand (same formula
+    _mi_from_flat's 'gmi' branch uses) over every RE this slot/user scored, to see whether a
+    slot's MI hit is a broad shift or driven by a small tail of wrong-but-overconfident LLRs
+    (the postEqSINR=bias/(1-bias) blow-up hypothesis). 'wrong' comes from the hard decision the
+    code already computes, not from re-deriving the LLR's sign convention - self-consistent by
+    construction since both are thresholded from the same real/imag part. worst_re is whichever
+    RE has the single largest wrong-and-confident |LLR| in this slot/user - deliberately not
+    assumed to be RE=0, since the goal is the general case across all REs. crc_fail is that same
+    slot's actual LDPC decode outcome (crc_fail_mask) - printed here (not inferred separately)
+    so these lines can be grepped/filtered to check whether outlier wrong-and-overconfident LLRs
+    actually line up with real BLER failures, not just correlate with them in aggregate."""
+    abs_l = np.abs(llr_scored)
+    wrong = (hard_user != tx_user)
+    sign_agree = np.where(wrong, -1.0, 1.0)
+    term = np.logaddexp(0.0, -sign_agree * abs_l) / np.log(2)
+    gmi_diag = float(np.clip(1.0 - term.mean(), 0.0, 1.0))
+    wrong_frac = float(wrong.mean())
+    if wrong.any():
+        wrong_l = abs_l[wrong]
+        wrong_l_mean, wrong_l_max = float(wrong_l.mean()), float(wrong_l.max())
+        wrong_term_share = float(term[wrong].sum() / max(term.sum(), 1e-300))
+        wrong_l_per_re = np.where(wrong, abs_l, 0.0).max(axis=(0, 1))
+        worst_re = int(wrong_l_per_re.argmax())
+        worst_re_val = float(wrong_l_per_re[worst_re])
+    else:
+        wrong_l_mean = wrong_l_max = wrong_term_share = worst_re_val = 0.0
+        worst_re = -1
+    return (f"[llr-diag] det=lmmse SNR={snr} group={group_idx} slot={slot} user={user} "
+            f"crc={'FAIL' if crc_fail else 'OK'} gmi={gmi_diag:.4f} "
+            f"wrong_frac={wrong_frac:.4e} |L|_mean={float(abs_l.mean()):.2f} "
+            f"|L|_max={float(abs_l.max()):.2f} wrong|L|_mean={wrong_l_mean:.2f} "
+            f"wrong|L|_max={wrong_l_max:.2f} wrong_term_share={wrong_term_share:.3f} "
+            f"worst_re={worst_re}(|L|={worst_re_val:.2f})")
+
+
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
               ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
@@ -801,6 +838,9 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     escnn_stream = np.zeros((n_users, group_size_slots * ldpc_n))
     lmmse_stream = np.zeros((n_users, group_size_slots * ldpc_n))
     tx_stream = np.zeros((n_users, group_size_slots * ldpc_n))
+    lmmse_llr_scored_by_user = [None] * n_users
+    lmmse_user_by_user = [None] * n_users
+    tx_user_by_user = [None] * n_users
     for user in range(n_users):
         tx_user = tx_bits[:, user, :].reshape(num_symbols, qm, num_res)
 
@@ -819,11 +859,20 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
 
         escnn_stream[user] = escnn_user_llr.reshape(-1)
         lmmse_llr_full = llrs_mat_lmmse[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, :, 0]
-        lmmse_stream[user] = lmmse_llr_full[:, real_bit_idx, :].reshape(-1)
+        lmmse_llr_scored = lmmse_llr_full[:, real_bit_idx, :]
+        lmmse_stream[user] = lmmse_llr_scored.reshape(-1)
         tx_stream[user] = tx_user.reshape(-1)
 
+        lmmse_llr_scored_by_user[user] = lmmse_llr_scored
+        lmmse_user_by_user[user] = lmmse_user
+        tx_user_by_user[user] = tx_user
+
     # BLER: per-slot LDPC decode + CRC check, same mechanism evaluate.py uses
-    # (codec.decode -> crc.decode -> crc_fail_mask), over the data slots only.
+    # (codec.decode -> crc.decode -> crc_fail_mask), over the data slots only. Also drives
+    # [llr-diag] (LMMSE only - see _llr_diag_line), printed per (slot, user) here rather than
+    # once per whole group so each line can be tagged with whether THIS slot's LDPC decode
+    # actually failed CRC.
+    symbols_per_slot = num_symbols // group_size_slots
     bler_escnn_fail = np.zeros(n_users, dtype=int)
     bler_lmmse_fail = np.zeros(n_users, dtype=int)
     for slot in range(group_size_slots):
@@ -831,7 +880,17 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         decoded_escnn = codec.decode(escnn_stream[:, win])
         bler_escnn_fail += crc_fail_mask(decoded_escnn, crc.decode(decoded_escnn)).astype(int)
         decoded_lmmse = codec.decode(lmmse_stream[:, win])
-        bler_lmmse_fail += crc_fail_mask(decoded_lmmse, crc.decode(decoded_lmmse)).astype(int)
+        lmmse_fail = crc_fail_mask(decoded_lmmse, crc.decode(decoded_lmmse))
+        bler_lmmse_fail += lmmse_fail.astype(int)
+
+        sym_win = slice(slot * symbols_per_slot, (slot + 1) * symbols_per_slot)
+        for user in range(n_users):
+            print(_llr_diag_line(conf.snr, group_idx, slot, user,
+                                  lmmse_llr_scored_by_user[user][sym_win],
+                                  lmmse_user_by_user[user][sym_win],
+                                  tx_user_by_user[user][sym_win],
+                                  bool(lmmse_fail[user])),
+                  flush=True)
     bler_escnn_user = (bler_escnn_fail / group_size_slots).tolist()
     bler_lmmse_user = (bler_lmmse_fail / group_size_slots).tolist()
 

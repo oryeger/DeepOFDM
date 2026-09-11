@@ -117,7 +117,8 @@ from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
 from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
-from python_code.utils.constants import (CP, FFT_size, FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
+from python_code.utils.constants import (CP, DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, FFT_size,
+                                          FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
                                           NUM_SYMB_PER_SLOT, SAMPLING_RATE, SLOT_LENGTH_SEC)
 from python_code.utils.probs_utils import relevant_indices
 
@@ -129,9 +130,10 @@ CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 # scored data region, and - for weights_track_mode='sgd' - for the calib region too; see module
 # docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
 # CDM-multiplexed ports (FD-OCC). These are concrete numbers from the design, not tunables, so
-# they're kept as constants rather than new config.yaml keys.
-_DMRS_SYMBOL_LOCAL_IDX = (2, 11)            # slot-local OFDM symbol indices carrying DMRS
-_DMRS_NUM_PAYLOAD_SYMB = NUM_SYMB_PER_SLOT - len(_DMRS_SYMBOL_LOCAL_IDX)  # 12
+# they're kept as constants (in utils/constants.py, shared with escnn_trainer.py's syndrome/EKF
+# code - see that module's DMRS_NUM_PAYLOAD_SYMB) rather than new config.yaml keys.
+_DMRS_SYMBOL_LOCAL_IDX = DMRS_SYMBOL_LOCAL_IDX          # slot-local OFDM symbol indices carrying DMRS
+_DMRS_NUM_PAYLOAD_SYMB = DMRS_NUM_PAYLOAD_SYMB          # 12
 _DMRS_POWER_BOOST_1UE_DB = 3.0               # extra pilot EPRE (dB) when only 1 UE is multiplexed
 _DMRS_DELAY_TRUNC_MARGIN = 12                # L_taps = ceil(margin * delay_spread / delay_bin_width)
 
@@ -785,7 +787,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             escnn_trainer._online_training(tx_calib_t, rx_calib_real_t, num_bits_pilot, n_users,
                                             conf.iterations, conf.epochs, False, probs_for_aug_calib)
     else:
-        escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
+        escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
+                                          payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
     _, llrs_mat_list = escnn_trainer._forward(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
     escnn_llrs = llrs_mat_list[-1].squeeze(-1).cpu().numpy()   # (symbols, num_bits_pilot*n_users, num_res)
 

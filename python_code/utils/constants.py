@@ -7,6 +7,13 @@ SHOW_ALL_ITERATIONS = True
 GENIE_CFO = True
 
 NUM_SYMB_PER_SLOT = 14 # 500
+# Embedded-DMRS slot layout (see ekf.py's module docstring): each slot carries its own DMRS
+# reference symbols at these slot-local OFDM symbol indices, with the remaining symbols
+# carrying LDPC-coded payload. Shared here (rather than defined only in ekf.py) because
+# escnn_trainer.py's syndrome/EKF code needs the payload-only symbol count too, and importing
+# ekf.py from there would be circular (ekf.py imports escnn_trainer.py).
+DMRS_SYMBOL_LOCAL_IDX = (2, 11)
+DMRS_NUM_PAYLOAD_SYMB = NUM_SYMB_PER_SLOT - len(DMRS_SYMBOL_LOCAL_IDX)  # 12
 # FFT_size/FIRST_CP/CP/SAMPLING_RATE are a uniformly-scaled-down (here 4x) version of the real
 # 5G 30kHz-SCS reference numerology (fs=122.88Msps, FFT_size=4096) - scaling all four together
 # keeps SCS (=SAMPLING_RATE/FFT_size) and the CP/symbol-duration ratios exactly matching the

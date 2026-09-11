@@ -15,7 +15,7 @@ from python_code.coding.ekf_tracker import EkfParamTracker
 from python_code.coding.mcs_table import get_mcs
 from python_code.detectors.escnn.escnn_detector import ESCNNDetector
 from python_code.detectors.trainer import Trainer
-from python_code.utils.constants import HALF, TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT
+from python_code.utils.constants import HALF, TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT, DMRS_NUM_PAYLOAD_SYMB
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
@@ -369,15 +369,20 @@ class ESCNNTrainer(Trainer):
         return self._ekf_trackers
 
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
-                            probs_in: torch.Tensor = None):
+                            probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """Unsupervised, syndrome-driven test-time adaptation: for every (user, iteration)
         network, whatever escnn_load_freeze leaves unfrozen gets one EKF predict+update per
         *slot* (one TB/LDPC codeword each) from that slot's soft-syndrome measurement (no
         ground-truth bits), written back into the network in place. No pilot/val split - the
         caller decides what rx_real covers (a whole block, a single slot, a group of slots -
         see ekf.py). probs_in mirrors _forward's augmentation input: used when
-        conf.which_augment != 'NO_AUGMENT', otherwise the flat 0.5 init is used. See ekf_syndrome.tex."""
-        helper = self._get_syndrome_helper(tag='ekf')
+        conf.which_augment != 'NO_AUGMENT', otherwise the flat 0.5 init is used.
+        payload_symbols_per_slot is how many of rx_real's rows make up one slot - defaults to a
+        full NUM_SYMB_PER_SLOT, but ekf.py's streaming-drift script embeds DMRS in-slot and
+        passes DMRS_NUM_PAYLOAD_SYMB instead, since rx_real there already excludes DMRS rows (see
+        _get_syndrome_helper's docstring for why this must also match the codec that built the
+        actual LDPC codewords). See ekf_syndrome.tex."""
+        helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
         if helper is None:
             self._tsyn_warn_once('ekf_mcs', "EKF tracking needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
             return
@@ -400,13 +405,14 @@ class ESCNNTrainer(Trainer):
             real_bit_idx = torch.as_tensor(relevant_indices(num_bits, num_bits / qm),
                                             device=DEVICE, dtype=torch.long)
 
-        # Slot count from the actual symbol-domain slicing below (rx_prob[s*NUM_SYMB_PER_SLOT:...]),
-        # not from a bits-available/helper.n estimate: rx_real here is pilot-domain (num_bits ==
-        # num_bits_pilot), while helper.n is sized from the data qm (see ekf.py's ldpc_n). When
-        # mod_pilot's bit depth differs from the data MCS's (e.g. mod_pilot=16 -> num_bits_pilot=4
-        # vs MCS2's qm=2), that estimate is off by the qm ratio and can claim more slots than the
-        # tensor actually holds, indexing empty slices in the per-slot loops below.
-        num_slots = rx_real.shape[0] // NUM_SYMB_PER_SLOT
+        # Slot count from the actual symbol-domain slicing below
+        # (rx_prob[s*payload_symbols_per_slot:...]), not from a bits-available/helper.n estimate:
+        # rx_real here is pilot-domain (num_bits == num_bits_pilot), while helper.n is sized from
+        # the data qm (see ekf.py's ldpc_n). When mod_pilot's bit depth differs from the data
+        # MCS's (e.g. mod_pilot=16 -> num_bits_pilot=4 vs MCS2's qm=2), that estimate is off by
+        # the qm ratio and can claim more slots than the tensor actually holds, indexing empty
+        # slices in the per-slot loops below.
+        num_slots = rx_real.shape[0] // payload_symbols_per_slot
         if num_slots == 0:
             self._tsyn_warn_once('ekf_too_small', f"block has only {rx_real.shape[0]} symbols - too "
                                   f"small for one codeword (needs {helper.n} bits); skipping EKF update.", tag='ekf')
@@ -420,7 +426,7 @@ class ESCNNTrainer(Trainer):
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
             if getattr(conf, 'log_train_every_epochs', 0) > 0:
                 self._log_static_syndrome_stats(rx_real, num_bits, n_users, iterations, probs_in, helper,
-                                                 num_slots, real_bit_idx)
+                                                 num_slots, real_bit_idx, payload_symbols_per_slot)
             return
 
         trackers = self._get_ekf_trackers()
@@ -457,7 +463,7 @@ class ESCNNTrainer(Trainer):
                 # each get their own. Default of 1 reproduces one predict per slot.
                 # ESCNNDetector's Conv2d kernels only span (kernel_size, 1) over the
                 # num_res axis - the symbol/batch axis is never convolved across - so a
-                # slot's LLRs depend only on that slot's own NUM_SYMB_PER_SLOT symbols.
+                # slot's LLRs depend only on that slot's own payload_symbols_per_slot symbols.
                 # Slicing rx_prob down to just those symbols before the forward pass (not
                 # after) gives identical results while avoiding redoing other slots'
                 # worth of conv work on every one of the updates below.
@@ -467,7 +473,7 @@ class ESCNNTrainer(Trainer):
                     group_end = min(group_start + slots_per_predict, num_slots)
                     tracker.predict()
                     for s in range(group_start, group_end):
-                        rx_slot = rx_prob[s * NUM_SYMB_PER_SLOT:(s + 1) * NUM_SYMB_PER_SLOT]
+                        rx_slot = rx_prob[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
 
                         def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n, _idx=real_bit_idx):
                             _, llrs = functional_call(_net, param_dict, (_rx,))
@@ -491,7 +497,8 @@ class ESCNNTrainer(Trainer):
             probs_vec = next_probs_vec
 
     def _log_static_syndrome_stats(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
-                                    probs_in: torch.Tensor, helper, num_slots: int, real_bit_idx=None):
+                                    probs_in: torch.Tensor, helper, num_slots: int, real_bit_idx=None,
+                                    payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """Diagnostic-only counterpart to the tracked path's per-slot mean_hard_sat prints
         (ekf_predict_update() above), for when escnn_load_freeze leaves nothing trainable and that
         function returns before ever computing a measurement. Needed to compare "tracking on" vs
@@ -522,7 +529,7 @@ class ESCNNTrainer(Trainer):
                         rx_prob = torch.cat((rx_real, probs_vec), dim=1)
 
                     for s in range(num_slots):
-                        rx_slot = rx_prob[s * NUM_SYMB_PER_SLOT:(s + 1) * NUM_SYMB_PER_SLOT]
+                        rx_slot = rx_prob[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
                         _, llrs = net(rx_slot)
                         if real_bit_idx is not None:
                             llrs = llrs[:, real_bit_idx, :, :]
@@ -637,16 +644,25 @@ class ESCNNTrainer(Trainer):
             print(f"[{tag}] WARNING: {msg}", flush=True)
             self._tsyn_warned.add(key)
 
-    def _get_syndrome_helper(self, tag: str = 'tsyn'):
+    def _get_syndrome_helper(self, tag: str = 'tsyn', payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """Lazily build/cache the SyndromeLoss for the current LDPC configuration
-        (same k/n construction as evaluate.py's LDPC5GCodec). tag is purely cosmetic (the
-        log-line prefix on the cached SyndromeLoss - see its own tag docstring) and reflects
-        whichever caller happens to trigger construction first, since the instance is shared
-        by both _syndrome_component (tsyn training loss) and ekf_predict_update (EKF)."""
+        (same k/n construction as evaluate.py's LDPC5GCodec, whose pilot region still spans a
+        full NUM_SYMB_PER_SLOT symbols/slot - the default here). ekf.py's streaming-drift script
+        embeds DMRS in-slot instead (see its module docstring), so only DMRS_NUM_PAYLOAD_SYMB of
+        each slot's symbols are LDPC-coded payload; its callers (ekf_predict_update,
+        _log_static_syndrome_stats) pass payload_symbols_per_slot=DMRS_NUM_PAYLOAD_SYMB
+        explicitly so this method's ldpc_n matches the codeword length ekf.py's own
+        LDPC5GCodec actually used to encode that payload - otherwise the SyndromeLoss's parity
+        checks are built for a different code than what's on the wire, making mean_p/mean_hard_sat
+        structurally meaningless (see ekf-mod-pilot-syndrome-bug memory for a prior instance of
+        this same class of bug). tag is purely cosmetic (the log-line prefix on the cached
+        SyndromeLoss - see its own tag docstring) and reflects whichever caller happens to trigger
+        construction first, since the instance is shared by both _syndrome_component (tsyn
+        training loss) and ekf_predict_update (EKF)."""
         if int(getattr(conf, 'mcs', -1)) <= -1:
             return None
         qm, code_rate = get_mcs(conf.mcs)
-        ldpc_n = int(conf.num_res * NUM_SYMB_PER_SLOT * int(qm))
+        ldpc_n = int(conf.num_res * payload_symbols_per_slot * int(qm))
         ldpc_k = int(ldpc_n * code_rate)
         crc_length = 24 if ldpc_k > 3824 else 16
         key = (ldpc_k + crc_length, ldpc_n)

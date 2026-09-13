@@ -504,7 +504,8 @@ def _fold_delay_taps(h_alias: np.ndarray, num_res: int, causal_len: int, anticau
 
 
 def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: int, num_res: int,
-                                 n_users: int, return_untruncated: bool = False):
+                                 n_users: int, return_untruncated: bool = False,
+                                 estimate_noise_var: bool = False):
     """Per user, per antenna: LS+deocc at each DMRS pilot position (averaged over every DMRS
     occasion in the region - the two in-slot symbols x every slot in it), then an IFFT
     delay-domain denoise/interpolate to fill every RE. Returns (num_res, n_ants, n_users)
@@ -538,12 +539,30 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
     split exactly at the Nyquist point M//2 (the only correct split when nothing is discarded,
     unlike L_taps's causal/anticausal ratio above, which is a truncation policy choice). Comparing
     the two on a noise_var=0 pass isolates exactly what the L_taps truncation choice is doing to
-    the estimate, with noise out of the picture entirely."""
+    the estimate, with noise out of the picture entirely.
+
+    estimate_noise_var: also returns a receiver-side noise_var estimate (see noise_var_terms
+    below) - the DMRS-pilot analog of what LmmseEqualize computes inline from its own LS
+    estimate, for conf.override_noise_var=False to use instead of the genie theoretical
+    noise_var (see run_group). Meaningless (and not requested) on the noise_var=0 save_diag
+    pass, so this and return_untruncated are never both True in practice.
+
+    Returns a dict: {'H': ..., and optionally 'H_untrunc'/'noise_var_est'} - a dict rather than
+    a positional tuple since which optional fields are present depends on which of the two
+    independent flags above is set."""
     delta_f = SAMPLING_RATE / FFT_size  # real subcarrier spacing (Hz)
     delay_bin = 1.0 / (num_res * delta_f)
     rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
     H = np.zeros((num_res, n_ants, n_users), dtype=complex)
     H_untrunc = np.zeros((num_res, n_ants, n_users), dtype=complex) if return_untruncated else None
+    # noise_var_terms: per-(user, pilot-position) residual of the raw per-occasion LS estimate
+    # around its own across-occasion mean - the same idea LmmseEqualize (lmmse_equalizer.py:74/80)
+    # uses for its noise_var, just computed here (post-deocc-combine, pre-IFFT-denoise) since this
+    # estimator's pilot samples aren't laid out the way LmmseEqualize expects. Needs num_occasions
+    # > 1 (always true here: num_occasions = num_slots * len(_DMRS_SYMBOL_LOCAL_IDX) >= 2) - with
+    # only 2 DMRS occasions per slot this is a genuinely noisy 1-degree-of-freedom estimate, not a
+    # bug, just what a real receiver has to work with.
+    noise_var_terms = [] if estimate_noise_var else None
     for user, info in known_tx.items():
         pair_est = []
         for re_a, re_b, val_a, val_b in info['entries']:
@@ -553,10 +572,18 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
                 else:
                     est = rx_np[:, :, re_a] / val_a
                 pair_est.append(est.mean(axis=0))
+                if estimate_noise_var:
+                    noise_var_terms.append(np.mean(np.abs(est - est.mean(axis=0, keepdims=True)) ** 2))
             else:
-                pair_est.append((rx_np[:, :, re_a] / val_a).mean(axis=0))
+                est_a = rx_np[:, :, re_a] / val_a
+                pair_est.append(est_a.mean(axis=0))
+                if estimate_noise_var:
+                    noise_var_terms.append(np.mean(np.abs(est_a - est_a.mean(axis=0, keepdims=True)) ** 2))
                 if re_b is not None:
-                    pair_est.append((rx_np[:, :, re_b] / val_b).mean(axis=0))
+                    est_b = rx_np[:, :, re_b] / val_b
+                    pair_est.append(est_b.mean(axis=0))
+                    if estimate_noise_var:
+                        noise_var_terms.append(np.mean(np.abs(est_b - est_b.mean(axis=0, keepdims=True)) ** 2))
         pair_est = np.stack(pair_est, axis=0)              # (M, n_ants)
         M = pair_est.shape[0]
 
@@ -574,9 +601,12 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
             h_full = _fold_delay_taps(h_alias, num_res, causal_full, anticausal_full, taper=False)
             H_untrunc[:, :, user] = np.fft.fft(h_full, axis=0)
 
+    result = {'H': torch.from_numpy(H)}
     if return_untruncated:
-        return torch.from_numpy(H), torch.from_numpy(H_untrunc)
-    return torch.from_numpy(H)
+        result['H_untrunc'] = torch.from_numpy(H_untrunc)
+    if estimate_noise_var:
+        result['noise_var_est'] = float(np.mean(noise_var_terms)) if noise_var_terms else 0.0
+    return result
 
 
 def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: int, num_res: int,
@@ -598,14 +628,18 @@ def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: 
 
 
 def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: int, h: np.ndarray,
-                            noise_var: float, return_untruncated: bool = False) -> dict:
+                            noise_var: float, return_untruncated: bool = False,
+                            estimate_noise_var: bool = False) -> dict:
     """Transmit one region's content (from _generate_region_content) through SEDChannel, split
     the returned samples into payload rows and DMRS-occasion rows by slot-local symbol index,
     and estimate that region's own channel from its own DMRS (_estimate_channel_from_dmrs) -
     replaces both today's calib-block transmit+ChannelEstimate and the old data-block transmit.
 
     return_untruncated: diagnostic-only passthrough to _estimate_channel_from_dmrs - when True,
-    the result dict also carries 'H_est_untrunc' (see run_group's save_diag path)."""
+    the result dict also carries 'H_est_untrunc' (see run_group's save_diag path).
+    estimate_noise_var: passthrough to _estimate_channel_from_dmrs - when True, the result dict
+    also carries 'noise_var_est' (see run_group's conf.override_noise_var handling). Never
+    combined with return_untruncated (see _estimate_channel_from_dmrs's docstring)."""
     num_slots = content['num_slots']
     rx, _, _ = transmit_symbols(content['s'], n_users, num_res, h, noise_var)
     cfo_comp = _genie_cfo_comp_vector(num_slots)
@@ -621,11 +655,14 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
     rx_payload = rx[payload_rows]
     rx_dmrs = torch.from_numpy(rx[dmrs_rows])
     result = {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload}
+    est = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users,
+                                       return_untruncated=return_untruncated,
+                                       estimate_noise_var=estimate_noise_var)
+    result['H_est'] = est['H']
     if return_untruncated:
-        result['H_est'], result['H_est_untrunc'] = _estimate_channel_from_dmrs(
-            rx_dmrs, content['known_tx'], n_ants, num_res, n_users, return_untruncated=True)
-    else:
-        result['H_est'] = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users)
+        result['H_est_untrunc'] = est['H_untrunc']
+    if estimate_noise_var:
+        result['noise_var_est'] = est['noise_var_est']
     return result
 
 
@@ -641,13 +678,23 @@ def _llr_diag_line(snr, group_idx: int, slot: int, user: int, llr_scored: np.nda
     assumed to be RE=0, since the goal is the general case across all REs. crc_fail is that same
     slot's actual LDPC decode outcome (crc_fail_mask) - printed here (not inferred separately)
     so these lines can be grepped/filtered to check whether outlier wrong-and-overconfident LLRs
-    actually line up with real BLER failures, not just correlate with them in aggregate."""
+    actually line up with real BLER failures, not just correlate with them in aggregate.
+
+    n_wrong_res/max_per_re/top_re_share test a second, independent hypothesis once magnitude
+    alone (wrong_term_share/worst_re) turned out not to cleanly separate crc=FAIL from crc=OK at
+    matched wrong_frac: whether failures are driven by wrong bits *concentrated* on a handful of
+    REs (a burst/trapping-set signature the LDPC's local redundancy can't outvote) rather than
+    the same total error count spread diffusely across most REs (which ordinary belief
+    propagation handles fine). max_per_re/top_re_share single out whichever RE carries the most
+    wrong bits BY COUNT (not by |LLR|, unlike worst_re above) - a burst on one RE looks like
+    top_re_share close to 1 even when wrong_frac is unremarkable."""
     abs_l = np.abs(llr_scored)
     wrong = (hard_user != tx_user)
     sign_agree = np.where(wrong, -1.0, 1.0)
     term = np.logaddexp(0.0, -sign_agree * abs_l) / np.log(2)
     gmi_diag = float(np.clip(1.0 - term.mean(), 0.0, 1.0))
     wrong_frac = float(wrong.mean())
+    num_res = wrong.shape[-1]
     if wrong.any():
         wrong_l = abs_l[wrong]
         wrong_l_mean, wrong_l_max = float(wrong_l.mean()), float(wrong_l.max())
@@ -655,15 +702,25 @@ def _llr_diag_line(snr, group_idx: int, slot: int, user: int, llr_scored: np.nda
         wrong_l_per_re = np.where(wrong, abs_l, 0.0).max(axis=(0, 1))
         worst_re = int(wrong_l_per_re.argmax())
         worst_re_val = float(wrong_l_per_re[worst_re])
+        wrong_count_per_re = wrong.sum(axis=(0, 1))
+        total_wrong = int(wrong_count_per_re.sum())
+        n_wrong_res = int((wrong_count_per_re > 0).sum())
+        top_wrong_re = int(wrong_count_per_re.argmax())
+        max_per_re = int(wrong_count_per_re[top_wrong_re])
+        top_re_share = float(max_per_re / total_wrong)
     else:
         wrong_l_mean = wrong_l_max = wrong_term_share = worst_re_val = 0.0
         worst_re = -1
+        n_wrong_res = max_per_re = top_wrong_re = 0
+        top_re_share = 0.0
     return (f"[llr-diag] det=lmmse SNR={snr} group={group_idx} slot={slot} user={user} "
             f"crc={'FAIL' if crc_fail else 'OK'} gmi={gmi_diag:.4f} "
             f"wrong_frac={wrong_frac:.4e} |L|_mean={float(abs_l.mean()):.2f} "
             f"|L|_max={float(abs_l.max()):.2f} wrong|L|_mean={wrong_l_mean:.2f} "
             f"wrong|L|_max={wrong_l_max:.2f} wrong_term_share={wrong_term_share:.3f} "
-            f"worst_re={worst_re}(|L|={worst_re_val:.2f})")
+            f"worst_re={worst_re}(|L|={worst_re_val:.2f}) "
+            f"n_wrong_res={n_wrong_res}/{num_res} max_per_re={max_per_re} "
+            f"top_re_share={top_re_share:.3f}(re={top_wrong_re})")
 
 
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
@@ -705,9 +762,16 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
 
     data_content = _generate_region_content(rng, group_size_slots, n_users, num_res, qm, mod_data,
                                              layout, codec, crc, ldpc_k, ldpc_n)
-    data_result = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, noise_var)
+    data_result = _transmit_and_estimate(data_content, n_ants, num_res, n_users, h, noise_var,
+                                          estimate_noise_var=True)
     tx_bits, rx_data, H_data = data_result['tx_bits'], data_result['rx_payload'], data_result['H_est']
     rx_data_t = torch.from_numpy(rx_data)
+    noise_var_est = data_result['noise_var_est']
+    # Mirrors LmmseEqualize's own override_noise_var switch (lmmse_equalizer.py:83): True means
+    # "trust the given (genie theoretical) noise_var", False means "use the receiver's own
+    # pilot-residual estimate instead" - evaluate.py's LMMSE already behaves this way under the
+    # same config, so ekf.py's should too (see module-level noise_var docstring note this fixes).
+    lmmse_noise_var = noise_var if getattr(conf, 'override_noise_var', True) else noise_var_est
 
     num_symbols = rx_data.shape[0]
     pilot_data_ratio = 1.0  # mod_pilot padding unsupported with DMRS - see main()'s guard
@@ -723,12 +787,18 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     h_abs_ground_truth_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_angle_ground_truth_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     sinr_per_re = np.zeros((num_res, n_users), dtype=np.float32)
+    # (symbols, n_users, num_res) complex - the actual per-RE equalized samples LmmseDemod turns
+    # into llrs_mat_lmmse, kept here only so run_group's caller can dump the whole LLR-generation
+    # chain (equalized sample -> postEqSINR -> LLR) to disk for offline debugging - see main()'s
+    # save_diag H5 write.
+    equalized_lmmse = np.zeros((num_symbols, n_users, num_res), dtype=np.complex64)
     for re in range(num_res):
-        equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, noise_var, re)
+        equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, lmmse_noise_var, re)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio)
         h_abs_per_re[re] = H_data[re].abs().cpu().numpy()
         h_angle_per_re[re] = H_data[re].angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
+        equalized_lmmse[:, :, re] = equalized.cpu().numpy()
 
     if save_diag:
         # Same content (tx_bits/DMRS reference values unchanged), noise_var=0 - a genuinely
@@ -804,15 +874,18 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             # data above - never scored, only trained on (see module docstring).
             calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
                                                        mod_data, layout, codec, crc, ldpc_k, ldpc_n)
-            calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var)
+            calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
+                                                   estimate_noise_var=True)
             calib_tx_bits = calib_result['tx_bits']
             rx_calib, H_calib = calib_result['rx_payload'], calib_result['H_est']
+            lmmse_noise_var_calib = (noise_var if getattr(conf, 'override_noise_var', True)
+                                      else calib_result['noise_var_est'])
             num_calib_symbols = rx_calib.shape[0]
             rx_calib_t = torch.from_numpy(rx_calib)
             detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
             llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
             for re in range(num_res):
-                equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, noise_var, re)
+                equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re)
                 LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
                            detected_word_lmmse_calib, pilot_data_ratio)
             rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
@@ -916,6 +989,20 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         'h_abs_ground_truth_per_re': h_abs_ground_truth_per_re,
         'h_angle_ground_truth_per_re': h_angle_ground_truth_per_re,
         'sinr_per_re': sinr_per_re,
+        # Full LLR-generation chain for this group (LMMSE only), so the raw arrays behind
+        # everything [llr-diag] summarizes can be dumped to disk instead of re-deriving more
+        # scalar stats one at a time - see main()'s save_diag H5 write.
+        'tx_bits': tx_bits,
+        'llrs_mat_lmmse': llrs_mat_lmmse,
+        'detected_word_lmmse': detected_word_lmmse,
+        'equalized_lmmse': equalized_lmmse,
+        'H_data': H_data.cpu().numpy() if hasattr(H_data, 'cpu') else H_data,
+        # noise_var actually fed into this group's LMMSE math (conf.override_noise_var switches
+        # between the genie theoretical noise_var and noise_var_est below - see this function's
+        # override_noise_var handling above) plus the raw pilot-residual estimate itself, so a
+        # run with override_noise_var=True can still see what the estimate WOULD have been.
+        'noise_var_est': noise_var_est,
+        'lmmse_noise_var': lmmse_noise_var,
     }
 
 
@@ -1044,7 +1131,9 @@ def main():
               f"bler_escnn={stats['bler_escnn']:.4e} bler_lmmse={stats['bler_lmmse']:.4e} "
               f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f} "
               f"sinr_db(mean/min/max over REs+users)={sinr_db_re.mean():.1f}/"
-              f"{sinr_db_re.min():.1f}/{sinr_db_re.max():.1f}", flush=True)
+              f"{sinr_db_re.min():.1f}/{sinr_db_re.max():.1f} "
+              f"noise_var_est={stats['noise_var_est']:.4e} "
+              f"lmmse_noise_var={stats['lmmse_noise_var']:.4e}", flush=True)
 
     if mod_data == 2:
         mod_text = 'BPSK'
@@ -1151,6 +1240,29 @@ def main():
                                                                  "against each other, to tell whether either DMRS "
                                                                  "reconstruction matches the real channel")
             diag_h5.attrs["h_angle_ground_truth_per_re_note"] = "angle(H) for h_abs_ground_truth_per_re, radians, not unwrapped"
+            diag_h5.attrs["noise_var"] = noise_var
+            diag_h5.attrs["noise_var_note"] = "constant for the whole run - 10**(-0.1*conf.snr)*CONSTELLATION_FACTOR[mod_data]"
+            diag_h5.attrs["override_noise_var"] = bool(getattr(conf, 'override_noise_var', True))
+            diag_h5.attrs["lmmse_noise_var_note"] = ("per-group attr (cdi_*.attrs) - noise_var actually fed "
+                                                       "into this group's LMMSE math: equals the file-level "
+                                                       "noise_var when override_noise_var=True, else that "
+                                                       "group's own noise_var_est")
+            diag_h5.attrs["noise_var_est_note"] = ("per-group attr (cdi_*.attrs) - receiver-side pilot-residual "
+                                                     "noise_var estimate from that group's own DMRS occasions "
+                                                     "(_estimate_channel_from_dmrs's estimate_noise_var path), "
+                                                     "computed regardless of override_noise_var so it's visible "
+                                                     "even when not the one actually used")
+            diag_h5.attrs["tx_bits_dims"] = "bit (symbol-major, bit-in-symbol), user, RE"
+            diag_h5.attrs["llrs_mat_lmmse_dims"] = "symbol, bit, RE"
+            diag_h5.attrs["detected_word_lmmse_dims"] = "bit (symbol-major, bit-in-symbol), user, RE"
+            diag_h5.attrs["equalized_lmmse_dims"] = "symbol, user, RE"
+            diag_h5.attrs["H_data_dims"] = "RE, ant, user"
+            diag_h5.attrs["llr_chain_note"] = ("full LMMSE LLR-generation chain for offline debugging: "
+                                                "H_data (channel estimate) + noise_var -> equalized_lmmse "
+                                                "(lmmse_equalize_with_H's output) + sinr_per_re (postEqSINR) "
+                                                "-> llrs_mat_lmmse (LmmseDemod's output, what [llr-diag] scores "
+                                                "against tx_bits). detected_word_lmmse is llrs_mat_lmmse's hard "
+                                                "decision, already thresholded.")
             for r in results:
                 grp = diag_h5.create_group(f"cdi_{r['channel_drift_base_index']}")
                 grp.create_dataset("h_abs_per_re", data=r['h_abs_per_re'].astype(np.float16),
@@ -1171,6 +1283,18 @@ def main():
                                     compression="gzip", compression_opts=4)
                 grp.create_dataset("sinr_per_re", data=r['sinr_per_re'].astype(np.float16),
                                     compression="gzip", compression_opts=4)
+                grp.create_dataset("tx_bits", data=r['tx_bits'].astype(np.uint8),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("llrs_mat_lmmse", data=r['llrs_mat_lmmse'].squeeze(-1).astype(np.float16),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("detected_word_lmmse", data=r['detected_word_lmmse'].astype(np.uint8),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("equalized_lmmse", data=r['equalized_lmmse'].astype(np.complex64),
+                                    compression="gzip", compression_opts=4)
+                grp.create_dataset("H_data", data=r['H_data'].astype(np.complex64),
+                                    compression="gzip", compression_opts=4)
+                grp.attrs["noise_var_est"] = r['noise_var_est']
+                grp.attrs["lmmse_noise_var"] = r['lmmse_noise_var']
         print(f"[H5] wrote {file_path_diag}", flush=True)
 
 

@@ -134,7 +134,11 @@ CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 # code - see that module's DMRS_NUM_PAYLOAD_SYMB) rather than new config.yaml keys.
 _DMRS_SYMBOL_LOCAL_IDX = DMRS_SYMBOL_LOCAL_IDX          # slot-local OFDM symbol indices carrying DMRS
 _DMRS_NUM_PAYLOAD_SYMB = DMRS_NUM_PAYLOAD_SYMB          # 12
-_DMRS_POWER_BOOST_1UE_DB = 3.0               # extra pilot EPRE (dB) when only 1 UE is multiplexed
+_DMRS_POWER_BOOST_DB = 3.0                   # extra pilot EPRE (dB) at n_users==1 only, where the
+                                              # 'odd' comb sits completely unused for DMRS (see
+                                              # _dmrs_known_tx/_dmrs_layout) - n_users in (2, 4)
+                                              # already occupy every comb RE, so no spare budget to
+                                              # redistribute and no boost
 _DMRS_DELAY_TRUNC_MARGIN = 12                # L_taps = ceil(margin * delay_spread / delay_bin_width)
 
 
@@ -405,18 +409,21 @@ def _dmrs_reference_values(rng: np.random.Generator, num_res: int) -> dict:
     return {'even': _qpsk(n_even_pairs), 'odd': _qpsk(n_odd_pairs)}
 
 
-def _dmrs_known_tx(layout: dict, ref_values: dict, n_users: int, mod_data: int) -> dict:
+def _dmrs_known_tx(layout: dict, ref_values: dict, n_users: int) -> dict:
     """Per user: {'occ_active': bool, 'entries': [(re_a, re_b_or_None, val_a, val_b_or_None), ...]}
     - the exact known complex symbol each of that user's DMRS REs carries (comb reference value
-    x OCC sign x amplitude). Amplitude is scaled so nominal per-RE energy equals
-    CONSTELLATION_FACTOR[mod_data] (the same Es convention noise_var is derived from), so DMRS
-    sits at the same nominal EPRE as a payload RE - plus the +3dB (linear sqrt(2) amplitude)
-    boost when only 1 UE is multiplexed (module docstring's multiplexing design). Shared by
-    _build_dmrs_tx_symbols (what gets transmitted) and _estimate_channel_from_dmrs (what the
-    LS/deocc division uses)."""
-    amp = np.sqrt(CONSTELLATION_FACTOR[mod_data])
+    x OCC sign x amplitude). DMRS is always QPSK, independent of whatever modulation the payload
+    (mod_data) uses (module docstring), so amplitude is fixed at QPSK's own nominal per-RE energy
+    (CONSTELLATION_FACTOR[4] - the same Es convention noise_var is derived from, just always at
+    QPSK's value rather than the payload's) - plus the +3dB (linear sqrt(2) amplitude) boost only
+    at n_users==1, where the 'odd' comb sits completely unused for DMRS (see _dmrs_layout) so the
+    freed budget goes entirely into the one active port; at n_users==2 both combs are already
+    occupied (one user each, no spare to redistribute), same as n_users==4's OCC-shared case, so
+    neither gets a boost. Shared by _build_dmrs_tx_symbols (what gets transmitted) and
+    _estimate_channel_from_dmrs (what the LS/deocc division uses)."""
+    amp = np.sqrt(CONSTELLATION_FACTOR[4])  # DMRS's own (QPSK) reference energy, not mod_data's
     if n_users == 1:
-        amp *= 10 ** (_DMRS_POWER_BOOST_1UE_DB / 20.0)  # dB -> linear amplitude factor
+        amp *= 10 ** (_DMRS_POWER_BOOST_DB / 20.0)  # dB -> linear amplitude factor
     out = {}
     for user, info in layout.items():
         ref = ref_values[info['comb']]
@@ -555,13 +562,13 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
     rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
     H = np.zeros((num_res, n_ants, n_users), dtype=complex)
     H_untrunc = np.zeros((num_res, n_ants, n_users), dtype=complex) if return_untruncated else None
-    # noise_var_terms: per-(user, pilot-position) residual of the raw per-occasion LS estimate
-    # around its own across-occasion mean - the same idea LmmseEqualize (lmmse_equalizer.py:74/80)
-    # uses for its noise_var, just computed here (post-deocc-combine, pre-IFFT-denoise) since this
-    # estimator's pilot samples aren't laid out the way LmmseEqualize expects. Needs num_occasions
-    # > 1 (always true here: num_occasions = num_slots * len(_DMRS_SYMBOL_LOCAL_IDX) >= 2) - with
-    # only 2 DMRS occasions per slot this is a genuinely noisy 1-degree-of-freedom estimate, not a
-    # bug, just what a real receiver has to work with.
+    # noise_var_terms: per-(user, pilot RE) residual of the raw, undivided per-occasion rx sample
+    # around its own across-occasion mean (see estimate_noise_var branch below for why undivided) -
+    # the same idea LmmseEqualize (lmmse_equalizer.py:74/80) uses for its noise_var, adapted to
+    # this estimator's pilot layout. Averaged over ~num_res/2 pilot REs (all entries, all users)
+    # below, not just the 2 DMRS occasions in isolation - see run_group's noise_var discussion for
+    # why that matters (the per-RE residual alone is a noisy 1-2 degree-of-freedom estimate, but
+    # pooling across REs meaningfully reduces the final noise_var_est's variance).
     noise_var_terms = [] if estimate_noise_var else None
     for user, info in known_tx.items():
         pair_est = []
@@ -572,18 +579,25 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
                 else:
                     est = rx_np[:, :, re_a] / val_a
                 pair_est.append(est.mean(axis=0))
-                if estimate_noise_var:
-                    noise_var_terms.append(np.mean(np.abs(est - est.mean(axis=0, keepdims=True)) ** 2))
             else:
                 est_a = rx_np[:, :, re_a] / val_a
                 pair_est.append(est_a.mean(axis=0))
-                if estimate_noise_var:
-                    noise_var_terms.append(np.mean(np.abs(est_a - est_a.mean(axis=0, keepdims=True)) ** 2))
                 if re_b is not None:
                     est_b = rx_np[:, :, re_b] / val_b
                     pair_est.append(est_b.mean(axis=0))
-                    if estimate_noise_var:
-                        noise_var_terms.append(np.mean(np.abs(est_b - est_b.mean(axis=0, keepdims=True)) ** 2))
+            if estimate_noise_var:
+                # Residual on the RAW (undivided, uncombined) rx samples, not on est/est_a/est_b
+                # above - dividing by val_a/val_b first would scale the residual by the DMRS
+                # reference amplitude (which includes _DMRS_POWER_BOOST_DB and
+                # CONSTELLATION_FACTOR[4]), silently deflating the noise_var estimate by that
+                # factor squared. h_true*val is constant across occasions either way (block
+                # fading + val doesn't vary per occasion - see _build_dmrs_tx_symbols), so
+                # raw - mean(raw) equals noise - mean(noise) exactly regardless of amplitude or
+                # FD-OCC combining, with no rescaling needed.
+                for re_i in (re_a, re_b):
+                    if re_i is not None:
+                        raw = rx_np[:, :, re_i]
+                        noise_var_terms.append(np.mean(np.abs(raw - raw.mean(axis=0, keepdims=True)) ** 2))
         pair_est = np.stack(pair_est, axis=0)              # (M, n_ants)
         M = pair_est.shape[0]
 
@@ -621,7 +635,7 @@ def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: 
     tx_bits = encode_pilots(rng, payload_bit_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     payload_s = modulate_bits(tx_bits, mod_data, n_users, num_res)
     ref_values = _dmrs_reference_values(rng, num_res)
-    known_tx = _dmrs_known_tx(layout, ref_values, n_users, mod_data)
+    known_tx = _dmrs_known_tx(layout, ref_values, n_users)
     dmrs_s = _build_dmrs_tx_symbols(known_tx, n_users, num_res, num_occasions)
     s = _interleave_group_symbols(payload_s, dmrs_s, num_slots)
     return {'tx_bits': tx_bits, 'known_tx': known_tx, 's': s, 'num_slots': num_slots}

@@ -73,13 +73,17 @@ def _build_codec(mcs: int, num_res: int):
     return codec, crc, qm, ldpc_n
 
 
-def analyze(h5_path: str, mcs: int, num_res: int) -> list[dict]:
+def analyze(h5_path: str, mcs: int, num_res: int) -> tuple[list[dict], dict]:
     codec, crc, qm, ldpc_n = _build_codec(mcs, num_res)
     real_bit_idx = relevant_indices(qm, 1.0)  # identity here - see module docstring
 
     rows = []
     with h5py.File(h5_path, "r") as f:
         n_users = int(f.attrs["n_users"])
+        meta = {
+            "noise_var": float(f.attrs.get("noise_var", float("nan"))),
+            "override_noise_var": bool(f.attrs.get("override_noise_var", True)),
+        }
         cdi_keys = sorted((k for k in f.keys() if k.startswith("cdi_")),
                            key=lambda k: int(k.split("_")[1]))
         for key in cdi_keys:
@@ -169,7 +173,7 @@ def analyze(h5_path: str, mcs: int, num_res: int) -> list[dict]:
                         chan_err_at_top_re=chan_err_at_top_re, chan_wrong_corr=chan_wrong_corr,
                         noise_var_est=noise_var_est, lmmse_noise_var=lmmse_noise_var,
                     ))
-    return rows
+    return rows, meta
 
 
 def _summarize(label: str, rows: list[dict]) -> None:
@@ -187,6 +191,16 @@ def _summarize(label: str, rows: list[dict]) -> None:
         print(f"  {label:5s} chan_wrong_corr    mean={np.mean(corrs):8.4f} median={np.median(corrs):8.4f} "
               f"min={np.min(corrs):8.4f} max={np.max(corrs):8.4f}  (n={len(corrs)}, "
               f"{len(rows) - len(corrs)} skipped as undefined)")
+    # Separate (scientific-notation) block: noise_var_est/lmmse_noise_var are ~1e-3 scale, would
+    # print as 0.0000 under the fixed-point format above. This is THE key check for the
+    # postEqSINR-blowup mechanism: does the FAIL bucket's noise_var_est distribution sit
+    # noticeably below OK's (and below the file-level theoretical noise_var printed in main()),
+    # or is the earlier per-row-detail impression (FAIL/worst rows showing low noise_var_est)
+    # just selection bias from only ever printing the worst rows?
+    for field in ("noise_var_est", "lmmse_noise_var"):
+        vals = [r[field] for r in rows]
+        print(f"  {label:5s} {field:18s} mean={np.mean(vals):.3e} median={np.median(vals):.3e} "
+              f"min={np.min(vals):.3e} max={np.max(vals):.3e}  (n={len(vals)})")
 
 
 def main() -> None:
@@ -197,11 +211,14 @@ def main() -> None:
     ap.add_argument("--num-res", type=int, default=96, help="conf.num_res the run used (default 96)")
     args = ap.parse_args()
 
-    rows = analyze(args.h5_path, args.mcs, args.num_res)
+    rows, meta = analyze(args.h5_path, args.mcs, args.num_res)
     fails = [r for r in rows if r["crc_fail"]]
     oks = [r for r in rows if not r["crc_fail"]]
 
     print(f"{args.h5_path}")
+    print(f"file-level theoretical noise_var={meta['noise_var']:.3e} "
+          f"override_noise_var={meta['override_noise_var']} "
+          f"(False -> LMMSE actually used each group's own noise_var_est, not this constant)")
     print(f"{len(rows)} (group, slot, user) rows total: {len(fails)} FAIL, {len(oks)} OK "
           f"(BLER={len(fails) / max(len(rows), 1):.4%})\n")
     print("Aggregate wrong-bit-concentration stats, FAIL vs OK:")

@@ -289,3 +289,29 @@ class DeepSICTrainer(Trainer):
 
     def _initialize_probs_for_infer(self, rx: torch.Tensor, num_bits: int, n_users: int):
         return HALF * torch.ones(rx.shape[0], n_users*num_bits, conf.num_res).to(DEVICE).float()
+
+    def state_dict_for_save(self) -> dict:
+        """Nested {re: {user: {iter: state_dict}}} snapshot of every DeepSIC network, for
+        merging into ESCNNTrainer.save_weights' combined checkpoint (see ESCNNTrainer.save_weights'
+        extra_state)."""
+        return {re: {user: {i: net.state_dict() for i, net in enumerate(nets)} for user, nets in enumerate(users)}
+                for re, users in enumerate(self.detector)}
+
+    def load_state_dict_from(self, state: dict):
+        """Load weights previously produced by state_dict_for_save into the current
+        (re, user, iteration) networks."""
+        for re, users in enumerate(self.detector):
+            for user, nets in enumerate(users):
+                for i, net in enumerate(nets):
+                    net.load_state_dict(state[re][user][i])
+
+    def freeze(self):
+        """Freeze every DeepSIC network's parameters and switch it to eval mode - used when
+        DeepSIC provides a fixed, pretrained augmentation source (ekf.py) rather than being
+        trained online."""
+        for users in self.detector:
+            for nets in users:
+                for net in nets:
+                    for p in net.parameters():
+                        p.requires_grad_(False)
+                    net.eval()

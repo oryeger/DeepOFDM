@@ -819,9 +819,15 @@ class ESCNNTrainer(Trainer):
         dim3 = 1
         return HALF * torch.ones(dim0,dim1,dim2,dim3, dtype=torch.float32).to(DEVICE)
 
-    def save_weights(self, path: str):
-        """Save the full state_dict of every (user, iteration) ESCNN network to a single .pt file."""
+    def save_weights(self, path: str, extra_state: dict = None):
+        """Save the full state_dict of every (user, iteration) ESCNN network to a single .pt
+        file. extra_state (optional) is merged in under its own top-level string keys (e.g.
+        'deepsic'/'deeprx') alongside ESCNN's own int-keyed {user: {iter: state_dict}} entries -
+        int vs str keys can't collide, so this stays backward compatible with load_weights and
+        with checkpoints saved before extra_state existed."""
         state = {user: {i: net.state_dict() for i, net in enumerate(nets)} for user, nets in enumerate(self.detector)}
+        if extra_state:
+            state.update(extra_state)
         torch.save(state, path)
 
     def load_weights(self, path: str):

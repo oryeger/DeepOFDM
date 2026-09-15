@@ -373,6 +373,14 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
     return fig
 
 
+# Shared by _build_escnn_filename_suffix (encodes which_augment into a saved filename),
+# resolve_auto_escnn_weights_tag and check_weights_augment_match (both decode it back out to
+# verify a loaded checkpoint matches the current run's which_augment - ESCNN/DeepSIC/DeepRx
+# weights are augment-specific, not just shape-compatible).
+AUGMENT_SHORT_MAP = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AUGMENT_DEEPSIC': 'aDEEPSIC',
+                     'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
+
+
 def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
                                   code_rate, pilot_data_ratio, corr_level) -> str:
     """
@@ -399,9 +407,7 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
     title_string = title_string + '_#ant=' + str(conf.n_ants)
-    augment_map = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AUGMENT_DEEPSIC': 'aDEEPSIC',
-                   'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
-    title_string = title_string + '_' + augment_map.get(conf.which_augment, conf.which_augment)
+    title_string = title_string + '_' + AUGMENT_SHORT_MAP.get(conf.which_augment, conf.which_augment)
     if conf.mcs > -1:
         title_string = title_string + f'_R={code_rate:.2f}'
     title_string = title_string + '_PDR_' + str(pilot_data_ratio)
@@ -426,6 +432,39 @@ def _long_path(p: str) -> str:
     """Bypass Windows' 260-char MAX_PATH limit for absolute paths (the long descriptive ESCNN
     filenames routinely exceed it)."""
     return ("\\\\?\\" + p) if os.name == 'nt' else p
+
+
+def _find_augment_in_filename(name: str) -> str:
+    """Returns the which_augment key (e.g. 'AUGMENT_DEEPSIC') encoded in a saved weights
+    filename, matching either its short token (AUGMENT_SHORT_MAP's value) or the raw
+    which_augment string itself. Returns None if no known augment token is found (e.g. a
+    filename saved before which_augment was encoded into it at all)."""
+    for key, short in AUGMENT_SHORT_MAP.items():
+        pat = re.compile(r'(?:^|_)(' + re.escape(short) + '|' + re.escape(key) + r')(?:_|$)')
+        if pat.search(name):
+            return key
+    return None
+
+
+def check_weights_augment_match(path: str, which_augment: str):
+    """Raise if the checkpoint at path wasn't saved under the given which_augment. ESCNN's (and
+    DeepSIC's/DeepRx's) weights have identical shapes across which_augment values but aren't
+    interchangeable - the prior distribution each network was trained against differs by
+    which_augment, so a mismatched load would otherwise silently run with the wrong function
+    instead of failing loudly. resolve_auto_escnn_weights_tag (below) already guards this for
+    load_escnn_weights_tag='auto' (its own augment_tokens/augment_re); this covers the
+    explicit-tag path (evaluate.py's own load block, and ekf.py's load_pretrained_weights),
+    which bypasses that check entirely. A filename with no recognizable augment token at all
+    (saved before which_augment was encoded into filenames) is let through unchecked - nothing
+    to compare against."""
+    name = os.path.basename(path)
+    found = _find_augment_in_filename(name)
+    if found is not None and found != which_augment:
+        raise ValueError(
+            f"Checkpoint {name!r} was saved under which_augment={found!r} but this run has "
+            f"which_augment={which_augment!r} - ESCNN/DeepSIC/DeepRx weights are augment-specific "
+            f"(the prior distribution they were trained against differs), refusing to load a "
+            f"mismatched checkpoint.")
 
 
 def resolve_auto_escnn_weights_tag():
@@ -468,9 +507,7 @@ def resolve_auto_escnn_weights_tag():
     else:
         chan_ok = lambda name: name.startswith(conf.channel_model)
 
-    augment_map = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AUGMENT_DEEPSIC': 'aDEEPSIC',
-                   'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
-    augment_tokens = {conf.which_augment, augment_map.get(conf.which_augment, conf.which_augment)}
+    augment_tokens = {conf.which_augment, AUGMENT_SHORT_MAP.get(conf.which_augment, conf.which_augment)}
     augment_re = re.compile(r'(?:^|_)(' + '|'.join(re.escape(t) for t in augment_tokens) + r')(?:_|$)')
 
     # Modulation to search for: a saved checkpoint's filename always encodes the modulation it
@@ -792,6 +829,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     f"No saved ESCNN weights for tag '{conf.load_escnn_weights_tag}' at SNR={desired_snr}. "
                     f"Available SNRs for this tag: {available_snrs}. Set load_escnn_weights_snr_override to pick one explicitly.")
             best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
+            check_weights_augment_match(best_weights_path, conf.which_augment)
             escnn_trainer.load_weights(_long_path(best_weights_path))
             escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
         if conf.run_tdfdcnn:
@@ -1348,8 +1386,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     os.makedirs(_long_path(weights_dir), exist_ok=True)
                     weights_filename = f"{weights_suffix}_s={conf.channel_seed}_SNR={conf.snr}_{weights_tag}.pt"
                     weights_path = os.path.join(weights_dir, weights_filename)
-                    escnn_trainer.save_weights(_long_path(weights_path))
-                    print(f"[ESCNN] saved weights, tag={weights_tag} -> {weights_path}", flush=True)
+                    # DeepSIC/DeepRx's weights are specific to being used as the AUGMENT_DEEPSIC/
+                    # AUGMENT_DEEPRX prior itself, so only bundle them in when they're the reason
+                    # this checkpoint is being saved - not just because run_deepsic/run_deeprx
+                    # also happen to be on for their own separately-reported baseline this run.
+                    extra_state = {}
+                    if run_deepsic and conf.which_augment == 'AUGMENT_DEEPSIC':
+                        extra_state['deepsic'] = deepsic_trainer.state_dict_for_save()
+                    if run_deeprx and conf.which_augment == 'AUGMENT_DEEPRX':
+                        extra_state['deeprx'] = deeprx_trainer.state_dict_for_save()
+                    escnn_trainer.save_weights(_long_path(weights_path), extra_state=extra_state or None)
+                    extra_note = f" (+{'/'.join(extra_state)})" if extra_state else ""
+                    print(f"[ESCNN] saved weights{extra_note}, tag={weights_tag} -> {weights_path}", flush=True)
 
                 if conf.escnn_weights_only:
                     # Training (and saving) is all that was asked for - skip inference/BER/plots/CSV entirely.

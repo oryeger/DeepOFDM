@@ -238,3 +238,24 @@ class DeepRxTrainer(Trainer):
             llrs_mat[:, index_start:index_end,:,:] = llrs
         return next_probs_vec, llrs_mat
 
+    def state_dict_for_save(self) -> dict:
+        """{user: state_dict} snapshot of every DeepRx network, for merging into
+        ESCNNTrainer.save_weights' combined checkpoint (see ESCNNTrainer.save_weights'
+        extra_state)."""
+        return {user: net.state_dict() for user, net in enumerate(self.detector)}
+
+    def load_state_dict_from(self, state: dict):
+        """Load weights previously produced by state_dict_for_save into the current per-user
+        networks."""
+        for user, net in enumerate(self.detector):
+            net.load_state_dict(state[user])
+
+    def freeze(self):
+        """Freeze every DeepRx network's parameters and switch it to eval mode - used when
+        DeepRx provides a fixed, pretrained augmentation source (ekf.py) rather than being
+        trained online."""
+        for net in self.detector:
+            for p in net.parameters():
+                p.requires_grad_(False)
+            net.eval()
+

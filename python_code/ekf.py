@@ -40,14 +40,28 @@ Setting slots_per_group=1 makes every data slot its own group, i.e. a new
 channel every slot.
 
 which_augment: DMRS is transmitted (and its CE computed, for the LMMSE baseline
-metrics always reported below) regardless of which_augment - only whether that CE
-is *fed into ESCNN* as a prior is conditional. 'NO_AUGMENT' and 'AUGMENT_LMMSE' are
-supported (see main()); ESCNNTrainer's own NO_AUGMENT branch never reads probs_in,
-so an empty tensor is passed there, matching evaluate.py's own convention.
-AUGMENT_DEEPSIC/AUGMENT_DEEPRX would need a DeepSIC/DeepRx trainer wired into this
-file too (evaluate.py runs a real separate forward pass for those), which isn't
-implemented here - main() raises NotImplementedError rather than silently doing the
-wrong thing.
+metrics always reported below) regardless of which_augment - only whether a prior
+is *fed into ESCNN* is conditional, and on what. All of 'NO_AUGMENT', 'AUGMENT_LMMSE',
+'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC' and 'AUGMENT_DEEPRX' are supported (see main());
+ESCNNTrainer's own NO_AUGMENT branch never reads probs_in, so an empty tensor is
+passed there, matching evaluate.py's own convention.
+
+AUGMENT_SPHERE needs no pretrained weights - like LMMSE, it's a stateless per-group
+decode straight from that group's own DMRS channel estimate (run_group's per-RE
+SphereDecoder call), so it works with nothing but load_escnn_weights_tag set (same
+as AUGMENT_LMMSE).
+
+AUGMENT_DEEPSIC/AUGMENT_DEEPRX are data-driven, so unlike LMMSE/Sphere they can't be
+freshly recomputed from this run's own DMRS pilots - only ESCNN's coefficients move
+under EKF tracking here; DeepSIC/DeepRx run with a **frozen** pretrained checkpoint
+loaded once at startup (main(), alongside the ESCNN checkpoint) and never trained
+online. That checkpoint must be the same file load_escnn_weights_tag resolves to,
+and must actually contain a 'deepsic'/'deeprx' entry - i.e. it must come from an
+evaluate.py run with save_escnn_weights=True under that same which_augment (see
+evaluate.py's save_escnn_weights block, which now bundles DeepSIC's/DeepRx's trained
+weights into the same .pt file as ESCNN's own whenever which_augment is
+AUGMENT_DEEPSIC/AUGMENT_DEEPRX) - main() raises a clear error rather than silently
+running with random weights if that entry is missing.
 
 Reuses, unmodified: ESCNNTrainer (construction/weight loading/freezing/EKF/
 _online_training/_forward), EkfParamTracker, SyndromeLoss, SEDChannel (channel
@@ -107,16 +121,20 @@ import numpy as np
 import pandas as pd
 import torch
 
-from python_code import conf
+from python_code import DEVICE, conf
 from python_code.channel.mimo_channels.sed_channel import SEDChannel
 from python_code.channel.modulator import BPSKModulator
 from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
+from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
+from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
-from python_code.evaluate import calc_mi_from_ldpc, crc_fail_mask, resolve_auto_escnn_weights_tag
+from python_code.detectors.sphere.sphere_decoder import SphereDecoder
+from python_code.evaluate import (AUGMENT_SHORT_MAP, calc_mi_from_ldpc, check_weights_augment_match,
+                                   crc_fail_mask, resolve_auto_escnn_weights_tag)
 from python_code.utils.constants import (CP, DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, FFT_size,
                                           FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
                                           NUM_SYMB_PER_SLOT, SAMPLING_RATE, SLOT_LENGTH_SEC)
@@ -202,6 +220,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
         title_string += f'_R={code_rate:.2f}'
     if conf.load_escnn_weights_tag:
         title_string += '_r=' + conf.load_escnn_weights_tag
+    which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
+    title_string += '_aug=' + AUGMENT_SHORT_MAP.get(which_augment, which_augment)
     title_string += '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
     title_string += '_tf=' + str(getattr(conf, 'tsyn_fallback_iters', 0))
     title_string += '_dyn=' + getattr(conf, 'escnn_ekf_dynamics', 'ar1')
@@ -266,8 +286,11 @@ def lmmse_equalize_with_H(H: torch.Tensor, rx_c: torch.Tensor, noise_var: float,
     return equalized, postEqSINR
 
 
-def load_pretrained_weights(escnn_trainer: ESCNNTrainer):
-    """Mirrors evaluate.py's tag -> checkpoint-path lookup (evaluate.py ~line 618)."""
+def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
+    """Mirrors evaluate.py's tag -> checkpoint-path lookup (evaluate.py ~line 618). Returns
+    best_weights_path so callers needing AUGMENT_DEEPSIC/AUGMENT_DEEPRX (see
+    load_frozen_augment_weights below) can load that same file's extra 'deepsic'/'deeprx' entry
+    without re-resolving the tag."""
     if not conf.load_escnn_weights_tag:
         raise ValueError("ekf.py needs conf.load_escnn_weights_tag set - the EKF "
                           "tracks drift away from a pretrained checkpoint, it doesn't train "
@@ -288,9 +311,51 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer):
                                  f"at SNR={desired_snr}. Available SNRs: {available_snrs}. Set "
                                  f"load_escnn_weights_snr_override to pick one explicitly.")
     best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
+    check_weights_augment_match(best_weights_path, getattr(conf, 'which_augment', 'AUGMENT_LMMSE'))
     escnn_trainer.load_weights(_long_path(best_weights_path))
     escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
     print(f"[drift] loaded pretrained weights: {best_weights_path}", flush=True)
+    return best_weights_path
+
+
+def load_frozen_augment_weights(best_weights_path: str, which_augment: str, num_bits_pilot: int,
+                                 n_users: int, n_ants: int):
+    """AUGMENT_DEEPSIC/AUGMENT_DEEPRX only: build the relevant trainer, load its frozen
+    pretrained weights from the SAME checkpoint file load_pretrained_weights just resolved for
+    ESCNN (evaluate.py's save_escnn_weights now bundles DeepSIC's/DeepRx's trained weights into
+    that same .pt file under a 'deepsic'/'deeprx' key - see ESCNNTrainer.save_weights'
+    extra_state), and freeze it - only ESCNN's coefficients move under EKF tracking (module
+    docstring). Returns (deepsic_trainer, deeprx_trainer), whichever one isn't relevant left
+    None, so run_group's signature stays uniform regardless of which_augment.
+
+    which_augment's own filename-encoded token was already checked against conf.which_augment by
+    load_pretrained_weights (check_weights_augment_match); this only additionally checks that the
+    combined checkpoint actually has the entry this which_augment needs - a checkpoint can
+    legitimately match the augment-token check above yet have been saved by an evaluate.py run
+    with save_escnn_weights=True but run_deepsic/run_deeprx off, or from before this bundling
+    existed at all."""
+    if which_augment not in ('AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX'):
+        return None, None
+    combined = torch.load(_long_path(best_weights_path), map_location=DEVICE, weights_only=True)
+    key = 'deepsic' if which_augment == 'AUGMENT_DEEPSIC' else 'deeprx'
+    if key not in combined:
+        raise FileNotFoundError(
+            f"Checkpoint {best_weights_path} has no saved {key!r} weights (only ESCNN) - "
+            f"which_augment={which_augment} needs a checkpoint produced by an evaluate.py run "
+            f"with save_escnn_weights=True and run_{key}=True under this same which_augment.")
+    deepsic_trainer = deeprx_trainer = None
+    if which_augment == 'AUGMENT_DEEPSIC':
+        deepsic_trainer = DeepSICTrainer(num_bits_pilot, n_users, n_ants)
+        deepsic_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+        deepsic_trainer.load_state_dict_from(combined[key])
+        deepsic_trainer.freeze()
+    else:
+        deeprx_trainer = DeepRxTrainer(num_bits_pilot, n_users, n_ants)
+        deeprx_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
+        deeprx_trainer.load_state_dict_from(combined[key])
+        deeprx_trainer.freeze()
+    print(f"[drift] loaded frozen {key} weights from the same checkpoint: {best_weights_path}", flush=True)
+    return deepsic_trainer, deeprx_trainer
 
 
 def transmit_symbols(s: np.ndarray, n_users: int, num_res: int, h: np.ndarray,
@@ -741,7 +806,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
               qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
               ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
               calib_slots: int, layout: dict, group_idx: int, base_index: int, base_cfo: float = 0.0,
-              cfo_drift: float = 0.0, save_diag: bool = False) -> dict:
+              cfo_drift: float = 0.0, save_diag: bool = False, deepsic_trainer: DeepSICTrainer = None,
+              deeprx_trainer: DeepRxTrainer = None) -> dict:
     """Generate, transmit, LMMSE-estimate/equalize, EKF/SGD-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization. Each slot carries
     its own embedded DMRS used to estimate H for that same slot's payload - no separate
@@ -773,6 +839,14 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
+    # Mirrors evaluate.py's own run_sphere/run_deepsic/run_deeprx gating (evaluate.py:715-733):
+    # each extra detector is scored (and, for whichever one which_augment names, also fed into
+    # ESCNN as its prior) whenever it's either explicitly requested or it's the active augment
+    # source - never unconditionally (Sphere's per-RE sphere_search is expensive; DeepSIC/DeepRx
+    # need a frozen checkpoint main() only loads when relevant - see load_frozen_augment_weights).
+    run_sphere_ekf = bool(getattr(conf, 'run_sphere', False)) or which_augment == 'AUGMENT_SPHERE'
+    run_deepsic_ekf = deepsic_trainer is not None
+    run_deeprx_ekf = deeprx_trainer is not None
 
     data_content = _generate_region_content(rng, group_size_slots, n_users, num_res, qm, mod_data,
                                              layout, codec, crc, ldpc_k, ldpc_n)
@@ -792,6 +866,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     real_bit_idx = relevant_indices(num_bits_pilot, pilot_data_ratio)
     detected_word_lmmse = np.zeros((num_symbols * num_bits_pilot, n_users, num_res))
     llrs_mat_lmmse = np.zeros((num_symbols, num_bits_pilot * n_users, num_res, 1))
+    # Sphere: same shapes as LMMSE's own detected_word/llrs_mat above (both consumed by the same
+    # per-user BER/BLER/MI code below) - only actually filled per-RE when run_sphere_ekf.
+    detected_word_sphere = np.zeros((num_symbols * num_bits_pilot, n_users, num_res))
+    llrs_mat_sphere = np.zeros((num_symbols, num_bits_pilot * n_users, num_res, 1))
     h_abs_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_angle_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
     h_abs_true_per_re = np.zeros((num_res, n_ants, n_users), dtype=np.float32)
@@ -813,6 +891,22 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         h_angle_per_re[re] = H_data[re].angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()
         equalized_lmmse[:, :, re] = equalized.cpu().numpy()
+
+        if run_sphere_ekf:
+            # SphereDecoder (unlike LMMSE) decodes jointly across users straight from the raw
+            # per-RE rx samples (not the linearly-equalized ones) - same call evaluate.py makes
+            # (evaluate.py:1102-1104), minus its mod_pilot/increase_prime_modulation dispatch
+            # (unsupported here - see main()'s guard): SphereDecoder already derives
+            # bits_per_symbol from conf.mcs itself, so the single "standard" branch handles
+            # whatever qm this run is at.
+            sphere_llr, sphere_hard = SphereDecoder(H_data[re].cpu().numpy(), rx_data_t[:, :, re].cpu().numpy(),
+                                                     lmmse_noise_var, conf.sphere_radius)
+            detected_word_sphere[:, :, re] = sphere_hard
+            for user in range(n_users):
+                # Sign convention matches evaluate.py's own fold (evaluate.py:1226): Sphere's LLR
+                # sign is the opposite of LMMSE's/LmmseDemod's, so it's negated going in here too.
+                llrs_mat_sphere[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, re, :] = \
+                    -sphere_llr[:, user].reshape(num_symbols, num_bits_pilot, 1)
 
     if save_diag:
         # Same content (tx_bits/DMRS reference values unchanged), noise_var=0 - a genuinely
@@ -863,13 +957,39 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     rx_real[:, 1::2, :] = rx_data.imag.astype(np.float32)
     rx_real_t = torch.from_numpy(rx_real)
 
+    # DeepSIC/DeepRx run with frozen, pretrained weights only (module docstring) - main() only
+    # ever constructs deepsic_trainer/deeprx_trainer when which_augment selects it (see
+    # load_frozen_augment_weights), so run_deepsic_ekf/run_deeprx_ekf being True implies
+    # which_augment is exactly AUGMENT_DEEPSIC/AUGMENT_DEEPRX respectively - no independent
+    # "score it without also augmenting with it" mode (see module docstring's scope note).
+    # rx_real_t is the same real/imag-interleaved layout evaluate.py's own rx_real uses for these
+    # same two trainers (evaluate.py:1013-1022), so it's a drop-in _forward input here too.
+    llrs_mat_deepsic_list = llrs_mat_deeprx = None
+    if run_deepsic_ekf:
+        _, llrs_mat_deepsic_list = deepsic_trainer._forward(rx_real_t, num_bits_pilot, n_users,
+                                                             conf.iterations, torch.empty(0))
+    if run_deeprx_ekf:
+        _, llrs_mat_deeprx = deeprx_trainer._forward(rx_real_t, num_bits_pilot, n_users,
+                                                       conf.iterations, torch.empty(0))
+
     # DMRS is transmitted (and its CE computed, for the LMMSE baseline scoring below) regardless
-    # of which_augment - only whether it's fed into ESCNN as a prior is conditional.
+    # of which_augment - only whether it's fed into ESCNN as a prior is conditional, and on what.
     # which_augment == 'NO_AUGMENT': ESCNNTrainer self-inits a flat-0.5 prior and never reads
     # probs_in in that branch (escnn_trainer.py's _forward/ekf_predict_update/_online_training),
     # so an empty tensor here (matching evaluate.py's own NO_AUGMENT convention) is safe.
     if which_augment == 'AUGMENT_LMMSE':
         probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_lmmse, dtype=torch.float32))
+    elif which_augment == 'AUGMENT_SPHERE':
+        probs_for_aug = torch.sigmoid(torch.tensor(llrs_mat_sphere, dtype=torch.float32))
+    elif which_augment == 'AUGMENT_DEEPSIC':
+        # Matches evaluate.py's own AUGMENT_DEEPSIC prior convention exactly (evaluate.py's
+        # run_evaluate, ~line 1272-1275): iteration index [0], not the final iteration - DeepSIC's
+        # own scored BER/BLER/MI baseline below uses the final iteration instead (same split
+        # evaluate.py makes between the prior it feeds ESCNN and what it reports for DeepSIC
+        # itself).
+        probs_for_aug = torch.sigmoid(llrs_mat_deepsic_list[0]).cpu().unsqueeze(-1)
+    elif which_augment == 'AUGMENT_DEEPRX':
+        probs_for_aug = torch.sigmoid(llrs_mat_deeprx).cpu()
     else:
         probs_for_aug = torch.tensor([], dtype=torch.float32)
 
@@ -986,7 +1106,55 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     mi_escnn_user = [calc_mi_from_ldpc(tx_stream, escnn_stream, user_idx=u) for u in range(n_users)]
     mi_lmmse_user = [calc_mi_from_ldpc(tx_stream, lmmse_stream, user_idx=u) for u in range(n_users)]
 
+    def _score_extra(name: str, llr_3d: np.ndarray, hard_flat: np.ndarray = None) -> dict:
+        """BER/BLER/MI for one of the optional extra detectors (Sphere/DeepSIC/DeepRx), same
+        recipe as the LMMSE/ESCNN blocks above (codec.decode -> crc.decode -> crc_fail_mask for
+        BLER, calc_mi_from_ldpc for MI) - factored out since up to three of these can be active
+        in one run. llr_3d: (num_symbols, num_bits_pilot*n_users, num_res), same convention as
+        escnn_llrs above (llrs_mat_list[-1].squeeze(-1)). hard_flat, when given (Sphere only -
+        its joint-ML hard decision, detected_word_sphere, genuinely differs from its own
+        per-bit LLR sign, unlike DeepSIC/DeepRx where _compute_output's BPSK-demod hard decision
+        is mathematically identical to thresholding their LLR at 0): (num_symbols*num_bits_pilot,
+        n_users, num_res) in the detected_word_lmmse convention. Closes over this call's
+        tx_bits/tx_stream/codec/crc/etc., all fixed for the whole group regardless of detector."""
+        ber_num = ber_den = 0
+        ber_user = []
+        stream = np.zeros((n_users, group_size_slots * ldpc_n))
+        for user in range(n_users):
+            tx_user = tx_bits[:, user, :].reshape(num_symbols, qm, num_res)
+            llr_user = llr_3d[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, :][:, real_bit_idx, :]
+            if hard_flat is not None:
+                hard_user = hard_flat[:, user, :].reshape(num_symbols, num_bits_pilot, num_res)[:, real_bit_idx, :]
+            else:
+                hard_user = (llr_user > 0).astype(int)
+            n_err = int((hard_user != tx_user).sum())
+            ber_num += n_err
+            ber_den += tx_user.size
+            ber_user.append(n_err / tx_user.size)
+            stream[user] = llr_user.reshape(-1)
+        fail = np.zeros(n_users, dtype=int)
+        for slot in range(group_size_slots):
+            win = slice(slot * ldpc_n, (slot + 1) * ldpc_n)
+            decoded = codec.decode(stream[:, win])
+            fail += crc_fail_mask(decoded, crc.decode(decoded)).astype(int)
+        return {
+            f'ber_{name}': ber_num / ber_den, f'ber_{name}_user': ber_user,
+            f'bler_{name}': float(fail.sum() / (group_size_slots * n_users)),
+            f'bler_{name}_user': (fail / group_size_slots).tolist(),
+            f'mi_{name}': float(calc_mi_from_ldpc(tx_stream, stream)),
+            f'mi_{name}_user': [calc_mi_from_ldpc(tx_stream, stream, user_idx=u) for u in range(n_users)],
+        }
+
+    extra_results = {}
+    if run_sphere_ekf:
+        extra_results.update(_score_extra('sphere', llrs_mat_sphere.squeeze(-1), hard_flat=detected_word_sphere))
+    if run_deepsic_ekf:
+        extra_results.update(_score_extra('deepsic', llrs_mat_deepsic_list[-1].cpu().numpy()))
+    if run_deeprx_ekf:
+        extra_results.update(_score_extra('deeprx', llrs_mat_deeprx.squeeze(-1).cpu().numpy()))
+
     return {
+        **extra_results,
         'ber_escnn': ber_escnn_num / ber_escnn_den, 'ber_lmmse': ber_lmmse_num / ber_lmmse_den,
         'ber_escnn_user': ber_escnn_user, 'ber_lmmse_user': ber_lmmse_user,
         'bler_escnn': float(bler_escnn_fail.sum() / (group_size_slots * n_users)),
@@ -1028,15 +1196,13 @@ def main():
     conf.reload_config(args.config)
     resolve_auto_escnn_weights_tag()
     # DMRS is transmitted (and its CE computed for the always-reported LMMSE baseline) regardless
-    # of which_augment - only whether ESCNN gets fed that CE as a prior depends on the mode (see
-    # module docstring/run_group). Only NO_AUGMENT/AUGMENT_LMMSE are wired up here.
+    # of which_augment - only whether ESCNN gets fed a prior (and what it's fed) depends on the
+    # mode (see module docstring/run_group).
     which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
-    if which_augment not in ('NO_AUGMENT', 'AUGMENT_LMMSE'):
+    _SUPPORTED_AUGMENTS = ('NO_AUGMENT', 'AUGMENT_LMMSE', 'AUGMENT_SPHERE', 'AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX')
+    if which_augment not in _SUPPORTED_AUGMENTS:
         raise NotImplementedError(f"ekf.py's DMRS-based CE only supports which_augment in "
-                                   f"('NO_AUGMENT', 'AUGMENT_LMMSE') so far - {which_augment!r} "
-                                   f"would need a DeepSIC/DeepRx trainer wired into this file too "
-                                   f"(evaluate.py runs a real separate forward pass for those), "
-                                   f"which isn't implemented here yet.")
+                                   f"{_SUPPORTED_AUGMENTS} - {which_augment!r} isn't implemented here.")
 
     n_users, n_ants, num_res = conf.n_users, conf.n_ants, conf.num_res
     qm, code_rate = get_mcs(conf.mcs)
@@ -1072,7 +1238,9 @@ def main():
 
     escnn_trainer = ESCNNTrainer(num_bits_pilot, n_users, n_ants)
     escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
-    load_pretrained_weights(escnn_trainer)
+    best_weights_path = load_pretrained_weights(escnn_trainer)
+    deepsic_trainer, deeprx_trainer = load_frozen_augment_weights(
+        best_weights_path, which_augment, num_bits_pilot, n_users, n_ants)
 
     group_size_slots = max(1, int(getattr(conf, 'slots_per_group', 1)))
     base_index = int(getattr(conf, 'channel_drift_base_index', 0))
@@ -1127,11 +1295,25 @@ def main():
           f"SNR={conf.snr}dB, mcs={conf.mcs}",
           flush=True)
 
+    # Which extra detector name(s) (beyond the always-present lmmse/escnn) this run actually
+    # scores - drives both the per-group print line below and main()'s CSV column set. Sphere can
+    # be active alongside DeepSIC/DeepRx (conf.run_sphere is independent of which_augment - see
+    # run_group's run_sphere_ekf); DeepSIC/DeepRx can't (scope note, module docstring), so at most
+    # one of them ever appears here.
+    extra_names = []
+    if getattr(conf, 'run_sphere', False) or which_augment == 'AUGMENT_SPHERE':
+        extra_names.append('sphere')
+    if deepsic_trainer is not None:
+        extra_names.append('deepsic')
+    if deeprx_trainer is not None:
+        extra_names.append('deeprx')
+
     results = []
     for g in range(num_groups):
         stats = run_group(escnn_trainer, codec, crc, rng, qm, num_bits_pilot, mod_data, n_users, n_ants, num_res,
                            ldpc_k, ldpc_n, noise_var, h, group_size_slots, calib_slots_per_group, layout,
-                           g, base_index, base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag)
+                           g, base_index, base_cfo=base_cfo, cfo_drift=cfo_drift, save_diag=save_diag,
+                           deepsic_trainer=deepsic_trainer, deeprx_trainer=deeprx_trainer)
         slot_lo = base_index + g * group_size_slots
         slot_hi = slot_lo + group_size_slots - 1
         stats['channel_drift_base_index'] = slot_lo
@@ -1140,10 +1322,13 @@ def main():
         # the (always-computed) noisy DMRS-based H, unlike h_abs_true_per_re below, which
         # needs its own extra transmit and stays gated to save_loss_plot_snr.
         sinr_db_re = 10 * np.log10(stats['sinr_per_re'])
+        extra_metrics = "".join(f" ber_{name}={stats[f'ber_{name}']:.4e} bler_{name}={stats[f'bler_{name}']:.4e} "
+                                 f"mi_{name}={stats[f'mi_{name}']:.4f}" for name in extra_names)
         print(f"[drift] group {g}/{num_groups} slots={slot_lo}-{slot_hi} "
               f"ber_escnn={stats['ber_escnn']:.4e} ber_lmmse={stats['ber_lmmse']:.4e} "
               f"bler_escnn={stats['bler_escnn']:.4e} bler_lmmse={stats['bler_lmmse']:.4e} "
-              f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f} "
+              f"mi_escnn={stats['mi_escnn']:.4f} mi_lmmse={stats['mi_lmmse']:.4f}"
+              f"{extra_metrics} "
               f"sinr_db(mean/min/max over REs+users)={sinr_db_re.mean():.1f}/"
               f"{sinr_db_re.min():.1f}/{sinr_db_re.max():.1f} "
               f"noise_var_est={stats['noise_var_est']:.4e} "
@@ -1199,6 +1384,17 @@ def main():
         data[f'total_ber_user{u}_1'] = [r['ber_escnn_user'][u] for r in results]
         data_bler[f'total_ber_user{u}_1'] = [r['bler_escnn_user'][u] for r in results]
         data_mi[f'total_ber_user{u}_1'] = [r['mi_escnn_user'][u] for r in results]
+    # Extra detector columns (Sphere/DeepSIC/DeepRx - see extra_names above): only present when
+    # actually run this session, same "total_ber_<name>[_userN]" naming as lmmse's own columns
+    # above, so AUGMENT_LMMSE/NO_AUGMENT runs keep producing exactly today's column set.
+    for name in extra_names:
+        data[f'total_ber_{name}'] = [r[f'ber_{name}'] for r in results]
+        data_bler[f'total_ber_{name}'] = [r[f'bler_{name}'] for r in results]
+        data_mi[f'total_ber_{name}'] = [r[f'mi_{name}'] for r in results]
+        for u in range(n_users):
+            data[f'total_ber_{name}_user{u}'] = [r[f'ber_{name}_user'][u] for r in results]
+            data_bler[f'total_ber_{name}_user{u}'] = [r[f'bler_{name}_user'][u] for r in results]
+            data_mi[f'total_ber_{name}_user{u}'] = [r[f'mi_{name}_user'][u] for r in results]
 
     file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")
     pd.DataFrame(data).to_csv(_long_path(file_path), index=False)

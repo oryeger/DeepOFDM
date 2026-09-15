@@ -15,7 +15,7 @@ from python_code.coding.ekf_tracker import EkfParamTracker
 from python_code.coding.mcs_table import get_mcs
 from python_code.detectors.escnn.escnn_detector import ESCNNDetector
 from python_code.detectors.trainer import Trainer
-from python_code.utils.constants import HALF, TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT, DMRS_NUM_PAYLOAD_SYMB
+from python_code.utils.constants import HALF, TRAIN_PERCENTAGE, NUM_SYMB_PER_SLOT
 from python_code.utils.probs_utils import prob_to_BPSK_symbol
 from python_code.utils.constants import SHOW_ALL_ITERATIONS
 from python_code.utils.probs_utils import ensure_tensor_iterable
@@ -44,9 +44,29 @@ class ESCNNTrainer(Trainer):
         self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
-    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str, network_id: str = "") -> list[float]:
+    def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str, network_id: str = "",
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT) -> list[float]:
         """
         Trains a ESCNN Network and returns the total training loss.
+
+        payload_symbols_per_slot: unit (in rx_prob rows) tsyn's slot-alignment/codeword-window
+        logic treats as one slot - defaults to a full NUM_SYMB_PER_SLOT (evaluate.py's own pilot
+        region). ekf.py's callers pass their own DMRS-stripped payload-only count instead (see
+        _get_syndrome_helper's docstring), and a non-default value here doubles as the signal
+        that this is one of ekf.py's streaming calls, not evaluate.py's: it always switches off
+        escnn_use_primary_val_only's first-half cut (ekf.py's DeepSIC/DeepRx are always frozen
+        pretrained checkpoints - see its module docstring - so there's no separate
+        primary-detector training pass within this run to leak from, unlike evaluate.py).
+        evaluate.py never passes this argument, so that stays exactly as conf says for every one
+        of its calls.
+
+        Separately, when this is also a 'tsyn' call (conf.training_loss - the only loss ekf.py
+        ever trains directly on the group's own scored data with, rather than a separate calib
+        region - see ekf.py's module docstring), the train/val split (TRAIN_PERCENTAGE) is
+        skipped entirely too: training runs directly on a group's own scored data, with no
+        held-out portion to validate against. ekf.py's calib-region calls (any other loss) keep
+        the normal split - that's a real supervised fit with genuine unseen data to validate
+        against.
         """
         single_model = single_model.to(DEVICE)
 
@@ -68,14 +88,23 @@ class ESCNNTrainer(Trainer):
             loss_mask = bit_mask.unsqueeze(-1).expand_as(tx_reshaped)
 
         # tsyn: codeword windows start at symbol 0, so every region the loss
-        # sees must begin on a slot boundary (NUM_SYMB_PER_SLOT symbols).
+        # sees must begin on a slot boundary (payload_symbols_per_slot rows).
         _slot_align = (getattr(conf, 'training_loss', 'bce') == 'tsyn')
 
+        # A non-default payload_symbols_per_slot only ever comes from ekf.py's DMRS-stripped
+        # streaming calls (evaluate.py always leaves it at NUM_SYMB_PER_SLOT) - see this
+        # method's docstring for why that means: no primary-detector cut always, and (only when
+        # also training_loss='tsyn' - ekf.py's data-direct branch, not its calib-region one) no
+        # val split either.
+        _ekf_style = (payload_symbols_per_slot != NUM_SYMB_PER_SLOT)
+        _no_val_split = _ekf_style and _slot_align
+
         # Restrict to primary detector's validation portion only
-        if getattr(conf, 'escnn_use_primary_val_only', False):
+        _primary_val_only = False if _ekf_style else getattr(conf, 'escnn_use_primary_val_only', False)
+        if _primary_val_only:
             primary_train_samples = rx_prob.shape[0] // 2
             if _slot_align:
-                primary_train_samples -= primary_train_samples % NUM_SYMB_PER_SLOT
+                primary_train_samples -= primary_train_samples % payload_symbols_per_slot
             rx_prob = rx_prob[primary_train_samples:]
             tx_reshaped = tx_reshaped[primary_train_samples:]
             loss_mask = loss_mask[primary_train_samples:]
@@ -89,16 +118,23 @@ class ESCNNTrainer(Trainer):
             tx_reshaped = tx_reshaped[perm]
             loss_mask = loss_mask[perm]
 
-        # Split into train and validation sets
-        train_samples = int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
+        # Split into train and validation sets - none at all for ekf.py's tsyn data-direct calls
+        # (training directly on a group's own scored data has nothing to hold out - see this
+        # method's docstring); ekf.py's calib-region calls (any other loss) keep the normal split.
+        train_samples = rx_prob.shape[0] if _no_val_split else int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
         if _slot_align:
-            train_samples -= train_samples % NUM_SYMB_PER_SLOT
+            train_samples -= train_samples % payload_symbols_per_slot
         rx_prob_train = rx_prob[:train_samples]
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]
         tx_val = tx_reshaped[train_samples:]
         mask_train = loss_mask[:train_samples]
         mask_val = loss_mask[train_samples:]
+        # No validation split: there's nothing to early-stop or checkpoint-select against, so
+        # disable that machinery below rather than let it operate on an empty tensor (an empty
+        # batch's loss reduces to 0.0, which would look like an instant "best" checkpoint at
+        # epoch 1 and then never improve again).
+        has_val = rx_prob_val.shape[0] > 0
 
         # Create DataLoader for mini-batch training
         # batch_size <= 0 means full-batch (no mini-batching)
@@ -110,7 +146,7 @@ class ESCNNTrainer(Trainer):
         train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=shuffle)
 
         es_patience = int(getattr(conf, 'early_stopping_patience', -1))
-        es_enabled = es_patience > 0
+        es_enabled = (es_patience > 0) and has_val
         best_val_loss = float('inf')
         epochs_since_best = 0
         best_state = None
@@ -157,7 +193,8 @@ class ESCNNTrainer(Trainer):
                     batch_tx_cur = batch_tx
                     batch_mask_cur = batch_mask
 
-                loss = self._calculate_loss(llrs_cur, batch_tx_cur, batch_mask_cur)
+                loss = self._calculate_loss(llrs_cur, batch_tx_cur, batch_mask_cur,
+                                             payload_symbols_per_slot=payload_symbols_per_slot)
                 self.optimizer.zero_grad()
                 loss.backward()
                 self.optimizer.step()
@@ -179,53 +216,67 @@ class ESCNNTrainer(Trainer):
             avg_train_hb = epoch_hb / num_batches if num_batches > 0 else 0.0
             train_loss_vect.append(avg_train_loss)
 
-            # Calculate validation loss
-            with torch.no_grad():
-                rx_prob_val_device = rx_prob_val.to(DEVICE)
-                _, llrs_val = single_model(rx_prob_val_device)
-                if first_half_flag:
-                    llrs_val_cur = llrs_val[:, 0::2, :, :]
-                    mask_val_cur = mask_val[:, 0::2, :].to(DEVICE)
-                    val_loss = self._calculate_loss(llrs_val_cur, tx_val[:, 0::2, :].to(DEVICE), mask_val_cur)
-                else:
-                    llrs_val_cur = llrs_val
-                    mask_val_cur = mask_val.to(DEVICE)
-                    val_loss = self._calculate_loss(llrs_val_cur, tx_val.to(DEVICE), mask_val_cur)
-                val_loss_vect.append(val_loss.item())
-                val_hb = self._calc_h_marginal(llrs_val_cur, mask_val_cur) if _log_hb else None
-                val_tsyn = dict(getattr(self, '_tsyn_stats', {})) if _log_tsyn else None
-
-                # ---- TEMP DEBUG: tsyn collapse investigation (remove once done) ----
-                # Ground-truth diagnostics: is the network collapsing to an
-                # input-independent constant output, a sign-biased output, or a
-                # non-trivial-but-fixed syndrome-satisfying codeword? Read-only,
-                # does not feed back into loss/gradients.
-                if _log_collapse:
-                    tx_val_cur = (tx_val[:, 0::2, :] if first_half_flag else tx_val).to(DEVICE)
-                    # Project convention (see syndrome_loss.py docstring / _compute_output):
-                    # sigmoid(L) = P(bit=1), so L>0 => bit 1, matching prob_to_BPSK_symbol's
-                    # p>0.5 => bit 1 threshold.
-                    hard_val = (llrs_val_cur.squeeze(-1) > 0).long()
-                    true_val = tx_val_cur.long()
-                    mbool = mask_val_cur.bool()
-                    if mbool.any():
-                        true_ber = (hard_val[mbool] != true_val[mbool]).float().mean().item()
-                        frac_ones = hard_val[mbool].float().mean().item()
+            # Calculate validation loss (skipped entirely when there's no held-out split - see
+            # has_val above)
+            if has_val:
+                with torch.no_grad():
+                    rx_prob_val_device = rx_prob_val.to(DEVICE)
+                    _, llrs_val = single_model(rx_prob_val_device)
+                    if first_half_flag:
+                        llrs_val_cur = llrs_val[:, 0::2, :, :]
+                        mask_val_cur = mask_val[:, 0::2, :].to(DEVICE)
+                        val_loss = self._calculate_loss(llrs_val_cur, tx_val[:, 0::2, :].to(DEVICE), mask_val_cur,
+                                                         payload_symbols_per_slot=payload_symbols_per_slot)
                     else:
-                        true_ber = float('nan')
-                        frac_ones = float('nan')
-                    # Per bit-position variance across the batch dim: near-zero
-                    # means the network outputs that position the same way
-                    # regardless of input (input-independent collapse).
-                    var_per_pos = hard_val.float().var(dim=0, unbiased=False)
-                    const_pos = (var_per_pos < 1e-6).float().mean().item()
-                    _tsyn_debug_str = (f" true_ber={true_ber:.4f} const_pos={const_pos:.4f}"
-                                       f" frac_ones={frac_ones:.4f}")
-                else:
-                    _tsyn_debug_str = ""
-                # ---- END TEMP DEBUG ----
+                        llrs_val_cur = llrs_val
+                        mask_val_cur = mask_val.to(DEVICE)
+                        val_loss = self._calculate_loss(llrs_val_cur, tx_val.to(DEVICE), mask_val_cur,
+                                                         payload_symbols_per_slot=payload_symbols_per_slot)
+                    val_loss_vect.append(val_loss.item())
+                    val_hb = self._calc_h_marginal(llrs_val_cur, mask_val_cur) if _log_hb else None
+                    val_tsyn = dict(getattr(self, '_tsyn_stats', {})) if _log_tsyn else None
+
+                    # ---- TEMP DEBUG: tsyn collapse investigation (remove once done) ----
+                    # Ground-truth diagnostics: is the network collapsing to an
+                    # input-independent constant output, a sign-biased output, or a
+                    # non-trivial-but-fixed syndrome-satisfying codeword? Read-only,
+                    # does not feed back into loss/gradients.
+                    if _log_collapse:
+                        tx_val_cur = (tx_val[:, 0::2, :] if first_half_flag else tx_val).to(DEVICE)
+                        # Project convention (see syndrome_loss.py docstring / _compute_output):
+                        # sigmoid(L) = P(bit=1), so L>0 => bit 1, matching prob_to_BPSK_symbol's
+                        # p>0.5 => bit 1 threshold.
+                        hard_val = (llrs_val_cur.squeeze(-1) > 0).long()
+                        true_val = tx_val_cur.long()
+                        mbool = mask_val_cur.bool()
+                        if mbool.any():
+                            true_ber = (hard_val[mbool] != true_val[mbool]).float().mean().item()
+                            frac_ones = hard_val[mbool].float().mean().item()
+                        else:
+                            true_ber = float('nan')
+                            frac_ones = float('nan')
+                        # Per bit-position variance across the batch dim: near-zero
+                        # means the network outputs that position the same way
+                        # regardless of input (input-independent collapse).
+                        var_per_pos = hard_val.float().var(dim=0, unbiased=False)
+                        const_pos = (var_per_pos < 1e-6).float().mean().item()
+                        _tsyn_debug_str = (f" true_ber={true_ber:.4f} const_pos={const_pos:.4f}"
+                                           f" frac_ones={frac_ones:.4f}")
+                    else:
+                        _tsyn_debug_str = ""
+                    # ---- END TEMP DEBUG ----
+            else:
+                val_loss = None
+                val_hb = None
+                val_tsyn = None
+                _tsyn_debug_str = ""
+
+            def _val_str():
+                return f"{val_loss.item():.4f}" if has_val else "n/a"
 
             def _hb_suffix(train_hb, v_hb):
+                if v_hb is None:
+                    return f" Hb(q̄): train={train_hb:.4f}"
                 return f" Hb(q̄): train={train_hb:.4f} val={v_hb:.4f}"
 
             def _tsyn_suffix():
@@ -263,7 +314,7 @@ class ESCNNTrainer(Trainer):
                         break
 
             if log_enabled and (epoch + 1) % log_every == 0:
-                msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={val_loss.item():.4f}"
+                msg = f"[{datetime.now().strftime('%H:%M:%S')}] {tag} epoch {epoch+1}/{epochs} train={avg_train_loss:.4f} val={_val_str()}"
                 if es_enabled:
                     msg += f" best_val={best_val_loss:.4f}"
                 if _log_hb:
@@ -288,14 +339,16 @@ class ESCNNTrainer(Trainer):
         return train_loss_vect, val_loss_vect
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
-                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str):
+                      rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str,
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
         list per UE (each UE has its own network, so its own loss history)."""
         train_loss_vect_users = [None] * n_users
         val_loss_vect_users = [None] * n_users
         for user in range(n_users):
             net_id = f"u={user} it={i}"
-            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id)
+            train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id,
+                                                                  payload_symbols_per_slot=payload_symbols_per_slot)
             train_loss_vect_users[user] = train_loss_vect
             val_loss_vect_users[user] = val_loss_vect
         return train_loss_vect_users , val_loss_vect_users
@@ -303,10 +356,16 @@ class ESCNNTrainer(Trainer):
 
 
 
-    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base"):
+    def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base",
+                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """
         Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
+
+        payload_symbols_per_slot is passed straight through to _train_model (see its docstring,
+        including why a non-default value there also disables the primary-detector cut and the
+        train/val split) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
+        callers override it explicitly.
         """
 
         if conf.which_augment == 'NO_AUGMENT':
@@ -320,7 +379,8 @@ class ESCNNTrainer(Trainer):
         _labels_identical = [bool(torch.equal(tx_all[0], tx_all[u])) for u in range(1, n_users)]
         print(f"[TEMP DEBUG] tx_all[u] identical to tx_all[0] for u=1..{n_users-1}: {_labels_identical}", flush=True)
         # ---- END TEMP DEBUG ----
-        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
+        train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
+                                                              payload_symbols_per_slot=payload_symbols_per_slot)
         # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
         _final_losses = [round(v[-1], 8) if v else None for v in train_loss_vect]
         _vect_identical = [train_loss_vect[u] == train_loss_vect[0] for u in range(1, n_users)]
@@ -338,7 +398,8 @@ class ESCNNTrainer(Trainer):
             # Generating soft symbols for training purposes
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, 0)
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
-            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage)
+            train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
+                                                                 payload_symbols_per_slot=payload_symbols_per_slot)
             if SHOW_ALL_ITERATIONS:
                 for user in range(n_users):
                     train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]
@@ -379,9 +440,9 @@ class ESCNNTrainer(Trainer):
         conf.which_augment != 'NO_AUGMENT', otherwise the flat 0.5 init is used.
         payload_symbols_per_slot is how many of rx_real's rows make up one slot - defaults to a
         full NUM_SYMB_PER_SLOT, but ekf.py's streaming-drift script embeds DMRS in-slot and
-        passes DMRS_NUM_PAYLOAD_SYMB instead, since rx_real there already excludes DMRS rows (see
-        _get_syndrome_helper's docstring for why this must also match the codec that built the
-        actual LDPC codewords). See ekf_syndrome.tex."""
+        passes its own payload-symbols-per-slot count instead, since rx_real there already
+        excludes DMRS rows (see _get_syndrome_helper's docstring for why this must also match
+        the codec that built the actual LDPC codewords). See ekf_syndrome.tex."""
         helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
         if helper is None:
             self._tsyn_warn_once('ekf_mcs', "EKF tracking needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
@@ -562,7 +623,8 @@ class ESCNNTrainer(Trainer):
               + (1.0 - q_bar) * torch.log2((1.0 - q_bar).clamp(min=eps)))
         return h.item()
 
-    def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor, mask: torch.Tensor = None) -> torch.Tensor:
+    def _calculate_loss(self, est: torch.Tensor, tx: torch.IntTensor, mask: torch.Tensor = None,
+                         payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT) -> torch.Tensor:
         """
         Loss dispatched by conf.training_loss:
           'bce'  - BCEWithLogitsLoss (sigmoid applied internally); uses tx and mask.
@@ -571,6 +633,9 @@ class ESCNNTrainer(Trainer):
                    Mask is still applied so constant pilot bits are excluded.
           'tsyn' - tw * L_tent + (1-tw) * L_synd, where L_synd is a soft LDPC
                    syndrome penalty over the batch's codeword LLRs.
+
+        payload_symbols_per_slot is forwarded to _syndrome_component (tsyn only) - see
+        _train_model's docstring for why this must match whatever caller passed it in.
         """
         est_rs = est.squeeze(-1)
         loss_mode = getattr(conf, 'training_loss', 'bce')
@@ -608,7 +673,7 @@ class ESCNNTrainer(Trainer):
             # code blocks (mother-codeword checks). This is intentional.
             l_tent = l0
             tw = float(getattr(conf, 'tw', 0.5))
-            synd_out = self._syndrome_component(est_rs)
+            synd_out = self._syndrome_component(est_rs, payload_symbols_per_slot=payload_symbols_per_slot)
             if synd_out is None:
                 self._tsyn_stats = {'l_tent': float(l_tent.detach()), 'l_synd': None, 'sat': None}
             else:
@@ -648,10 +713,10 @@ class ESCNNTrainer(Trainer):
         """Lazily build/cache the SyndromeLoss for the current LDPC configuration
         (same k/n construction as evaluate.py's LDPC5GCodec, whose pilot region still spans a
         full NUM_SYMB_PER_SLOT symbols/slot - the default here). ekf.py's streaming-drift script
-        embeds DMRS in-slot instead (see its module docstring), so only DMRS_NUM_PAYLOAD_SYMB of
-        each slot's symbols are LDPC-coded payload; its callers (ekf_predict_update,
-        _log_static_syndrome_stats) pass payload_symbols_per_slot=DMRS_NUM_PAYLOAD_SYMB
-        explicitly so this method's ldpc_n matches the codeword length ekf.py's own
+        embeds DMRS in-slot instead (see its module docstring), so only a fixed subset of each
+        slot's symbols are LDPC-coded payload; its callers (ekf_predict_update,
+        _log_static_syndrome_stats) pass that payload-symbols-per-slot count explicitly so this
+        method's ldpc_n matches the codeword length ekf.py's own
         LDPC5GCodec actually used to encode that payload - otherwise the SyndromeLoss's parity
         checks are built for a different code than what's on the wire, making mean_p/mean_hard_sat
         structurally meaningless (see ekf-mod-pilot-syndrome-bug memory for a prior instance of
@@ -675,7 +740,7 @@ class ESCNNTrainer(Trainer):
             self._synd_qm = int(qm)
         return self._synd
 
-    def _syndrome_component(self, est_rs: torch.Tensor):
+    def _syndrome_component(self, est_rs: torch.Tensor, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
         """L_synd on the batch grid, tapped in decoder-input stream order.
 
         The per-user LLR grid (batch, num_bits, num_res) flattened in natural
@@ -684,8 +749,15 @@ class ESCNNTrainer(Trainer):
         ldpc_n-bit windows are codewords — provided the batch preserves symbol
         order and spans whole slots. Returns (loss, hard_satisfaction) or None
         when the syndrome term cannot be formed for this batch.
+
+        payload_symbols_per_slot: how many of the batch's rows make up one slot/codeword window -
+        defaults to a full NUM_SYMB_PER_SLOT (evaluate.py's own pilot region, unchanged from
+        before this parameter existed); ekf.py's callers pass their own DMRS-stripped
+        payload-only count instead, so this must match whatever _get_syndrome_helper built its
+        ldpc_n from (see that method's docstring) or the batch-alignment check below is checking
+        the wrong unit.
         """
-        helper = self._get_syndrome_helper()
+        helper = self._get_syndrome_helper(payload_symbols_per_slot=payload_symbols_per_slot)
         if helper is None:
             self._tsyn_warn_once('mcs', "training_loss='tsyn' needs conf.mcs > -1 (LDPC); "
                                         "syndrome term disabled, falling back to pure tent.")
@@ -701,11 +773,11 @@ class ESCNNTrainer(Trainer):
                                             "breaking codeword alignment; syndrome term disabled.")
             return None
         bs = int(getattr(conf, 'batch_size', 0))
-        if bs > 0 and bs % NUM_SYMB_PER_SLOT != 0:
+        if bs > 0 and bs % payload_symbols_per_slot != 0:
             self._tsyn_warn_once('batch_align', f"batch_size={bs} is not a multiple of "
-                                 f"NUM_SYMB_PER_SLOT={NUM_SYMB_PER_SLOT}, so mini-batches start "
+                                 f"payload_symbols_per_slot={payload_symbols_per_slot}, so mini-batches start "
                                  f"mid-codeword; syndrome term disabled. Use batch_size <= 0 "
-                                 f"(full batch) or a multiple of {NUM_SYMB_PER_SLOT}.")
+                                 f"(full batch) or a multiple of {payload_symbols_per_slot}.")
             return None
         if est_rs.dim() != 3 or est_rs.shape[1] != self._synd_qm:
             self._tsyn_warn_once('shape', f"LLR grid shape {tuple(est_rs.shape)} does not match "
@@ -718,7 +790,7 @@ class ESCNNTrainer(Trainer):
             self._tsyn_warn_once('slots', f"batch too small for one codeword "
                                           f"({stream.numel()} < {helper.n} bits); syndrome term "
                                           f"disabled. Use batch_size <= 0 or a multiple of "
-                                          f"{NUM_SYMB_PER_SLOT} symbols.")
+                                          f"{payload_symbols_per_slot} symbols.")
             return None
         slots = stream[:num_slots * helper.n].reshape(num_slots, helper.n)
         l_synd = helper.loss(slots)

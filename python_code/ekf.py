@@ -8,15 +8,16 @@ being fixed per block. Every group of data slots is treated as fully known (a
 pilot) for BER scoring.
 
 Channel estimation is in-band, 5G-style: every slot (both the scored data slots in
-conf.slots_per_group, and - for weights_track_mode='sgd' only - the separate
-conf.calib_slots_per_group training slots) carries its own embedded DMRS: 2 OFDM
-symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4 CDM-multiplexed ports -
-see _dmrs_layout) instead of the whole slot being a known pilot. The other
-NUM_SYMB_PER_SLOT-2=12 symbols of each slot carry real CRC+LDPC-coded payload bits
-(scored, for the data region; trained on, for the sgd calib region - never both for
-the same bits, so there's still no leakage between "what a region's own CE/training
-sees" and "what gets judged"). This replaces an earlier design that spent a whole
-extra calibration slot per group purely on LMMSE CE.
+conf.slots_per_group, and - for weights_track_mode='sgd' with any loss other than
+'tsyn' - the separate conf.calib_slots_per_group training slots) carries its own
+embedded DMRS: 2 OFDM symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4
+CDM-multiplexed ports - see _dmrs_layout) instead of the whole slot being a known
+pilot. The other NUM_SYMB_PER_SLOT-2=12 symbols of each slot carry real
+CRC+LDPC-coded payload bits (scored, for the data region; trained on, for the sgd
+calib region - never both for the same bits, so there's still no leakage between
+"what a region's own CE/training sees" and "what gets judged"). This replaces an
+earlier design that spent a whole extra calibration slot per group purely on
+LMMSE CE.
 
 Unit of work is a *group*: conf.slots_per_group data slots, all sharing one channel
 realization (channel_drift_base_index only advances between groups, not within
@@ -27,15 +28,36 @@ leaves unfrozen - depends on conf.weights_track_mode:
       ESCNNTrainer.ekf_predict_update, unchanged - handing it a group's worth of
       data makes it resolve num_slots == group size on its own). There is no
       training step and no calib region at all in this mode.
-  'sgd' - ordinary supervised training (ESCNNTrainer._online_training, the same code path
+  'sgd' - ordinary training (ESCNNTrainer._online_training, the same code path
       evaluate.py's normal pilot training uses - conf.training_loss picks 'bce'/'tent'/
-      'gfmi'/'tsyn' same as there) against a separate conf.calib_slots_per_group-sized
-      region's own known, CRC+LDPC-coded payload bits (see encode_pilots below) - a
-      ground-truth upper-bound baseline to compare the blind EKF against. The data
-      slots are never trained on in this mode either, so both modes score identically
-      on data neither has seen. That calib region has the exact same 2-DMRS+12-payload
-      structure as the data region, and gets its own CE from its own embedded DMRS too
-      (not a whole-slot-known-pilot estimate).
+      'gfmi'/'tsyn' same as there), branching on training_loss:
+        - 'tsyn' (blind: its L_tent/L_synd terms use no ground truth - see
+          escnn_trainer._calculate_loss/_syndrome_component) trains directly on the
+          group's own scored data slots - the exact same rx_real_t/tx_bits/
+          probs_for_aug tensors 'ekf' mode's own ekf_predict_update uses, no
+          separate calib region generated at all, and no held-out validation split
+          (nothing to early-stop against - the network trains on every symbol in
+          the group, then that same, now-updated network scores that same group).
+          This makes it a genuine competitor to 'ekf', seeing exactly what 'ekf'
+          sees and nothing more.
+        - anything else ('bce'/'tent'/'gfmi') trains against a separate
+          conf.calib_slots_per_group-sized region's own known, CRC+LDPC-coded
+          payload bits (see encode_pilots below) instead - a ground-truth
+          upper-bound baseline to compare the blind EKF against, since these
+          losses genuinely need ground truth and training directly on the scored
+          data would just be memorizing the bits about to be judged. The data
+          slots are never trained on in this branch, so both modes score
+          identically on data neither has seen. That calib region has the exact
+          same 2-DMRS+12-payload structure as the data region, and gets its own CE
+          from its own embedded DMRS too (not a whole-slot-known-pilot estimate);
+          it does keep its own normal held-out validation split, since (unlike the
+          'tsyn' branch above) it's a real supervised fit with genuine unseen data
+          to validate against.
+      Either branch always runs with escnn_use_primary_val_only effectively off
+      (see escnn_trainer._train_model's docstring) - that flag exists to stop
+      ESCNN from training on a separately-trained primary detector's own
+      training-fit data, and ekf.py's DeepSIC/DeepRx are always frozen pretrained
+      checkpoints (see below), so the scenario it guards against never applies here.
 Setting slots_per_group=1 makes every data slot its own group, i.e. a new
 channel every slot.
 
@@ -80,16 +102,16 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     channels for a wider network to train/score against.
     escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF) or 'sgd'
-                                    (supervised training on a separate calib region, loss
-                                    picked by conf.training_loss - see module docstring above)
-    calib_slots_per_group         - 'sgd' mode only: slots in the separate training-only region
+                                    (training_loss='tsyn' trains directly on the group's own
+                                    scored data; any other loss trains on a separate calib
+                                    region instead - see module docstring above)
+    calib_slots_per_group         - 'sgd' mode only, and only when training_loss != 'tsyn':
+                                    slots in the separate training-only region
                                     (2-DMRS+12-payload structure, same as the data region). Not
-                                    used at all in 'ekf' mode. Default 1; raise well above 1 for
-                                    'sgd' - a single slot's worth of bits is unlikely to move the
-                                    weights via gradient descent. training_loss='tsyn' needs it
-                                    raised further still: _train_model's train/val split rounds
-                                    down to whole slots, so too few calib slots leaves zero slots
-                                    on one side of the split
+                                    used at all in 'ekf' mode, or in 'sgd' mode with
+                                    training_loss='tsyn'. Default 1; raise well above 1 - a
+                                    single slot's worth of bits is unlikely to move the weights
+                                    via gradient descent.
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path); 'ekf' mode only
     epochs                        - 'sgd' mode only: epochs of full training per group
@@ -233,9 +255,12 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
     if track_mode == 'sgd':
-        # calib_slots_per_group is 'sgd'-training-only now (its old general-CE role is gone -
-        # see module docstring) so it's only meaningful, and only printed, in that mode.
-        title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
+        # calib_slots_per_group only applies (and is only printed) when training_loss != 'tsyn' -
+        # 'tsyn' trains directly on the scored data instead (see module docstring).
+        if getattr(conf, 'training_loss', 'bce') == 'tsyn':
+            title_string += '_dat'
+        else:
+            title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_lr=' + str(getattr(conf, 'learning_rate', 5.0e-3))
     if track_mode == 'sgd':
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
@@ -811,10 +836,12 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     """Generate, transmit, LMMSE-estimate/equalize, EKF/SGD-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization. Each slot carries
     its own embedded DMRS used to estimate H for that same slot's payload - no separate
-    calibration slot in 'ekf' mode any more (see module docstring). 'sgd' mode still builds a
-    separate calib_slots-sized region purely as supervised training data (it can't train and be
-    scored on the same bits), built the exact same DMRS+payload way, with its own CE from its
-    own embedded DMRS - not a whole-slot-known-pilot estimate like before.
+    calibration slot in 'ekf' mode any more (see module docstring). 'sgd' mode trains directly
+    on this same group's own scored data (rx_real_t/tx_bits/probs_for_aug) when
+    training_loss='tsyn', or builds a separate calib_slots-sized region purely as supervised
+    training data otherwise (it can't train and be scored on the same bits for a supervised
+    loss), built the exact same DMRS+payload way, with its own CE from its own embedded DMRS -
+    not a whole-slot-known-pilot estimate like before.
 
     qm is the real data modulation (mcs); num_bits_pilot equals qm - DMRS's payload-only region
     needs real coded bits at the network's own bit-width, so the mod_pilot padding path older
@@ -1003,9 +1030,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing "
                                            "trainable - skipping SGD update (running loaded "
                                            "weights statically).", tag='sgd')
+        elif getattr(conf, 'training_loss', 'bce') == 'tsyn':
+            # Blind loss (no ground truth in L_tent/L_synd - see escnn_trainer._calculate_loss)
+            # so it's safe to train directly on this group's own scored data slots -
+            # rx_real_t/tx_bits/probs_for_aug are the exact tensors already built above for
+            # scoring, no separate calib region generated/transmitted at all (see module
+            # docstring). tx_data_t is passed through only for the constant-bit mask and
+            # collapse diagnostics, never as supervision. payload_symbols_per_slot=
+            # _DMRS_NUM_PAYLOAD_SYMB (not a full 14-symbol slot) is also what tells
+            # _train_model there's no primary-detector split and no held-out validation to
+            # apply here - see its docstring.
+            tx_data_t = torch.from_numpy(tx_bits.astype(np.float32))
+            escnn_trainer._online_training(tx_data_t, rx_real_t, num_bits_pilot, n_users,
+                                            conf.iterations, conf.epochs, False, probs_for_aug,
+                                            payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
         else:
-            # Separate calib_slots-sized region, built the same DMRS+payload way as the scored
-            # data above - never scored, only trained on (see module docstring).
+            # Supervised loss ('bce'/'tent'/'gfmi') - can't train on the same bits it's about
+            # to be scored against, so build a separate calib_slots-sized region, the same
+            # DMRS+payload way as the scored data above - never scored, only trained on (see
+            # module docstring).
             calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
                                                        mod_data, layout, codec, crc, ldpc_k, ldpc_n)
             calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
@@ -1028,8 +1071,13 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             rx_calib_real_t = torch.from_numpy(rx_calib_real)
             probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
             tx_calib_t = torch.from_numpy(calib_tx_bits.astype(np.float32))
+            # payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB here only turns off the
+            # primary-detector cut (see escnn_trainer._train_model's docstring) - the normal
+            # train/val split still applies since this is a real supervised fit with genuine
+            # unseen calib data to validate against, unlike the 'tsyn' branch above.
             escnn_trainer._online_training(tx_calib_t, rx_calib_real_t, num_bits_pilot, n_users,
-                                            conf.iterations, conf.epochs, False, probs_for_aug_calib)
+                                            conf.iterations, conf.epochs, False, probs_for_aug_calib,
+                                            payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
     else:
         escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
                                           payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
@@ -1285,8 +1333,12 @@ def main():
 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
-    calib_note = (f", {calib_slots_per_group} calib slot(s)/group for sgd training"
-                  if weights_track_mode == 'sgd' else "")
+    if weights_track_mode != 'sgd':
+        calib_note = ""
+    elif getattr(conf, 'training_loss', 'bce') == 'tsyn':
+        calib_note = ", training directly on scored data slots"
+    else:
+        calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group "
           f"({_DMRS_NUM_PAYLOAD_SYMB}/{NUM_SYMB_PER_SLOT} payload symbols/slot, "
           f"{len(_DMRS_SYMBOL_LOCAL_IDX)} DMRS){calib_note}, track_mode={weights_track_mode}, "

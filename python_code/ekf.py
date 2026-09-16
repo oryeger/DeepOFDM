@@ -8,56 +8,61 @@ being fixed per block. Every group of data slots is treated as fully known (a
 pilot) for BER scoring.
 
 Channel estimation is in-band, 5G-style: every slot (both the scored data slots in
-conf.slots_per_group, and - for weights_track_mode='sgd' with any loss other than
-'tsyn' - the separate conf.calib_slots_per_group training slots) carries its own
-embedded DMRS: 2 OFDM symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4
-CDM-multiplexed ports - see _dmrs_layout) instead of the whole slot being a known
-pilot. The other NUM_SYMB_PER_SLOT-2=12 symbols of each slot carry real
-CRC+LDPC-coded payload bits (scored, for the data region; trained on, for the sgd
-calib region - never both for the same bits, so there's still no leakage between
-"what a region's own CE/training sees" and "what gets judged"). This replaces an
-earlier design that spent a whole extra calibration slot per group purely on
-LMMSE CE.
+conf.slots_per_group, and - for weights_track_mode='sgd_bcei' only - the separate
+conf.calib_slots_per_group training slots) carries its own embedded DMRS: 2 OFDM
+symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4 CDM-multiplexed ports
+- see _dmrs_layout) instead of the whole slot being a known pilot. The other
+NUM_SYMB_PER_SLOT-2=12 symbols of each slot carry real CRC+LDPC-coded payload
+bits (scored, for the data region; trained on, for the sgd_bcei calib region -
+never both for the same bits, so there's still no leakage between "what a
+region's own CE/training sees" and "what gets judged"). This replaces an earlier
+design that spent a whole extra calibration slot per group purely on LMMSE CE.
 
 Unit of work is a *group*: conf.slots_per_group data slots, all sharing one channel
 realization (channel_drift_base_index only advances between groups, not within
 one). What happens to the data slots - and to whichever params escnn_load_freeze
-leaves unfrozen - depends on conf.weights_track_mode:
+leaves unfrozen - depends on conf.weights_track_mode, the single knob for the
+whole training mode (unlike evaluate.py, there's no separate training_loss key
+here - see config.yaml's weights_track_mode comment):
   'ekf' (default) - unsupervised, syndrome-driven: the data slots get exactly one
       EKF predict() + one sequential update() per slot (see
       ESCNNTrainer.ekf_predict_update, unchanged - handing it a group's worth of
       data makes it resolve num_slots == group size on its own). There is no
       training step and no calib region at all in this mode.
-  'sgd' - ordinary training (ESCNNTrainer._online_training, the same code path
-      evaluate.py's normal pilot training uses - conf.training_loss picks 'bce'/'tent'/
-      'gfmi'/'tsyn' same as there), branching on training_loss:
-        - 'tsyn' (blind: its L_tent/L_synd terms use no ground truth - see
-          escnn_trainer._calculate_loss/_syndrome_component) trains directly on the
-          group's own scored data slots - the exact same rx_real_t/tx_bits/
-          probs_for_aug tensors 'ekf' mode's own ekf_predict_update uses, no
-          separate calib region generated at all, and no held-out validation split
-          (nothing to early-stop against - the network trains on every symbol in
-          the group, then that same, now-updated network scores that same group).
-          This makes it a genuine competitor to 'ekf', seeing exactly what 'ekf'
-          sees and nothing more.
-        - anything else ('bce'/'tent'/'gfmi') trains against a separate
-          conf.calib_slots_per_group-sized region's own known, CRC+LDPC-coded
-          payload bits (see encode_pilots below) instead - a ground-truth
-          upper-bound baseline to compare the blind EKF against, since these
-          losses genuinely need ground truth and training directly on the scored
-          data would just be memorizing the bits about to be judged. The data
-          slots are never trained on in this branch, so both modes score
-          identically on data neither has seen. That calib region has the exact
-          same 2-DMRS+12-payload structure as the data region, and gets its own CE
-          from its own embedded DMRS too (not a whole-slot-known-pilot estimate);
-          it does keep its own normal held-out validation split, since (unlike the
-          'tsyn' branch above) it's a real supervised fit with genuine unseen data
-          to validate against.
-      Either branch always runs with escnn_use_primary_val_only effectively off
-      (see escnn_trainer._train_model's docstring) - that flag exists to stop
-      ESCNN from training on a separately-trained primary detector's own
-      training-fit data, and ekf.py's DeepSIC/DeepRx are always frozen pretrained
-      checkpoints (see below), so the scenario it guards against never applies here.
+  'sgd_syn' - blind tsyn loss (its L_tent/L_synd terms use no ground truth - see
+      escnn_trainer._calculate_loss/_syndrome_component), trained directly on the
+      group's own scored data slots - the exact same rx_real_t/tx_bits/
+      probs_for_aug tensors 'ekf' mode's own ekf_predict_update uses, no separate
+      calib region generated at all, and no held-out validation split (nothing to
+      early-stop against - the network trains on every symbol in the group, then
+      that same, now-updated network scores that same group). This makes it a
+      genuine competitor to 'ekf', seeing exactly what 'ekf' sees and nothing more.
+  'sgd_bce' - practical BCE, also trained directly on the group's own scored data
+      slots like 'sgd_syn' (no calib region, no held-out validation) - but instead
+      of the data slots' own (deployment-unrealistic) genie bits, it trains on the
+      group's own embedded DMRS pilots instead, which genuinely are known without
+      cheating. DMRS is always QPSK regardless of qm, so only 2 of a wider
+      network's qm bit channels ever have a real label; see
+      _build_dmrs_bce_training_data for the full recipe (per-user comb isolation,
+      FD-OCC separation when ports share a comb, nearest-neighbor fill at REs
+      that aren't a given user's own comb, bit masking for qm>2).
+  'sgd_bcei' - BCE (or any other supervised loss) trained against a separate
+      conf.calib_slots_per_group-sized region's own known, CRC+LDPC-coded payload
+      bits (see encode_pilots below) instead - the old ground-truth upper-bound
+      baseline to compare the blind modes against, since training directly on the
+      scored data with a supervised loss would just be memorizing the bits about
+      to be judged. The data slots are never trained on in this mode, so it scores
+      on data neither 'ekf' nor 'sgd_syn'/'sgd_bce' has seen either. That calib
+      region has the exact same 2-DMRS+12-payload structure as the data region,
+      and gets its own CE from its own embedded DMRS too (not a
+      whole-slot-known-pilot estimate); it does keep its own normal held-out
+      validation split, since (unlike the other sgd_* modes) it's a real
+      supervised fit with genuine unseen data to validate against.
+  Every sgd_* mode always runs with escnn_use_primary_val_only effectively off
+  (see escnn_trainer._train_model's docstring) - that flag exists to stop ESCNN
+  from training on a separately-trained primary detector's own training-fit
+  data, and ekf.py's DeepSIC/DeepRx are always frozen pretrained checkpoints (see
+  below), so the scenario it guards against never applies here.
 Setting slots_per_group=1 makes every data slot its own group, i.e. a new
 channel every slot.
 
@@ -101,20 +106,19 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     carries real coded bits at num_bits_pilot == qm, no padded
                                     channels for a wider network to train/score against.
     escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
-    weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF) or 'sgd'
-                                    (training_loss='tsyn' trains directly on the group's own
-                                    scored data; any other loss trains on a separate calib
-                                    region instead - see module docstring above)
-    calib_slots_per_group         - 'sgd' mode only, and only when training_loss != 'tsyn':
-                                    slots in the separate training-only region
-                                    (2-DMRS+12-payload structure, same as the data region). Not
-                                    used at all in 'ekf' mode, or in 'sgd' mode with
-                                    training_loss='tsyn'. Default 1; raise well above 1 - a
-                                    single slot's worth of bits is unlikely to move the weights
-                                    via gradient descent.
+    weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF), 'sgd_syn'
+                                    (blind tsyn, trains on the group's own scored data),
+                                    'sgd_bce' (practical BCE on the group's own DMRS pilots) or
+                                    'sgd_bcei' (BCE on a separate calib region) - see module
+                                    docstring above
+    calib_slots_per_group         - 'sgd_bcei' mode only: slots in the separate training-only
+                                    region (2-DMRS+12-payload structure, same as the data
+                                    region). Not used at all by any other mode. Default 1; raise
+                                    well above 1 - a single slot's worth of bits is unlikely to
+                                    move the weights via gradient descent.
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path); 'ekf' mode only
-    epochs                        - 'sgd' mode only: epochs of full training per group
+    epochs                        - any sgd_* mode only: epochs of full training per group
                                     (same knob evaluate.py's own pilot training uses)
     slots_per_group               - slots per group (= slots per channel realization, and per CFO value)
     channel_drift_base_index     - starting slot offset into the TDL trajectory
@@ -167,8 +171,8 @@ from python_code.utils.probs_utils import relevant_indices
 CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 
 # --- In-slot DMRS pilots (replaces the old dedicated-calibration-slot CE mechanism for the
-# scored data region, and - for weights_track_mode='sgd' - for the calib region too; see module
-# docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
+# scored data region, and - for weights_track_mode='sgd_bcei' - for the calib region too; see
+# module docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
 # CDM-multiplexed ports (FD-OCC). These are concrete numbers from the design, not tunables, so
 # they're kept as constants (in utils/constants.py, shared with escnn_trainer.py's syndrome/EKF
 # code - see that module's DMRS_NUM_PAYLOAD_SYMB) rather than new config.yaml keys.
@@ -225,7 +229,7 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     beta_balance, save-weights tag - none of those vary here. learning_rate is included for
     both modes (even though 'ekf' mode's tracking has no optimizer and never reads it - it's
     driven by the escnn_ekf_* noise/dynamics params already included above), so it's visible
-    in the filename whenever a batch sweeps it. epochs, training_loss and tw are 'sgd'-only:
+    in the filename whenever a batch sweeps it. epochs, training_loss and tw are sgd_*-mode-only:
     'ekf' mode's tracking goes through ekf_predict_update's own syndrome measurement, never
     _calculate_loss/conf.training_loss, so they're genuinely meaningless there (no
     epoch-per-group or loss-function concept in EKF tracking)."""
@@ -254,15 +258,10 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
-    if track_mode == 'sgd':
-        # calib_slots_per_group only applies (and is only printed) when training_loss != 'tsyn' -
-        # 'tsyn' trains directly on the scored data instead (see module docstring).
-        if getattr(conf, 'training_loss', 'bce') == 'tsyn':
-            title_string += '_dat'
-        else:
-            title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
+    if track_mode == 'sgd_bcei':
+        title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_lr=' + str(getattr(conf, 'learning_rate', 5.0e-3))
-    if track_mode == 'sgd':
+    if track_mode in ('sgd_syn', 'sgd_bce', 'sgd_bcei'):
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
         loss_mode = getattr(conf, 'training_loss', 'bce')
         title_string += '_loss=' + loss_mode
@@ -713,6 +712,126 @@ def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: i
     return result
 
 
+def _nearest_owned_re(owned: list, num_res: int) -> np.ndarray:
+    """For every RE in range(num_res), the closest (by index distance) RE in `owned` - the
+    nearest-neighbor fill used by _build_dmrs_bce_training_data for REs that aren't a given
+    user's own DMRS comb (see that function's docstring for why duplication, not zeroing)."""
+    owned_arr = np.array(sorted(set(owned)))
+    all_re = np.arange(num_res)
+    diffs = np.abs(all_re[:, None] - owned_arr[None, :])
+    return owned_arr[np.argmin(diffs, axis=1)]
+
+
+def _build_dmrs_bce_training_data(rx_dmrs: torch.Tensor, known_tx: dict, layout: dict, H: torch.Tensor,
+                                   n_ants: int, num_res: int, n_users: int, qm: int,
+                                   noise_var: float) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, np.ndarray]:
+    """Build (tx_labels, rx_real, probs_prior, real_bit_idx) for weights_track_mode='sgd_bce':
+    train ESCNN's ordinary BCE loss directly on this group's own embedded DMRS occasions instead
+    of a separate calib region - no extra transmission needed, rx_dmrs/known_tx/H are already
+    computed for the data region's own CE (see run_group).
+
+    DMRS is always QPSK regardless of qm (module docstring), so only 2 of a wider network's qm
+    bit channels ever carry real information - relevant_indices(qm, qm/2) = [0, qm//2], the MSB
+    of each rail, which matches QPSK's own 2 bits with no sign correction needed (verified
+    against commpy's actual Gray tables - unlike evaluate.py's make_64QAM_16QAM_percentage
+    ratio=1.5 case, which does need one). real_bit_idx is returned so the caller passes it to
+    _online_training, which masks every other bit channel out of the loss uniformly (see
+    escnn_trainer._train_model's real_bit_idx docstring).
+
+    rx_real (the network's own raw conv input) is the plain, unmodified rx_dmrs, real/imag
+    interleaved - shared across every user's network exactly like the payload/calib regions; no
+    per-user isolation is applied to it; the network already has to solve this same
+    interference-separation problem for the payload region, so there's nothing to gain by
+    hiding it here.
+
+    Per user, at that user's own comb REs, the isolated single-user signal used for the label
+    and prior is: the raw rx_dmrs value directly when no other user shares that RE (n_users in
+    (1,2) - both DMRS combs already belong entirely to one user each), or an FD-OCC-separated
+    combination when two users do share a comb (n_users==4) - the same additive separation
+    _estimate_channel_from_dmrs's Step 1 uses, but NOT divided down to a bare channel estimate
+    (that would erase the modulation-dependent part BCE needs to demodulate). layout's sign_a is
+    always +1 in this project's DMRS layout, so only the RE-b side ever needs a sign correction
+    to keep the isolated value's sign matching that user's own known_tx value at that RE (see
+    conversation - verified algebraically, not assumed).
+
+    Labels use the sign of known_tx's actual transmitted value directly (real>0/imag>0 =>
+    bit=1) - the project's live convention (matches LmmseDemod's QPSKModulator.demodulate
+    reading and the real payload's own commpy-based modulation, verified empirically), NOT
+    DMRS's own internal reference-bit array (_dmrs_reference_values' (1-2*bit) construction is
+    the opposite of this).
+
+    The prior's 2 real bit channels come from equalizing that same isolated per-user signal
+    with lmmse_equalize_with_H (reused with a 1-user slice of H - it derives n_users from H's
+    own shape, unlike LmmseDemod, which hardcodes conf.n_users and so can't be reused for a
+    single isolated user) and reading the equalized value's real/imag parts scaled by
+    postEqSINR, exactly the arithmetic LmmseDemod itself uses for num_bits==2 internally - no
+    new equalization or demod math, just the existing per-RE recipe run over one user at a time.
+
+    REs that aren't on a given user's own comb get that user's nearest owned-RE value repeated
+    (_nearest_owned_re) for BOTH the label and the prior, matching what's already done for the
+    raw input's own reasoning: an alternating real/flat-0.5-or-zero pattern every other RE would
+    be a far more artificial input than anything else this project trains ESCNN on, and since
+    duplicating the signal is already accepted there, duplicating the (equally real) label is no
+    less valid - every RE ends up contributing to training, not only the ~half that are
+    genuinely a given user's own."""
+    num_occ = rx_dmrs.shape[0]
+    real_bit_idx = relevant_indices(qm, qm / 2)  # [0, qm//2]
+    assert len(real_bit_idx) == 2, f"qm={qm} isn't a QPSK-derived even bit-width"
+    b0, b1 = int(real_bit_idx[0]), int(real_bit_idx[1])
+
+    rx_real = torch.zeros((num_occ, n_ants * 2, num_res), dtype=torch.float32)
+    rx_real[:, 0::2, :] = rx_dmrs.real.float()
+    rx_real[:, 1::2, :] = rx_dmrs.imag.float()
+
+    tx_labels = torch.zeros((qm, n_users, num_res), dtype=torch.float32)          # constant across occasions
+    probs_prior = torch.full((num_occ, qm, n_users, num_res), 0.5, dtype=torch.float32)
+
+    for user in range(n_users):
+        info = known_tx[user]
+        occ_active = info['occ_active']
+        _, sign_b_u = layout[user]['sign']  # sign_a is always +1 in this project's layout
+        owned_res = []
+        iso_by_re = {}
+        for re_a, re_b, val_a, val_b in info['entries']:
+            if occ_active and re_b is not None:
+                combined = 0.5 * (rx_dmrs[:, :, re_a] + sign_b_u * rx_dmrs[:, :, re_b])
+                iso_by_re[re_a] = combined              # matches val_a (sign_a == +1)
+                iso_by_re[re_b] = sign_b_u * combined    # matches val_b
+            else:
+                iso_by_re[re_a] = rx_dmrs[:, :, re_a]
+                if re_b is not None:
+                    iso_by_re[re_b] = rx_dmrs[:, :, re_b]
+            owned_res.append(re_a)
+            tx_labels[b0, user, re_a] = 1.0 if val_a.real > 0 else 0.0
+            tx_labels[b1, user, re_a] = 1.0 if val_a.imag > 0 else 0.0
+            if re_b is not None:
+                owned_res.append(re_b)
+                tx_labels[b0, user, re_b] = 1.0 if val_b.real > 0 else 0.0
+                tx_labels[b1, user, re_b] = 1.0 if val_b.imag > 0 else 0.0
+
+        for re, iso in iso_by_re.items():
+            rx_c = iso.unsqueeze(-1)  # (num_occ, n_ants, 1), fed as re=0 below
+            equalized, postEqSINR = lmmse_equalize_with_H(H[re, :, user:user + 1], rx_c, noise_var, 0)
+            llr_real = equalized[:, 0].real * postEqSINR[0]
+            llr_imag = equalized[:, 0].imag * postEqSINR[0]
+            probs_prior[:, b0, user, re] = torch.sigmoid(llr_real)
+            probs_prior[:, b1, user, re] = torch.sigmoid(llr_imag)
+
+        nearest = _nearest_owned_re(owned_res, num_res)
+        missing = [re for re in range(num_res) if re not in set(owned_res)]
+        for re in missing:
+            src = int(nearest[re])
+            tx_labels[b0, user, re] = tx_labels[b0, user, src]
+            tx_labels[b1, user, re] = tx_labels[b1, user, src]
+            probs_prior[:, b0, user, re] = probs_prior[:, b0, user, src]
+            probs_prior[:, b1, user, re] = probs_prior[:, b1, user, src]
+
+    tx_labels_full = tx_labels.unsqueeze(0).expand(num_occ, qm, n_users, num_res).reshape(
+        num_occ * qm, n_users, num_res).contiguous()
+    probs_prior_full = probs_prior.permute(0, 2, 1, 3).reshape(num_occ, n_users * qm, num_res).unsqueeze(-1)
+    return tx_labels_full, rx_real, probs_prior_full, real_bit_idx
+
+
 def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: int, num_res: int,
                               qm: int, mod_data: int, layout: dict, codec: LDPC5GCodec,
                               crc: CRC5GCodec, ldpc_k: int, ldpc_n: int) -> dict:
@@ -738,6 +857,9 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
     the returned samples into payload rows and DMRS-occasion rows by slot-local symbol index,
     and estimate that region's own channel from its own DMRS (_estimate_channel_from_dmrs) -
     replaces both today's calib-block transmit+ChannelEstimate and the old data-block transmit.
+    The result also carries the raw 'rx_dmrs' rows themselves (num_occasions, n_ants, num_res)
+    complex - weights_track_mode='sgd_bce' trains directly on these (see
+    _build_dmrs_bce_training_data), everyone else only needs the H estimate derived from them.
 
     return_untruncated: diagnostic-only passthrough to _estimate_channel_from_dmrs - when True,
     the result dict also carries 'H_est_untrunc' (see run_group's save_diag path).
@@ -758,7 +880,7 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
         dmrs_rows.extend(base + i for i in _DMRS_SYMBOL_LOCAL_IDX)
     rx_payload = rx[payload_rows]
     rx_dmrs = torch.from_numpy(rx[dmrs_rows])
-    result = {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload}
+    result = {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload, 'rx_dmrs': rx_dmrs}
     est = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users,
                                        return_untruncated=return_untruncated,
                                        estimate_noise_var=estimate_noise_var)
@@ -836,10 +958,11 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     """Generate, transmit, LMMSE-estimate/equalize, EKF/SGD-update, and score one group of
     group_size_slots consecutive slots sharing a single channel realization. Each slot carries
     its own embedded DMRS used to estimate H for that same slot's payload - no separate
-    calibration slot in 'ekf' mode any more (see module docstring). 'sgd' mode trains directly
-    on this same group's own scored data (rx_real_t/tx_bits/probs_for_aug) when
-    training_loss='tsyn', or builds a separate calib_slots-sized region purely as supervised
-    training data otherwise (it can't train and be scored on the same bits for a supervised
+    calibration slot in 'ekf' mode any more (see module docstring). weights_track_mode='sgd_syn'
+    trains directly on this same group's own scored data (rx_real_t/tx_bits/probs_for_aug);
+    'sgd_bce' trains on that same group's own embedded DMRS pilots instead (see
+    _build_dmrs_bce_training_data); 'sgd_bcei' builds a separate calib_slots-sized region purely
+    as supervised training data (it can't train and be scored on the same bits for a supervised
     loss), built the exact same DMRS+payload way, with its own CE from its own embedded DMRS -
     not a whole-slot-known-pilot estimate like before.
 
@@ -1020,7 +1143,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     else:
         probs_for_aug = torch.tensor([], dtype=torch.float32)
 
-    if weights_track_mode == 'sgd':
+    if weights_track_mode == 'ekf':
+        escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
+                                          payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
+    else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
         # raises on an empty param list) - same "run the loaded weights statically" fallback
         # ekf_predict_update uses when escnn_load_freeze leaves nothing trainable.
@@ -1030,7 +1156,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing "
                                            "trainable - skipping SGD update (running loaded "
                                            "weights statically).", tag='sgd')
-        elif getattr(conf, 'training_loss', 'bce') == 'tsyn':
+        elif weights_track_mode == 'sgd_syn':
             # Blind loss (no ground truth in L_tent/L_synd - see escnn_trainer._calculate_loss)
             # so it's safe to train directly on this group's own scored data slots -
             # rx_real_t/tx_bits/probs_for_aug are the exact tensors already built above for
@@ -1044,11 +1170,22 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             escnn_trainer._online_training(tx_data_t, rx_real_t, num_bits_pilot, n_users,
                                             conf.iterations, conf.epochs, False, probs_for_aug,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
-        else:
-            # Supervised loss ('bce'/'tent'/'gfmi') - can't train on the same bits it's about
-            # to be scored against, so build a separate calib_slots-sized region, the same
-            # DMRS+payload way as the scored data above - never scored, only trained on (see
-            # module docstring).
+        elif weights_track_mode == 'sgd_bce':
+            # Practical BCE: train directly on this group's own embedded DMRS pilots instead of
+            # a separate calib region - rx_dmrs/known_tx/H_data are already available from the
+            # data region's own CE above, no extra transmission needed (see
+            # _build_dmrs_bce_training_data's docstring for the full per-user recipe).
+            tx_dmrs_t, rx_dmrs_real_t, probs_dmrs, real_bit_idx = _build_dmrs_bce_training_data(
+                data_result['rx_dmrs'], data_content['known_tx'], layout, H_data,
+                n_ants, num_res, n_users, qm, lmmse_noise_var)
+            escnn_trainer._online_training(tx_dmrs_t, rx_dmrs_real_t, num_bits_pilot, n_users,
+                                            conf.iterations, conf.epochs, False, probs_dmrs,
+                                            payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                            real_bit_idx=real_bit_idx)
+        else:  # 'sgd_bcei'
+            # Supervised loss - can't train on the same bits it's about to be scored against, so
+            # build a separate calib_slots-sized region, the same DMRS+payload way as the scored
+            # data above - never scored, only trained on (see module docstring).
             calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
                                                        mod_data, layout, codec, crc, ldpc_k, ldpc_n)
             calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
@@ -1074,13 +1211,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             # payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB here only turns off the
             # primary-detector cut (see escnn_trainer._train_model's docstring) - the normal
             # train/val split still applies since this is a real supervised fit with genuine
-            # unseen calib data to validate against, unlike the 'tsyn' branch above.
+            # unseen calib data to validate against, unlike the other sgd_* modes above.
             escnn_trainer._online_training(tx_calib_t, rx_calib_real_t, num_bits_pilot, n_users,
                                             conf.iterations, conf.epochs, False, probs_for_aug_calib,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
-    else:
-        escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
-                                          payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
     _, llrs_mat_list = escnn_trainer._forward(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug)
     escnn_llrs = llrs_mat_list[-1].squeeze(-1).cpu().numpy()   # (symbols, num_bits_pilot*n_users, num_res)
 
@@ -1243,6 +1377,17 @@ def main():
 
     conf.reload_config(args.config)
     resolve_auto_escnn_weights_tag()
+    # weights_track_mode is this file's single training-mode knob (see module docstring) - unlike
+    # evaluate.py, there's no separate training_loss key to keep in sync. conf.training_loss is
+    # still the actual internal signal escnn_trainer.py's shared _calculate_loss/_train_model
+    # dispatch on, so it's derived here once and never read directly from config.yaml by this
+    # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
+    # conf.training_loss - so any value is fine there).
+    weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
+    _MODE_CHOICES = ('ekf', 'sgd_syn', 'sgd_bce', 'sgd_bcei')
+    if weights_track_mode not in _MODE_CHOICES:
+        raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
+    conf.set_value('training_loss', {'sgd_syn': 'tsyn'}.get(weights_track_mode, 'bce'))
     # DMRS is transmitted (and its CE computed for the always-reported LMMSE baseline) regardless
     # of which_augment - only whether ESCNN gets fed a prior (and what it's fed) depends on the
     # mode (see module docstring/run_group).
@@ -1333,12 +1478,14 @@ def main():
 
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
-    if weights_track_mode != 'sgd':
-        calib_note = ""
-    elif getattr(conf, 'training_loss', 'bce') == 'tsyn':
+    if weights_track_mode == 'sgd_bcei':
+        calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
+    elif weights_track_mode == 'sgd_bce':
+        calib_note = ", training directly on the group's own DMRS pilots"
+    elif weights_track_mode == 'sgd_syn':
         calib_note = ", training directly on scored data slots"
     else:
-        calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
+        calib_note = ""
     print(f"[drift] {num_groups} groups x {group_size_slots} slot(s)/group "
           f"({_DMRS_NUM_PAYLOAD_SYMB}/{NUM_SYMB_PER_SLOT} payload symbols/slot, "
           f"{len(_DMRS_SYMBOL_LOCAL_IDX)} DMRS){calib_note}, track_mode={weights_track_mode}, "

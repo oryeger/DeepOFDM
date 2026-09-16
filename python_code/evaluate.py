@@ -2788,6 +2788,13 @@ if __name__ == '__main__':
 
     # Reload config singleton with the provided config file (or default)
     conf.reload_config(args.config)
+    # pretrain_loss is this file's own config.yaml-facing key (ekf.py has its own separate
+    # weights_track_mode instead - see its docstring); conf.training_loss is the actual internal
+    # signal escnn_trainer.py's shared training code reads, so every entry point (this one,
+    # run_multiple_eval.py's direct conf.set_value('training_loss', ...) sweeps, ekf.py) sets it
+    # before training - forwarding it here just once keeps the rest of this file (including its
+    # own banner/filename-tag prints below) reading conf.training_loss unchanged.
+    conf.set_value('training_loss', getattr(conf, 'pretrain_loss', 'bce'))
     resolve_auto_escnn_weights_tag()
 
     # Now conf has the updated config, proceed as before

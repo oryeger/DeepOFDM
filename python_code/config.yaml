@@ -82,7 +82,7 @@ calc_mi: True
 mi_estimator: 'histogram'  # 'histogram' (binned differential-entropy estimate, needs sample density to bin well) | ' ' (closed-form genie-aided GMI from true tx bits, no histogram/binning - see _mi_from_flat in evaluate.py)
 mi_healthy_margin: 0.2  # mcs>-1 only: empirical margin above the LDPC code_rate that MI needs to clear for good BLER (e.g. MCS2 code_rate=0.30 -> target=0.50 at default). Printed live per-block ('[MI HEALTHY/LOW ...]') and saved as mi_target in the *_mi.csv
 llr_nll_mode: 'none'  # 'none' (show BER on plot), 'consistent' (NLL with σ²=2μ), 'fitted' (NLL with free σ²), 'both'
-training_loss: 'bce'  # 'bce', gfmi', 'tent', 'tsyn'
+pretrain_loss: 'bce'  # evaluate.py's own pilot-training loss only - 'bce', 'gfmi', 'tent', 'tsyn'. ekf.py derives its own internal loss choice from weights_track_mode instead (see its docstring); this key has no effect there.
 beta_balance: 0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
 tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
 tsyn_fallback_iters: 1 # tsyn only: number of erasure-peeling rounds for punctured bits in fallback mode. 0 = restricted mode (no fallback), 1 = today's single-pass behavior, >1 = iterate
@@ -108,8 +108,8 @@ escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []  # ekf.py only, diagnostic: zero LMMSE's LLRs at these RE indices (e.g. [0] to test the suspected RE0/DC anomaly - see plot_channel_diag.py) before LDPC decode and before they're used as the AUGMENT_LMMSE prior for ESCNN. [] = no-op (default).
 slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
-weights_track_mode: 'ekf'  # ekf.py only: 'ekf' (unsupervised EKF) or 'sgd' (training_loss='tsyn' trains directly on the group's own scored data slots; any other loss trains on a separate calib_slots_per_group region instead - see ekf.py docstring).
-calib_slots_per_group: 1  # Calibration slots per group. 'sgd' mode only, and only when training_loss != 'tsyn' (that loss trains directly on the scored data instead - see ekf.py docstring).
+weights_track_mode: 'ekf'  # ekf.py only - single knob for the whole training mode (no separate training_loss for ekf.py - see its docstring): 'ekf' (unsupervised syndrome EKF), 'sgd_syn' (blind tsyn loss, trains directly on the group's own scored data slots, no held-out validation), 'sgd_bce' (practical: BCE on the group's own embedded DMRS pilots, no calib region, no held-out validation), 'sgd_bcei' (BCE on a separate calib_slots_per_group region, with its own held-out validation - the old ground-truth upper-bound baseline).
+calib_slots_per_group: 1  # Calibration slots per group. 'sgd_bcei' mode only (see weights_track_mode) - ignored by every other mode.
 
 # general
 seed: 0 # run seed

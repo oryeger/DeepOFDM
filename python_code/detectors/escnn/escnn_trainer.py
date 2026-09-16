@@ -45,9 +45,17 @@ class ESCNNTrainer(Trainer):
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str, network_id: str = "",
-                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT) -> list[float]:
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None) -> list[float]:
         """
         Trains a ESCNN Network and returns the total training loss.
+
+        real_bit_idx: when given, an iterable of bit-channel indices (0..num_bits-1) - only
+        these are included in the loss, uniformly across every symbol and RE (unlike the
+        make_64QAM_16QAM_percentage mask below, which varies by symbol but never restricts by
+        RE). ekf.py's weights_track_mode='sgd_bce' passes relevant_indices(qm, qm/2) here: DMRS
+        is always QPSK regardless of qm (module docstring), so only 2 of a wider network's qm
+        bit channels ever have a real label - see _build_dmrs_bce_training_data. None (default,
+        every other caller) means no extra restriction.
 
         payload_symbols_per_slot: unit (in rx_prob rows) tsyn's slot-alignment/codeword-window
         logic treats as one slot - defaults to a full NUM_SYMB_PER_SLOT (evaluate.py's own pilot
@@ -60,13 +68,16 @@ class ESCNNTrainer(Trainer):
         evaluate.py never passes this argument, so that stays exactly as conf says for every one
         of its calls.
 
-        Separately, when this is also a 'tsyn' call (conf.training_loss - the only loss ekf.py
-        ever trains directly on the group's own scored data with, rather than a separate calib
-        region - see ekf.py's module docstring), the train/val split (TRAIN_PERCENTAGE) is
-        skipped entirely too: training runs directly on a group's own scored data, with no
-        held-out portion to validate against. ekf.py's calib-region calls (any other loss) keep
-        the normal split - that's a real supervised fit with genuine unseen data to validate
-        against.
+        Separately, for ekf.py's weights_track_mode in ('sgd_syn', 'sgd_bce') - its two
+        calib-region-free modes, which train directly on the group's own scored data or DMRS
+        pilots respectively rather than a separate calib region (see ekf.py's module docstring)
+        - the train/val split (TRAIN_PERCENTAGE) is skipped entirely too: there's no held-out
+        portion to validate against when training runs on exactly what gets scored right
+        afterward. ekf.py's weights_track_mode='sgd_bcei' (a separate calib region) keeps the
+        normal split - that's a real supervised fit with genuine unseen data to validate
+        against. sgd_syn is identified via conf.training_loss=='tsyn' (the only mode that sets
+        it); sgd_bce sets conf.training_loss='bce' too (same as sgd_bcei), so it's identified by
+        reading conf.weights_track_mode directly instead.
         """
         single_model = single_model.to(DEVICE)
 
@@ -87,17 +98,27 @@ class ESCNNTrainer(Trainer):
             bit_mask = pilot_third_bit_mask(tx_reshaped.shape[0], num_bits)
             loss_mask = bit_mask.unsqueeze(-1).expand_as(tx_reshaped)
 
+        # Uniform bit-channel restriction (e.g. ekf.py's sgd_bce: only 2 of qm bits are ever
+        # real for QPSK-only DMRS) - ANDed with whatever the 64QAM-thirds mask above already set.
+        if real_bit_idx is not None:
+            real_bit_mask = torch.zeros(num_bits, dtype=torch.bool)
+            real_bit_mask[list(real_bit_idx)] = True
+            loss_mask = loss_mask & real_bit_mask.view(1, num_bits, 1)
+
         # tsyn: codeword windows start at symbol 0, so every region the loss
         # sees must begin on a slot boundary (payload_symbols_per_slot rows).
         _slot_align = (getattr(conf, 'training_loss', 'bce') == 'tsyn')
 
         # A non-default payload_symbols_per_slot only ever comes from ekf.py's DMRS-stripped
         # streaming calls (evaluate.py always leaves it at NUM_SYMB_PER_SLOT) - see this
-        # method's docstring for why that means: no primary-detector cut always, and (only when
-        # also training_loss='tsyn' - ekf.py's data-direct branch, not its calib-region one) no
-        # val split either.
+        # method's docstring for why that means: no primary-detector cut always, and (only for
+        # ekf.py's weights_track_mode in ('sgd_syn', 'sgd_bce') - its two calib-region-free
+        # modes, trained directly on the group's own scored data/DMRS pilots respectively) no
+        # val split either. Both sgd_syn and sgd_bce set conf.training_loss to 'tsyn'/'bce'
+        # respectively (see ekf.py's main()), so training_loss alone can't tell sgd_bce apart
+        # from sgd_bcei (both 'bce') - hence reading weights_track_mode directly here too.
         _ekf_style = (payload_symbols_per_slot != NUM_SYMB_PER_SLOT)
-        _no_val_split = _ekf_style and _slot_align
+        _no_val_split = _ekf_style and (_slot_align or getattr(conf, 'weights_track_mode', 'ekf') == 'sgd_bce')
 
         # Restrict to primary detector's validation portion only
         _primary_val_only = False if _ekf_style else getattr(conf, 'escnn_use_primary_val_only', False)
@@ -340,7 +361,7 @@ class ESCNNTrainer(Trainer):
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str,
-                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
         """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
         list per UE (each UE has its own network, so its own loss history)."""
         train_loss_vect_users = [None] * n_users
@@ -348,7 +369,8 @@ class ESCNNTrainer(Trainer):
         for user in range(n_users):
             net_id = f"u={user} it={i}"
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id,
-                                                                  payload_symbols_per_slot=payload_symbols_per_slot)
+                                                                  payload_symbols_per_slot=payload_symbols_per_slot,
+                                                                  real_bit_idx=real_bit_idx)
             train_loss_vect_users[user] = train_loss_vect
             val_loss_vect_users[user] = val_loss_vect
         return train_loss_vect_users , val_loss_vect_users
@@ -357,15 +379,14 @@ class ESCNNTrainer(Trainer):
 
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base",
-                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
+                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
         """
         Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
 
-        payload_symbols_per_slot is passed straight through to _train_model (see its docstring,
-        including why a non-default value there also disables the primary-detector cut and the
-        train/val split) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
-        callers override it explicitly.
+        payload_symbols_per_slot/real_bit_idx are passed straight through to _train_model (see
+        its docstring) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
+        callers override them explicitly.
         """
 
         if conf.which_augment == 'NO_AUGMENT':
@@ -380,7 +401,8 @@ class ESCNNTrainer(Trainer):
         print(f"[TEMP DEBUG] tx_all[u] identical to tx_all[0] for u=1..{n_users-1}: {_labels_identical}", flush=True)
         # ---- END TEMP DEBUG ----
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
-                                                              payload_symbols_per_slot=payload_symbols_per_slot)
+                                                              payload_symbols_per_slot=payload_symbols_per_slot,
+                                                              real_bit_idx=real_bit_idx)
         # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
         _final_losses = [round(v[-1], 8) if v else None for v in train_loss_vect]
         _vect_identical = [train_loss_vect[u] == train_loss_vect[0] for u in range(1, n_users)]
@@ -399,7 +421,8 @@ class ESCNNTrainer(Trainer):
             probs_vec, llrs_mat = self._calculate_posteriors(self.detector, i, rx_real.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits,n_users, 0)
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
-                                                                 payload_symbols_per_slot=payload_symbols_per_slot)
+                                                                 payload_symbols_per_slot=payload_symbols_per_slot,
+                                                                 real_bit_idx=real_bit_idx)
             if SHOW_ALL_ITERATIONS:
                 for user in range(n_users):
                     train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]

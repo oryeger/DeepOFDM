@@ -9,7 +9,7 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=slowds  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=impract  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
@@ -17,7 +17,7 @@ seeds=(123)
 snrs=($(seq -10 30))
 cfos=(0)
 cfo_drift_vals=(0)
-speed_vals=(1 2 5)
+speed_vals=(10)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -30,14 +30,14 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100)
+epochs_vals=(1 100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
 learning_rate_vals=(5.0e-3)
 
 escnn_load_freeze_vals=(
- 'all'
+# 'all'
  'first_conv_and_scale_only'
 # 'none'
 )
@@ -60,7 +60,9 @@ channel_drift_base_index_vals=(0)
 # ekf.py only
 weights_track_mode_vals=(
   'ekf'
-#  'sgd'
+  'sgdsyn'
+  'sgdbce'
+  'sgdbcei'
 )
 calib_slots_per_group_vals=(1)
 
@@ -70,7 +72,7 @@ spatial_correlation_vals=('low')
 batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_DEEPSIC'
+  'AUGMENT_LMMSE'
 )
 
 channel_model_vals=('C')
@@ -78,7 +80,7 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(40000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(2 5)
+mcs_vals=(4 7)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -146,14 +148,8 @@ for seed in "${seeds[@]}"; do
                             ktag="k${kernel_size}"
 
                             for pilot_size in "${pilot_size_vals[@]}"; do
-                              if [[ "$pilot_size" -eq 1000 ]]; then
-                                ptag="p1k"
-                              elif [[ "$pilot_size" -eq 5000 ]]; then
-                                ptag="p5k"
-                              elif [[ "$pilot_size" -eq 10000 ]]; then
-                                ptag="p10k"
-                              elif [[ "$pilot_size" -eq 20000 ]]; then
-                                ptag="p20k"
+                              if [[ "$pilot_size" -ne 0 && $((pilot_size % 1000)) -eq 0 ]]; then
+                                ptag="p$((pilot_size / 1000))k"
                               else
                                 ptag="p${pilot_size}"
                               fi
@@ -223,7 +219,7 @@ for seed in "${seeds[@]}"; do
                                                         scale_only)     freeze_tag="frscaleo" ;;
                                                         last_conv_only) freeze_tag="frfc3o" ;;
                                                         first_conv_only) freeze_tag="frfc1o" ;;
-                                                        first_conv_and_scale_only) freeze_tag="frfc1so" ;;
+                                                        first_conv_and_scale_only) freeze_tag="frf" ;;
                                                         *)
                                                           echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                           exit 1
@@ -386,6 +382,7 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 
 

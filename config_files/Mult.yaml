@@ -107,7 +107,7 @@ escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []
 slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
-weights_track_mode: 'ekf' # 'ekf', 'sgdsyn', 'sgdbce', 'sgdbcei'
+weights_track_mode: 'ekf' # 'ekf', 'sgd_syn', 'sgd_bce', 'sgd_bcei'
 calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
 
 
@@ -125,4 +125,5 @@ log_sphere_every_symbols: 5000
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+
 

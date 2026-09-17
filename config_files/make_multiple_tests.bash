@@ -9,15 +9,15 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=ekfsgd  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=slowds  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
 snrs=($(seq -10 30))
 cfos=(0)
-cfo_drift_vals=(0.0)
-speed_vals=(0)
+cfo_drift_vals=(0)
+speed_vals=(1 2 5)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -42,7 +42,7 @@ escnn_load_freeze_vals=(
 # 'none'
 )
 
-training_loss_vals=(
+pretrain_loss_vals=(
   'bce'
 )
 
@@ -60,9 +60,9 @@ channel_drift_base_index_vals=(0)
 # ekf.py only
 weights_track_mode_vals=(
   'ekf'
-  'sgd'
+#  'sgd'
 )
-calib_slots_per_group_vals=(1 10 100)
+calib_slots_per_group_vals=(1)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -70,15 +70,15 @@ spatial_correlation_vals=('low')
 batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_LMMSE'
+  'AUGMENT_DEEPSIC'
 )
 
 channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(2)
+pilot_size_vals=(40000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+mcs_vals=(2 5)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -230,14 +230,14 @@ for seed in "${seeds[@]}"; do
                                                           ;;
                                                       esac
 
-                                                      for training_loss in "${training_loss_vals[@]}"; do
-                                                        case "$training_loss" in
+                                                      for pretrain_loss in "${pretrain_loss_vals[@]}"; do
+                                                        case "$pretrain_loss" in
                                                           gfmi) tltag="tlgf" ;;
                                                           bce)  tltag="tlbce" ;;
                                                           tent) tltag="tltent" ;;
                                                           tsyn) tltag="tltsyn" ;;
                                                           *)
-                                                            echo "ERROR: Unknown training_loss: $training_loss" >&2
+                                                            echo "ERROR: Unknown pretrain_loss: $pretrain_loss" >&2
                                                             exit 1
                                                             ;;
                                                         esac
@@ -301,7 +301,7 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^escnn_weight_decay:.*/escnn_weight_decay: $escnn_weight_decay/" \
                                                                           -e "s/^learning_rate:.*/learning_rate: $learning_rate/" \
                                                                           -e "s/^escnn_load_freeze:.*/escnn_load_freeze: '$escnn_load_freeze'/" \
-                                                                          -e "s/^training_loss:.*/training_loss: '$training_loss'/" \
+                                                                          -e "s/^pretrain_loss:.*/pretrain_loss: '$pretrain_loss'/" \
                                                                           -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                                           -e "s/^tw:.*/tw: $tw/" \
                                                                           -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
@@ -323,7 +323,7 @@ for seed in "${seeds[@]}"; do
                                                             done  # tsyn_fallback_iters
                                                           done  # tw
                                                         done  # beta_balance
-                                                      done  # training_loss
+                                                      done  # pretrain_loss
                                                     done
                                                   done
                                                 done
@@ -386,6 +386,7 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 
 

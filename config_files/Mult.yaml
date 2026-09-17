@@ -107,7 +107,7 @@ escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []
 slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
-weights_track_mode: 'ekf' # 'ekf', 'sgd_syn', 'sgd_bce', 'sgd_bcei'
+weights_track_mode: 'ekf' # 'ekf', 'sgdsyn', 'sgdbce', 'sgdbcei'
 calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
 
 

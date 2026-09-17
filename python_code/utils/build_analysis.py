@@ -119,21 +119,6 @@ def display_tokens(k, toks):
         return [t for t in toks if not t.startswith("tw=")]
     return toks
 
-def tw_note(k):
-    """Explanatory note for the tw value found anywhere in the config key `k`.
-    Suppressed when tw has no effect on the run (see _tw_has_no_effect)."""
-    if _tw_has_no_effect(k):
-        return ""
-    m = re.search(r"(^|_)tw=([^_]+)(_|$)", k)
-    if m:
-        v = m.group(2)
-        if v in ("0.0", "0"):
-            return " &mdash; syndrome"
-        if v in ("1.0", "1"):
-            return " &mdash; tent"
-        return f" &mdash; combined: {v}&middot;tent + {round(1-float(v), 2)}&middot;syndrome"
-    return ""
-
 def _rotate_out_dir(tag):
     """The newest build always lands at ANALYSIS/<tag> (no suffix). If that's taken, it - and
     any older ANALYSIS/<tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2,
@@ -216,7 +201,6 @@ def build(tag):
         short = SAFE("_".join(diffs[k]))
         label = " | ".join(display_tokens(k, diffs[k]))
         pattern = f"*_{k}_s=*_SNR=*.csv"
-        note = tw_note(k)
         print("=" * 70); print(f"[{label}]  {pattern}")
         has_ue_curve = False
         ue_indices = []
@@ -245,7 +229,7 @@ def build(tag):
         except Exception as e:
             print(f"  [FAIL] {e}"); failed.append((label, str(e)))
         plt.close("all")
-        html.append(f"<h3>{label}{note}</h3><p class='params'>{k}</p>"
+        html.append(f"<h3>{label}</h3><p class='params'>{k}</p>"
                     f"<img class='curve' src='curve_{short}.png'>")
         if has_ue_curve:
             html.append(f"<img class='curve' src='curve_{short}_peruser.png'>")
@@ -276,7 +260,7 @@ def build(tag):
     for k in keys:
         short = SAFE("_".join(diffs[k]))
         label = " | ".join(display_tokens(k, diffs[k]))
-        html.append(f"<h3>{label}{tw_note(k)}</h3><p class='params'>{k}</p>")
+        html.append(f"<h3>{label}</h3><p class='params'>{k}</p>")
         snrs_avail = jpg_snrs(k)
         if not snrs_avail:
             html.append("<p class='params'>no histogram jpgs found for this configuration</p>")

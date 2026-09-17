@@ -392,7 +392,7 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     regardless of which SNR a model was trained at).
     """
     _cdi = getattr(conf, 'channel_drift_base_index', 0)
-    title_string = (chan_text + f'_sp={conf.speed}_cdi={_cdi}' + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #REs=" + str(
+    title_string = (chan_text + f'_sp={conf.speed}_cdi={_cdi}' + ', ' + mod_text + ', #TRN=' + str(train_samples) + ", #RE=" + str(
         conf.num_res) + ', #UEs=' + str(n_users) + '\n ' +
                     'cfo=' + str(conf.cfo) + ' scs' + ', Ep=' + str(epochs) + ', it=' + str(
                 iterations) + ', kr=' + str(conf.kernel_size) + ', Clp=' + str(
@@ -406,7 +406,7 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
     title_string = title_string.replace("ONV_True", "ONV_1")
     corr_map = {'none': 'No', 'low': 'Lo', 'medium': 'Med', 'medium_a': 'MedA', 'high': 'Hi', 'custom': 'Cust'}
     title_string = title_string + '_C=' + corr_map.get(corr_level, 'No')
-    title_string = title_string + '_#ant=' + str(conf.n_ants)
+    title_string = title_string + '_#an=' + str(conf.n_ants)
     title_string = title_string + '_' + AUGMENT_SHORT_MAP.get(conf.which_augment, conf.which_augment)
     if conf.mcs > -1:
         title_string = title_string + f'_R={code_rate:.2f}'
@@ -481,13 +481,14 @@ def resolve_auto_escnn_weights_tag():
     if this check is ever removed.
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
-    which_augment written raw vs mapped to its short code), so this matches on the handful of
-    tag=value substrings that have stayed stable across every observed format (the leading
-    channel-model text, #UEs=, #REs=, _s=<seed>_SNR=, the augment token, and _iqg=/_iqp=) rather
-    than reconstructing the exact current filename suffix and requiring an exact match. A
-    filename missing _iqg=/_iqp= (saved before this field existed) never matches - rename such
-    files to include the tags for the gain/phase they were actually trained at if they should
-    still be auto-discoverable.
+    which_augment written raw vs mapped to its short code, #REs=/_#ant= shortened to #RE=/_#an=),
+    so this matches on the handful of tag=value substrings that have stayed stable across every
+    observed format (the leading channel-model text, #UEs=, #REs?=, _s=<seed>_SNR=, the augment
+    token, and _iqg=/_iqp=; the RE/ant patterns use an optional trailing letter so both the old
+    and current spelling match) rather than reconstructing the exact current filename suffix and
+    requiring an exact match. A filename missing _iqg=/_iqp= (saved before this field existed)
+    never matches - rename such files to include the tags for the gain/phase they were actually
+    trained at if they should still be auto-discoverable.
 
     Must be called after conf.reload_config() and before anything reads
     conf.load_escnn_weights_tag (in particular before ESCNNTrainer/ESCNN network construction,
@@ -544,9 +545,9 @@ def resolve_auto_escnn_weights_tag():
         if not chan_ok(name):
             continue
         n_users_m = re.search(r'#UEs=(\d+)', name)
-        num_res_m = re.search(r'#REs=(\d+)', name)
+        num_res_m = re.search(r'#REs?=(\d+)', name)
         seed_m = re.search(r'_s=(\d+)_SNR=', name)
-        n_ants_m = re.search(r'_#ant=(\d+)', name)
+        n_ants_m = re.search(r'_#ant?=(\d+)', name)
         if not (n_users_m and num_res_m and seed_m and n_ants_m):
             continue
         if int(n_users_m.group(1)) != conf.n_users:
@@ -2495,7 +2496,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                      code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
         freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
                         'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
-                        'first_conv_and_scale_only': 'fc1sco', 'all': 'a'}
+                        'first_conv_and_scale_only': 'f', 'all': 'a'}
         if conf.load_escnn_weights_tag:
             title_string = title_string + '_r=' + conf.load_escnn_weights_tag
         title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)

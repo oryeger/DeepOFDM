@@ -52,7 +52,7 @@ class ESCNNTrainer(Trainer):
         real_bit_idx: when given, an iterable of bit-channel indices (0..num_bits-1) - only
         these are included in the loss, uniformly across every symbol and RE (unlike the
         make_64QAM_16QAM_percentage mask below, which varies by symbol but never restricts by
-        RE). ekf.py's weights_track_mode='sgd_bce' passes relevant_indices(qm, qm/2) here: DMRS
+        RE). ekf.py's weights_track_mode='sgdbce' passes relevant_indices(qm, qm/2) here: DMRS
         is always QPSK regardless of qm (module docstring), so only 2 of a wider network's qm
         bit channels ever have a real label - see _build_dmrs_bce_training_data. None (default,
         every other caller) means no extra restriction.
@@ -68,15 +68,15 @@ class ESCNNTrainer(Trainer):
         evaluate.py never passes this argument, so that stays exactly as conf says for every one
         of its calls.
 
-        Separately, for ekf.py's weights_track_mode in ('sgd_syn', 'sgd_bce') - its two
+        Separately, for ekf.py's weights_track_mode in ('sgdsyn', 'sgdbce') - its two
         calib-region-free modes, which train directly on the group's own scored data or DMRS
         pilots respectively rather than a separate calib region (see ekf.py's module docstring)
         - the train/val split (TRAIN_PERCENTAGE) is skipped entirely too: there's no held-out
         portion to validate against when training runs on exactly what gets scored right
-        afterward. ekf.py's weights_track_mode='sgd_bcei' (a separate calib region) keeps the
+        afterward. ekf.py's weights_track_mode='sgdbcei' (a separate calib region) keeps the
         normal split - that's a real supervised fit with genuine unseen data to validate
-        against. sgd_syn is identified via conf.training_loss=='tsyn' (the only mode that sets
-        it); sgd_bce sets conf.training_loss='bce' too (same as sgd_bcei), so it's identified by
+        against. sgdsyn is identified via conf.training_loss=='tsyn' (the only mode that sets
+        it); sgdbce sets conf.training_loss='bce' too (same as sgdbcei), so it's identified by
         reading conf.weights_track_mode directly instead.
         """
         single_model = single_model.to(DEVICE)
@@ -98,7 +98,7 @@ class ESCNNTrainer(Trainer):
             bit_mask = pilot_third_bit_mask(tx_reshaped.shape[0], num_bits)
             loss_mask = bit_mask.unsqueeze(-1).expand_as(tx_reshaped)
 
-        # Uniform bit-channel restriction (e.g. ekf.py's sgd_bce: only 2 of qm bits are ever
+        # Uniform bit-channel restriction (e.g. ekf.py's sgdbce: only 2 of qm bits are ever
         # real for QPSK-only DMRS) - ANDed with whatever the 64QAM-thirds mask above already set.
         if real_bit_idx is not None:
             real_bit_mask = torch.zeros(num_bits, dtype=torch.bool)
@@ -112,13 +112,13 @@ class ESCNNTrainer(Trainer):
         # A non-default payload_symbols_per_slot only ever comes from ekf.py's DMRS-stripped
         # streaming calls (evaluate.py always leaves it at NUM_SYMB_PER_SLOT) - see this
         # method's docstring for why that means: no primary-detector cut always, and (only for
-        # ekf.py's weights_track_mode in ('sgd_syn', 'sgd_bce') - its two calib-region-free
+        # ekf.py's weights_track_mode in ('sgdsyn', 'sgdbce') - its two calib-region-free
         # modes, trained directly on the group's own scored data/DMRS pilots respectively) no
-        # val split either. Both sgd_syn and sgd_bce set conf.training_loss to 'tsyn'/'bce'
-        # respectively (see ekf.py's main()), so training_loss alone can't tell sgd_bce apart
-        # from sgd_bcei (both 'bce') - hence reading weights_track_mode directly here too.
+        # val split either. Both sgdsyn and sgdbce set conf.training_loss to 'tsyn'/'bce'
+        # respectively (see ekf.py's main()), so training_loss alone can't tell sgdbce apart
+        # from sgdbcei (both 'bce') - hence reading weights_track_mode directly here too.
         _ekf_style = (payload_symbols_per_slot != NUM_SYMB_PER_SLOT)
-        _no_val_split = _ekf_style and (_slot_align or getattr(conf, 'weights_track_mode', 'ekf') == 'sgd_bce')
+        _no_val_split = _ekf_style and (_slot_align or getattr(conf, 'weights_track_mode', 'ekf') == 'sgdbce')
 
         # Restrict to primary detector's validation portion only
         _primary_val_only = False if _ekf_style else getattr(conf, 'escnn_use_primary_val_only', False)

@@ -82,7 +82,7 @@ HEADER_RE = re.compile(
 # order/set in _build_ekf_filename_suffix changing.
 CSV_WROTE_RE = re.compile(r'\[CSV\]\s+wrote\s+(?P<path>\S+\.csv)')
 
-WEIGHTS_RE = re.compile(r'\[drift\]\s+loaded pretrained weights:.*?#REs=(?P<num_res>\d+)')
+WEIGHTS_RE = re.compile(r'\[drift\]\s+loaded pretrained weights:.*?#REs?=(?P<num_res>\d+)')
 
 # Matches both the tracked path's "(epoch N)" and the static-diagnostic path's "(static)" -
 # see ekf_predict_update()/_log_static_syndrome_stats() in escnn_trainer.py. mean_p is optional
@@ -107,7 +107,7 @@ def parse_drift_log(path: str) -> dict:
     line - plus a 'meta' key holding the run parameters from the log's header line (SNR,
     mcs, base_cfo, cfo_drift, group_size, base_index, num_groups) and, if a
     "[drift] loaded pretrained weights: ..." line is present, num_res (parsed
-    from that checkpoint filename's "#REs=" token - the header line itself
+    from that checkpoint filename's "#RE=" (formerly "#REs=") token - the header line itself
     doesn't carry the RE count), for use in the plot title.
 
     Stateful single pass: tracks the most recent header so a log containing

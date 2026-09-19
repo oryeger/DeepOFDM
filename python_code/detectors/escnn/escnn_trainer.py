@@ -45,18 +45,9 @@ class ESCNNTrainer(Trainer):
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str, network_id: str = "",
-                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None, n_val_rows: int = 0) -> list[float]:
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None) -> list[float]:
         """
         Trains a ESCNN Network and returns the total training loss.
-
-        n_val_rows: when > 0, the caller has already appended exactly this many rows of a
-        genuinely separate, held-out region onto the END of tx/rx_prob (same channel realization,
-        different noise/data draw - see ekf.py's weights_track_mode='sgdbce' val-slot addition,
-        module docstring). Those trailing rows are used as the validation set as-is, bypassing
-        the percentage-based TRAIN_PERCENTAGE split and the _no_val_split gate below entirely -
-        this is what lets early stopping work for a mode that still trains directly on its own
-        scored-region data (unlike sgdbcei's calib region, which validates via the ordinary
-        percentage split of its own separate region instead).
 
         real_bit_idx: when given, an iterable of bit-channel indices (0..num_bits-1) - only
         these are included in the loss, uniformly across every symbol and RE (unlike the
@@ -139,10 +130,8 @@ class ESCNNTrainer(Trainer):
             tx_reshaped = tx_reshaped[primary_train_samples:]
             loss_mask = loss_mask[primary_train_samples:]
 
-        # Shuffle samples before train/val split to decorrelate from augmenter's own split - never
-        # when n_val_rows is set, since that would scramble which trailing rows are the caller's
-        # genuinely held-out region.
-        if n_val_rows == 0 and getattr(conf, 'shuffle_augment_priors', False):
+        # Shuffle samples before train/val split to decorrelate from augmenter's own split
+        if getattr(conf, 'shuffle_augment_priors', False):
             aug_seed = getattr(conf, 'shuffle_augment_seed', -1)
             generator = torch.Generator().manual_seed(aug_seed) if aug_seed >= 0 else None
             perm = torch.randperm(rx_prob.shape[0], generator=generator)
@@ -150,18 +139,12 @@ class ESCNNTrainer(Trainer):
             tx_reshaped = tx_reshaped[perm]
             loss_mask = loss_mask[perm]
 
-        # Split into train and validation sets. n_val_rows>0 overrides everything below: the
-        # caller already appended a genuinely separate held-out region's rows onto the end (see
-        # this method's n_val_rows docstring) - use exactly those, not a percentage cut. Otherwise
-        # none at all for ekf.py's tsyn/bce data-direct calls (training directly on a group's own
-        # scored data has nothing to hold out - see this method's docstring); ekf.py's calib-region
-        # calls (any other loss) keep the normal percentage split.
-        if n_val_rows > 0:
-            train_samples = rx_prob.shape[0] - n_val_rows
-        else:
-            train_samples = rx_prob.shape[0] if _no_val_split else int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
-            if _slot_align:
-                train_samples -= train_samples % payload_symbols_per_slot
+        # Split into train and validation sets - none at all for ekf.py's tsyn data-direct calls
+        # (training directly on a group's own scored data has nothing to hold out - see this
+        # method's docstring); ekf.py's calib-region calls (any other loss) keep the normal split.
+        train_samples = rx_prob.shape[0] if _no_val_split else int(rx_prob.shape[0] * TRAIN_PERCENTAGE / 100)
+        if _slot_align:
+            train_samples -= train_samples % payload_symbols_per_slot
         rx_prob_train = rx_prob[:train_samples]
         rx_prob_val = rx_prob[train_samples:]
         tx_train = tx_reshaped[:train_samples]
@@ -378,17 +361,16 @@ class ESCNNTrainer(Trainer):
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str,
-                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None, n_val_rows: int = 0):
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
         """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
-        list per UE (each UE has its own network, so its own loss history). n_val_rows: see
-        _train_model's docstring - passed straight through, same value for every user."""
+        list per UE (each UE has its own network, so its own loss history)."""
         train_loss_vect_users = [None] * n_users
         val_loss_vect_users = [None] * n_users
         for user in range(n_users):
             net_id = f"u={user} it={i}"
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id,
                                                                   payload_symbols_per_slot=payload_symbols_per_slot,
-                                                                  real_bit_idx=real_bit_idx, n_val_rows=n_val_rows)
+                                                                  real_bit_idx=real_bit_idx)
             train_loss_vect_users[user] = train_loss_vect
             val_loss_vect_users[user] = val_loss_vect
         return train_loss_vect_users , val_loss_vect_users
@@ -397,17 +379,14 @@ class ESCNNTrainer(Trainer):
 
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base",
-                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None, n_val_rows: int = 0):
+                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
         """
         Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
 
-        payload_symbols_per_slot/real_bit_idx/n_val_rows are passed straight through to
-        _train_model (see its docstring) - defaults reproduce evaluate.py's existing behavior
-        untouched; ekf.py's callers override them explicitly. When n_val_rows>0, tx/rx_real/
-        probs_in must already have that many extra held-out rows appended at the end (same rows
-        for every iteration>1 pass below too, since they all re-slice the same tx/rx_real this
-        call received).
+        payload_symbols_per_slot/real_bit_idx are passed straight through to _train_model (see
+        its docstring) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
+        callers override them explicitly.
         """
 
         if conf.which_augment == 'NO_AUGMENT':
@@ -423,7 +402,7 @@ class ESCNNTrainer(Trainer):
         # ---- END TEMP DEBUG ----
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
                                                               payload_symbols_per_slot=payload_symbols_per_slot,
-                                                              real_bit_idx=real_bit_idx, n_val_rows=n_val_rows)
+                                                              real_bit_idx=real_bit_idx)
         # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
         _final_losses = [round(v[-1], 8) if v else None for v in train_loss_vect]
         _vect_identical = [train_loss_vect[u] == train_loss_vect[0] for u in range(1, n_users)]
@@ -443,7 +422,7 @@ class ESCNNTrainer(Trainer):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
                                                                  payload_symbols_per_slot=payload_symbols_per_slot,
-                                                                 real_bit_idx=real_bit_idx, n_val_rows=n_val_rows)
+                                                                 real_bit_idx=real_bit_idx)
             if SHOW_ALL_ITERATIONS:
                 for user in range(n_users):
                     train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]

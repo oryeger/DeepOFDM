@@ -38,21 +38,14 @@ here - see config.yaml's weights_track_mode comment):
       that same, now-updated network scores that same group). This makes it a
       genuine competitor to 'ekf', seeing exactly what 'ekf' sees and nothing more.
   'sgdbce' - practical BCE, also trained directly on the group's own scored data
-      slots like 'sgdsyn' (no calib region) - but instead of the data slots' own
-      (deployment-unrealistic) genie bits, it trains on the group's own embedded
-      DMRS pilots instead, which genuinely are known without cheating. DMRS is
-      always QPSK regardless of qm, so only 2 of a wider network's qm bit channels
-      ever have a real label; see _build_dmrs_bce_training_data for the full
-      recipe (per-user comb isolation, FD-OCC separation when ports share a comb,
-      nearest-neighbor fill at REs that aren't a given user's own comb, bit
-      masking for qm>2). Unlike 'sgdsyn', it does get a genuine held-out
-      validation region: an extra group_size_slots-sized region (same size as the
-      data region), same channel but its own fresh DMRS/noise draw, built and
-      reduced to DMRS-BCE rows the same way, never trained on - only appended so
-      _train_model can carve it back off as validation (see its n_val_rows
-      docstring). That's what makes early_stopping_patience actually apply here
-      (sgdsyn has no such region, so it always runs every requested epoch - see
-      its own entry above).
+      slots like 'sgdsyn' (no calib region, no held-out validation) - but instead
+      of the data slots' own (deployment-unrealistic) genie bits, it trains on the
+      group's own embedded DMRS pilots instead, which genuinely are known without
+      cheating. DMRS is always QPSK regardless of qm, so only 2 of a wider
+      network's qm bit channels ever have a real label; see
+      _build_dmrs_bce_training_data for the full recipe (per-user comb isolation,
+      FD-OCC separation when ports share a comb, nearest-neighbor fill at REs
+      that aren't a given user's own comb, bit masking for qm>2).
   'sgdbcei' - BCE (or any other supervised loss) trained against a separate
       conf.calib_slots_per_group-sized region's own known, CRC+LDPC-coded payload
       bits (see encode_pilots below) instead - the old ground-truth upper-bound
@@ -122,10 +115,7 @@ Relevant config keys (see config.yaml for the full list/defaults):
                                     region (2-DMRS+12-payload structure, same as the data
                                     region). Not used at all by any other mode. Default 1; raise
                                     well above 1 - a single slot's worth of bits is unlikely to
-                                    move the weights via gradient descent. ('sgdbce' mode also
-                                    always builds its own separate held-out region, sized to
-                                    slots_per_group rather than a dedicated knob - see module
-                                    docstring's 'sgdbce' entry.)
+                                    move the weights via gradient descent.
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
                                     block-based evaluate.py path); 'ekf' mode only
     epochs                        - any sgd_* mode only: epochs of full training per group
@@ -974,11 +964,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     calibration slot in 'ekf' mode any more (see module docstring). weights_track_mode='sgdsyn'
     trains directly on this same group's own scored data (rx_real_t/tx_bits/probs_for_aug);
     'sgdbce' trains on that same group's own embedded DMRS pilots instead (see
-    _build_dmrs_bce_training_data), plus a separate group_size_slots-sized region built the same
-    way purely for held-out validation (never trained on); 'sgdbcei' builds a separate
-    calib_slots-sized region purely as supervised training data (it can't train and be scored on
-    the same bits for a supervised loss), built the exact same DMRS+payload way, with its own CE
-    from its own embedded DMRS - not a whole-slot-known-pilot estimate like before.
+    _build_dmrs_bce_training_data); 'sgdbcei' builds a separate calib_slots-sized region purely
+    as supervised training data (it can't train and be scored on the same bits for a supervised
+    loss), built the exact same DMRS+payload way, with its own CE from its own embedded DMRS -
+    not a whole-slot-known-pilot estimate like before.
 
     qm is the real data modulation (mcs); num_bits_pilot equals qm - DMRS's payload-only region
     needs real coded bits at the network's own bit-width, so the mod_pilot padding path older
@@ -1192,34 +1181,10 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             tx_dmrs_t, rx_dmrs_real_t, probs_dmrs, dmrs_real_bit_idx = _build_dmrs_bce_training_data(
                 data_result['rx_dmrs'], data_content['known_tx'], layout, H_data,
                 n_ants, num_res, n_users, qm, lmmse_noise_var)
-            # Held-out validation: an extra region the same size as the data region
-            # (group_size_slots slots) and same channel h/noise_var (channel_drift_base_index/cfo
-            # are only set once per group, above), but its own fresh DMRS reference values/noise
-            # draw (a separate _generate_region_content rng call) - never trained on, only scored
-            # by _train_model's val pass, so it's a genuine generalization check, unlike a
-            # percentage-split of the data region's own (tiny, 2-occasion-per-slot) DMRS. Built
-            # the same DMRS+payload way as sgdbcei's calib region (the payload half is
-            # generated/transmitted but unused here - simplicity over trimming an
-            # already-negligible extra cost), then reduced to DMRS-BCE rows the same way as the
-            # training data above and appended onto it so _train_model's n_val_rows can carve it
-            # back off as a genuine held-out split (see its docstring).
-            val_content = _generate_region_content(rng, group_size_slots, n_users, num_res, qm,
-                                                     mod_data, layout, codec, crc, ldpc_k, ldpc_n)
-            val_result = _transmit_and_estimate(val_content, n_ants, num_res, n_users, h, noise_var,
-                                                  estimate_noise_var=True)
-            lmmse_noise_var_val = (noise_var if getattr(conf, 'override_noise_var', True)
-                                    else val_result['noise_var_est'])
-            tx_val_t, rx_val_real_t, probs_val, _ = _build_dmrs_bce_training_data(
-                val_result['rx_dmrs'], val_content['known_tx'], layout, val_result['H_est'],
-                n_ants, num_res, n_users, qm, lmmse_noise_var_val)
-            n_val_rows = rx_val_real_t.shape[0]
-            tx_dmrs_t = torch.cat([tx_dmrs_t, tx_val_t], dim=0)
-            rx_dmrs_real_t = torch.cat([rx_dmrs_real_t, rx_val_real_t], dim=0)
-            probs_dmrs = torch.cat([probs_dmrs, probs_val], dim=0)
             escnn_trainer._online_training(tx_dmrs_t, rx_dmrs_real_t, num_bits_pilot, n_users,
                                             conf.iterations, conf.epochs, False, probs_dmrs,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
-                                            real_bit_idx=dmrs_real_bit_idx, n_val_rows=n_val_rows)
+                                            real_bit_idx=dmrs_real_bit_idx)
         else:  # 'sgdbcei'
             # Supervised loss - can't train on the same bits it's about to be scored against, so
             # build a separate calib_slots-sized region, the same DMRS+payload way as the scored

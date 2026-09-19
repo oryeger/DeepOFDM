@@ -819,11 +819,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             all_tag_matches = glob.glob(os.path.join(weights_load_dir, f'*_{conf.load_escnn_weights_tag}.pt'))
             if not all_tag_matches:
                 raise FileNotFoundError(f"No saved ESCNN weights found for tag '{conf.load_escnn_weights_tag}' in {weights_load_dir}")
-            snr_override = getattr(conf, 'load_escnn_weights_snr_override', -1)
-            snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', -1)
-            if snr_override >= 0:
+            snr_override = getattr(conf, 'load_escnn_weights_snr_override', None)
+            snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', None)
+            if snr_override is not None:
                 desired_snr = snr_override
-            elif snr_max_override >= 0:
+            elif snr_max_override is not None:
                 desired_snr = min(conf.snr, snr_max_override)
             else:
                 desired_snr = conf.snr

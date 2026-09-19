@@ -9,7 +9,7 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=impract  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=t2x2lim  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
@@ -30,7 +30,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(1 100)
+epochs_vals=(1)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -39,7 +39,7 @@ learning_rate_vals=(5.0e-3)
 escnn_load_freeze_vals=(
 # 'all'
  'first_conv_and_scale_only'
-# 'none'
+ 'none'
 )
 
 pretrain_loss_vals=(
@@ -65,6 +65,7 @@ weights_track_mode_vals=(
   'sgdbcei'
 )
 calib_slots_per_group_vals=(1)
+load_escnn_weights_snr_max_override_vals=('null' 5)  # 'null' = disabled (not -1: negative SNRs are valid cap values)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -80,12 +81,12 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(40000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(4 7)
+mcs_vals=(2)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(1)
-n_ants_vals=(1)
+n_users_vals=(2)
+n_ants_vals=(4)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
@@ -148,8 +149,14 @@ for seed in "${seeds[@]}"; do
                             ktag="k${kernel_size}"
 
                             for pilot_size in "${pilot_size_vals[@]}"; do
-                              if [[ "$pilot_size" -ne 0 && $((pilot_size % 1000)) -eq 0 ]]; then
-                                ptag="p$((pilot_size / 1000))k"
+                              if [[ "$pilot_size" -eq 1000 ]]; then
+                                ptag="p1k"
+                              elif [[ "$pilot_size" -eq 5000 ]]; then
+                                ptag="p5k"
+                              elif [[ "$pilot_size" -eq 10000 ]]; then
+                                ptag="p10k"
+                              elif [[ "$pilot_size" -eq 20000 ]]; then
+                                ptag="p20k"
                               else
                                 ptag="p${pilot_size}"
                               fi
@@ -219,7 +226,7 @@ for seed in "${seeds[@]}"; do
                                                         scale_only)     freeze_tag="frscaleo" ;;
                                                         last_conv_only) freeze_tag="frfc3o" ;;
                                                         first_conv_only) freeze_tag="frfc1o" ;;
-                                                        first_conv_and_scale_only) freeze_tag="frf" ;;
+                                                        first_conv_and_scale_only) freeze_tag="frfc1so" ;;
                                                         *)
                                                           echo "ERROR: Unknown escnn_load_freeze: $escnn_load_freeze" >&2
                                                           exit 1
@@ -262,9 +269,12 @@ for seed in "${seeds[@]}"; do
                                                                       for calib_slots_per_group in "${calib_slots_per_group_vals[@]}"; do
                                                                         csgtag="csg${calib_slots_per_group}"
 
+                                                                        for snr_max_ov in "${load_escnn_weights_snr_max_override_vals[@]}"; do
+                                                                          smxtag="smx${snr_max_ov}"
+
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_${smxtag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
                                                                           -e "s/^channel_seed:.*/channel_seed: $seed/" \
@@ -306,11 +316,13 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
                                                                           -e "s/^weights_track_mode:.*/weights_track_mode: '$weights_track_mode'/" \
                                                                           -e "s/^calib_slots_per_group:.*/calib_slots_per_group: $calib_slots_per_group/" \
+                                                                          -e "s/^load_escnn_weights_snr_max_override:.*/load_escnn_weights_snr_max_override: $snr_max_ov/" \
                                                                           "$input_file" > "$out_file"
 
                                                                       all_config_files+=("$out_file")
                                                                       ((total_count++))
                                                                         done  # snr
+                                                                        done  # snr_max_ov
                                                                       done  # calib_slots_per_group
                                                                     done  # weights_track_mode
                                                                   done  # channel_drift_base_index

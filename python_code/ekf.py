@@ -249,6 +249,9 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
         title_string += f'_R={code_rate:.2f}'
     if conf.load_escnn_weights_tag:
         title_string += '_r=' + conf.load_escnn_weights_tag
+    _snr_max_ov = getattr(conf, 'load_escnn_weights_snr_max_override', None)
+    if _snr_max_ov is not None:
+        title_string += '_mx=' + str(_snr_max_ov)
     which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
     title_string += '_aug=' + AUGMENT_SHORT_MAP.get(which_augment, which_augment)
     title_string += '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
@@ -328,11 +331,11 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
     if not all_tag_matches:
         raise FileNotFoundError(f"No saved ESCNN weights found for tag "
                                  f"'{conf.load_escnn_weights_tag}' in {weights_load_dir}")
-    snr_override = getattr(conf, 'load_escnn_weights_snr_override', -1)
-    snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', -1)
-    if snr_override >= 0:
+    snr_override = getattr(conf, 'load_escnn_weights_snr_override', None)
+    snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', None)
+    if snr_override is not None:
         desired_snr = snr_override
-    elif snr_max_override >= 0:
+    elif snr_max_override is not None:
         desired_snr = min(conf.snr, snr_max_override)
     else:
         desired_snr = conf.snr

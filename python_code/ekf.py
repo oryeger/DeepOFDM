@@ -329,7 +329,13 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
         raise FileNotFoundError(f"No saved ESCNN weights found for tag "
                                  f"'{conf.load_escnn_weights_tag}' in {weights_load_dir}")
     snr_override = getattr(conf, 'load_escnn_weights_snr_override', -1)
-    desired_snr = snr_override if snr_override >= 0 else conf.snr
+    snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', -1)
+    if snr_override >= 0:
+        desired_snr = snr_override
+    elif snr_max_override >= 0:
+        desired_snr = min(conf.snr, snr_max_override)
+    else:
+        desired_snr = conf.snr
     weights_matches = [p for p in all_tag_matches if f'_SNR={desired_snr}_' in os.path.basename(p)]
     if not weights_matches:
         available_snrs = sorted({os.path.basename(p).split('_SNR=')[1].split('_')[0]

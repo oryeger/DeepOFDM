@@ -65,7 +65,10 @@ weights_track_mode_vals=(
   'sgdbcei'
 )
 calib_slots_per_group_vals=(1)
-load_escnn_weights_snr_max_override_vals=('null' 5)  # 'null' = disabled (not -1: negative SNRs are valid cap values)
+load_escnn_weights_snr_max_override_vals=(
+  'null'  # disabled (not -1: negative SNRs are valid cap values)
+  5
+)
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')

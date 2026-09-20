@@ -92,7 +92,62 @@ def differing_tokens(keys):
         return {keys[0]: ["config"]}
     return {k: [tok for name, tok in parsed[k] if name in diff_names] for k in keys}
 
-SAFE = lambda s: re.sub(r"[^A-Za-z0-9=.,\-]", "", s)
+SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
+
+# Token names that are intrinsic to the tracking mode itself (ekf.py only
+# emits csg/ep/loss/tw for specific track_modes; lr is always emitted right
+# after trk) rather than independent sweep axes -- see ekf.py's
+# get_escnn_title_string, ~line 272-282.
+TRK_FAMILY = {"trk", "csg", "lr", "ep", "loss", "tw"}
+
+def mat_target(tag, k, diffs_k, short, aug_type):
+    """Where plot_csvs() should save this config's .mat file(s).
+
+    Configs without a trk= token are left alone entirely (returns (None, None,
+    None) so plot_csvs() falls through to its own default:
+    CSV_DIR/mat_files/<aug_type>.mat) -- untouched, so anything depending on
+    that path (e.g. master_plot_mi_bler.m's algorithm-comparison workflow)
+    keeps working exactly as before, bugs and all.
+
+    Configs with a trk= token are bucketed into a shared subfolder per
+    *non-trk-family* config (so an ekf/sgdbce/sgdbcei/sgdsyn/notrack sweep of
+    the same underlying config lands together even though e.g. sgdbcei alone
+    carries an extra csg= token), with each trk mode saved as
+    <aug_type>_<weights_track_mode>.mat (e.g. 'lmmse_sgdbcei.mat', not the
+    full 'trk=sgdbceicsg=1lr=5e-3ep=1loss=bce.mat') -- ready for a
+    trk-comparison plot to glob that one folder. This is a new axis (trk
+    sweeps didn't have a working save path before -- every config would
+    overwrite the same mat_files/lmmse.mat), so nothing existing depends on
+    it yet.
+
+    aug_type comes from plot_multiple_csvs.detect_aug_type(k) (the same
+    which_augment detection plot_csvs() itself uses for the legacy path, kept
+    as one source of truth) so trk sweeps across different augment types
+    don't collide even when 'aug=' isn't itself a differing token in this
+    build.
+
+    NOTE: two configs in the same non-trk-family bucket that share both
+    aug_type and trk mode but differ only in one of csg/lr/ep/loss/tw (e.g. a
+    learning-rate sweep at fixed trk=sgdbce) WILL still collide and overwrite
+    -- build() checks for and warns about this (see `seen_mat_targets`
+    below); it does not happen for any config in the repo today.
+
+    Also returns a clean trk_mode label ('ekf', 'sgdbcei', ...) for
+    mat_extra, stored as S.trk_mode inside the .mat itself so a MATLAB reader
+    always has it available even where it's not the filename.
+
+    Returns: (mat_dir, mat_name, trk_mode) -- all None for a config with no
+    trk= token.
+    """
+    pairs = _split_key_tokens(k)
+    trk_toks = [tok for name, tok in pairs if name in TRK_FAMILY]
+    if not trk_toks:
+        return None, None, None
+    rest_toks = [tok for name, tok in pairs if name not in TRK_FAMILY and tok in diffs_k]
+    trk_mode = trk_toks[0].split("=", 1)[1]
+    mat_dir  = os.path.join(SCRATCH, "mat_files", tag, SAFE("_".join(rest_toks)) or "base")
+    mat_name = SAFE(f"{aug_type.lower()}_{trk_mode}")
+    return mat_dir, mat_name, trk_mode
 
 def sort_key(diffs):
     """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5."""
@@ -197,6 +252,7 @@ def build(tag):
 <h1>%s &mdash; Part 1: BLER / MI / %s curves</h1>""" % (tag, tag, third_panel)]
 
     failed, copied = [], 0
+    seen_mat_targets = {}
     for k in keys:
         short = SAFE("_".join(diffs[k]))
         label = " | ".join(display_tokens(k, diffs[k]))
@@ -205,7 +261,20 @@ def build(tag):
         has_ue_curve = False
         ue_indices = []
         try:
-            pmc.plot_csvs(pattern)
+            aug_type = pmc.detect_aug_type(k) or "LMMSE"
+            mat_dir, mat_name, trk_mode = mat_target(tag, k, diffs[k], short, aug_type)
+            mat_extra = {"trk_mode": trk_mode} if trk_mode is not None else None
+            if mat_dir is not None:
+                mat_key = (mat_dir, mat_name)
+                if mat_key in seen_mat_targets:
+                    print(f"  [WARN] mat collision: this config's trk={trk_mode} .mat file "
+                          f"will overwrite the one just written for config [{seen_mat_targets[mat_key]}] "
+                          f"-- they share a trk mode but differ in csg/lr/ep/loss/tw, which the bare "
+                          f"'{mat_name}.mat' filename can't distinguish.")
+                seen_mat_targets[mat_key] = label
+            pmc.plot_csvs(pattern, mat_out_dir=mat_dir, mat_name=mat_name, mat_extra=mat_extra)
+            if mat_dir is not None:
+                print(f"  mat -> {os.path.join(mat_dir, mat_name + '.mat')}  (trk_mode={trk_mode})")
             src = os.path.join(SCRATCH, "plot_output.png")
             if os.path.exists(src):
                 shutil.move(src, os.path.join(out_dir, f"curve_{short}.png"))

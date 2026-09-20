@@ -55,6 +55,27 @@ PRINT_FILL_SUMMARY = True
 # integer SNRs, so tie the two flags together.
 USE_FULL_INTEGER_SNR_GRID = USE_FULL_INTEGER_SNR_GRID or FILL_ALL_MISSING_PER_SEED
 
+# ---- Helper: recover which_augment (LMMSE/SPHERE/DEEPSIC/DEEPRX) from a
+# CSV/mat filename or config key. Matches both the legacy raw form
+# ("AUGMENT_LMMSE", used before AUGMENT_SHORT_MAP was introduced -- see
+# ekf.py/evaluate.py) and today's shortened "aug=aLMMSE" form filenames
+# actually use now. Single source of truth -- also used by build_analysis.py
+# so the two never drift apart the way this regex and AUGMENT_SHORT_MAP did.
+AUG_TOKEN_TO_TYPE = {
+    "AUGMENT_LMMSE": "LMMSE", "aLMMSE": "LMMSE",
+    "AUGMENT_SPHERE": "SPHERE", "aSPHERE": "SPHERE",
+    "AUGMENT_DEEPSIC": "DEEPSIC", "aDEEPSIC": "DEEPSIC",
+    "AUGMENT_DEEPRX": "DEEPRX", "aDEEPRX": "DEEPRX",
+}
+_AUG_RE = re.compile(
+    r"(?:aug=)?(AUGMENT_(?:LMMSE|SPHERE|DEEPSIC|DEEPRX)|aLMMSE|aSPHERE|aDEEPSIC|aDEEPRX)"
+)
+
+def detect_aug_type(text):
+    """Returns 'LMMSE'/'SPHERE'/'DEEPSIC'/'DEEPRX' if found in text, else None."""
+    m = _AUG_RE.search(text or "")
+    return AUG_TOKEN_TO_TYPE[m.group(1)] if m else None
+
 # ---- Helper: build pretty title from a filename (your exact logic) ----
 def build_cleaned_title_from_filename(original_name: str) -> str:
     cleaned_name = re.sub(r"^\d{4}_\d{2}_\d{2}_\d{2}_\d{2}_", "", original_name)
@@ -470,13 +491,23 @@ def _has_nonzero_nll(filenames):
     return False
 
 
-def plot_csvs(filter_pattern=None, plot_all_iters=False):
+def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_name=None, mat_extra=None):
     """
     Plot BER/BLER/MI from CSV files in CSV_DIR.
 
     Args:
         filter_pattern: Optional glob pattern string to select files.
         plot_all_iters: If True, plot all iterations (ESCNN1/2/3 etc.).
+        mat_out_dir: Optional directory to save the .mat file into, overriding
+            the default CSV_DIR/mat_files. Lets callers (e.g. build_analysis)
+            bucket multiple .mat files from the same aug_type into their own
+            subfolder instead of overwriting one shared <aug_type>.mat.
+        mat_name: Optional basename (without ".mat") for the saved file,
+            overriding the default aug_type-derived name.
+        mat_extra: Optional dict of extra fields merged into the saved .mat
+            (e.g. {"trk_mode": "sgdbcei"}) so a consumer (MATLAB) can read a
+            clean label back out instead of re-parsing it from the filename,
+            which build_analysis.py's SAFE() strips underscores from.
     """
     plot_all_escnn = plot_all_iters
 
@@ -1335,8 +1366,9 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
         mi_snrs_arr  = np.array(mi_snrs)  if mi_snrs  is not None else snrs_arr
         bler_target_mat = 0.1
 
-        aug_match = re.search(r"AUGMENT_(LMMSE|SPHERE|DEEPSIC|DEEPRX)", title_source_file or "")
-        aug_type = aug_match.group(1) if aug_match else "LMMSE"
+        _aug_type_detected = detect_aug_type(title_source_file)
+        aug_type = _aug_type_detected or "LMMSE"
+        aug_match = _aug_type_detected is not None
 
         bler_no_aug_map = {
             "LMMSE":   bler_lmmse_arr,
@@ -1422,11 +1454,13 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False):
             "snr_target_no_aug": _snr_target(bler_no_aug_arr),
             "titletext":         build_cleaned_title_from_filename(os.path.basename(title_source_file)) if title_source_file else "",
         }
+        if mat_extra:
+            mat_data.update(mat_extra)
 
-        mat_output_dir = os.path.join(CSV_DIR, "mat_files")
+        mat_output_dir = mat_out_dir or os.path.join(CSV_DIR, "mat_files")
         os.makedirs(mat_output_dir, exist_ok=True)
-        mat_name = aug_type.lower() if aug_match else "results"
-        mat_path = os.path.join(mat_output_dir, mat_name + ".mat")
+        mat_basename = mat_name or (aug_type.lower() if aug_match else "results")
+        mat_path = os.path.join(mat_output_dir, mat_basename + ".mat")
         savemat(mat_path, mat_data)
         print(f"[INFO] Mat file saved to: {mat_path}")
 

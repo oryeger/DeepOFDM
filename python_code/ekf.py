@@ -58,6 +58,12 @@ here - see config.yaml's weights_track_mode comment):
       whole-slot-known-pilot estimate); it does keep its own normal held-out
       validation split, since (unlike the other sgd_* modes) it's a real
       supervised fit with genuine unseen data to validate against.
+  'notrack' - no adaptation at all: runs the loaded checkpoint statically,
+      exactly as any other mode would if escnn_load_freeze were 'all' (see
+      load_pretrained_weights). It overrides escnn_load_freeze to 'all'
+      regardless of that setting - a dedicated static-baseline knob, more
+      convenient than remembering to also flip escnn_load_freeze by hand.
+      Every other mode uses escnn_load_freeze exactly as configured.
   Every sgd_* mode always runs with escnn_use_primary_val_only effectively off
   (see escnn_trainer._train_model's docstring) - that flag exists to stop ESCNN
   from training on a separately-trained primary detector's own training-fit
@@ -108,9 +114,10 @@ Relevant config keys (see config.yaml for the full list/defaults):
     escnn_load_freeze            - which params tracking (ekf or sgd) is allowed to move
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF), 'sgdsyn'
                                     (blind tsyn, trains on the group's own scored data),
-                                    'sgdbce' (practical BCE on the group's own DMRS pilots) or
-                                    'sgdbcei' (BCE on a separate calib region) - see module
-                                    docstring above
+                                    'sgdbce' (practical BCE on the group's own DMRS pilots),
+                                    'sgdbcei' (BCE on a separate calib region), or 'notrack'
+                                    (no adaptation - forces escnn_load_freeze='all') - see
+                                    module docstring above
     calib_slots_per_group         - 'sgdbcei' mode only: slots in the separate training-only
                                     region (2-DMRS+12-payload structure, same as the data
                                     region). Not used at all by any other mode. Default 1; raise
@@ -349,7 +356,13 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
     best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
     check_weights_augment_match(best_weights_path, getattr(conf, 'which_augment', 'AUGMENT_LMMSE'))
     escnn_trainer.load_weights(_long_path(best_weights_path))
-    escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
+    # weights_track_mode='notrack' is just a more convenient spelling of escnn_load_freeze='all'
+    # (nothing left trainable, so ekf_predict_update/the SGD branches below both fall back to
+    # running the loaded weights statically - see their own 'nothing trainable' guards) - it
+    # overrides whatever escnn_load_freeze is set to. Every other mode uses escnn_load_freeze as
+    # configured, unchanged.
+    load_freeze = 'all' if getattr(conf, 'weights_track_mode', 'ekf') == 'notrack' else conf.escnn_load_freeze
+    escnn_trainer.set_load_freeze(load_freeze)
     print(f"[drift] loaded pretrained weights: {best_weights_path}", flush=True)
     return best_weights_path
 
@@ -1396,7 +1409,7 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'sgdsyn', 'sgdbce', 'sgdbcei')
+    _MODE_CHOICES = ('ekf', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack')
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
     conf.set_value('training_loss', {'sgdsyn': 'tsyn'}.get(weights_track_mode, 'bce'))

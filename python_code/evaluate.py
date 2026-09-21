@@ -467,18 +467,44 @@ def check_weights_augment_match(path: str, which_augment: str):
             f"mismatched checkpoint.")
 
 
+# cfo=1 is a sentinel that requests modulation-aware effective cfo (higher-order constellations
+# are more sensitive to phase noise). Any other cfo value is used as-is (no scaling). Shared by
+# resolve_effective_cfo() below so run_evaluate()'s actual per-run cfo and
+# resolve_auto_escnn_weights_tag()'s weights-matching check can never disagree on what the
+# sentinel resolves to.
+CFO_PER_QM = {2: 0.3, 4: 0.15, 6: 0.075, 8: 0.03}
+
+
+def resolve_effective_cfo(cfo_value, num_bits_data, verbose=False):
+    """Resolves the cfo=1 sentinel to its modulation-aware value via CFO_PER_QM; any other
+    cfo_value is returned unchanged. See CFO_PER_QM's comment above."""
+    if cfo_value != 1:
+        return cfo_value
+    if num_bits_data not in CFO_PER_QM:
+        return cfo_value
+    resolved = CFO_PER_QM[num_bits_data]
+    if verbose:
+        print(f"[cfo] cfo=1 sentinel: effective cfo={resolved} for num_bits_data={num_bits_data}")
+    return resolved
+
+
 def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
     checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
     n_ants, num_res, modulation (mod_pilot's modulation if set - the network's own architecture
-    width - else mcs if set, else mod_data), and iqmm_gain/iqmm_phase, and set
+    width - else mcs if set, else mod_data), iqmm_gain/iqmm_phase, and cfo, and set
     conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
     of the filename every time the config changes). n_ants (like n_users/num_res) affects
     ESCNNDetector's fc1 input width (conv_num_channels = num_bits*n_users + n_ants*2, see
     escnn_detector.py), so a mismatch there is a silent architecture mismatch, not just a
     different-but-loadable checkpoint - caught here as a state_dict size-mismatch error instead
     if this check is ever removed.
+
+    The cfo comparison is against the configured cfo for this run (conf.cfo, resolved through
+    the cfo=1 modulation-aware sentinel via resolve_effective_cfo() -- see its comment), not
+    against any per-block value a CFO drift model may have walked away from it during a prior
+    run: a saved checkpoint's filename only ever records the static cfo it was trained at.
 
     Filenames have changed format over time (abbreviation spelling, presence of sp=/cdi=,
     which_augment written raw vs mapped to its short code, #REs=/_#ant= shortened to #RE=/_#an=),
@@ -538,6 +564,10 @@ def resolve_auto_escnn_weights_tag():
 
     cur_iqmm_gain = float(getattr(conf, 'iqmm_gain', 0))
     cur_iqmm_phase = float(getattr(conf, 'iqmm_phase', 0))
+    # The *configured* cfo (post cfo=1 sentinel resolution), not whatever a drift model has
+    # walked it to mid-run -- a checkpoint's filename only ever records the cfo it was trained
+    # at, which is this static per-run value. See resolve_effective_cfo()'s comment.
+    cur_effective_cfo = resolve_effective_cfo(conf.cfo, num_bits_data)
 
     matches = []
     for path in all_pt_files:
@@ -570,6 +600,15 @@ def resolve_auto_escnn_weights_tag():
             continue
         if float(iqp_m.group(1)) != cur_iqmm_phase:
             continue
+        cfo_m = re.search(r'_cfo=([^_]+)_', name)
+        if not cfo_m:
+            continue
+        try:
+            file_cfo = float(cfo_m.group(1))
+        except ValueError:
+            continue
+        if file_cfo != cur_effective_cfo:
+            continue
         tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
         if not tag_m:
             continue
@@ -581,7 +620,7 @@ def resolve_auto_escnn_weights_tag():
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
             f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, n_ants={conf.n_ants}, "
             f"num_res={conf.num_res}, modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, "
-            f"iqmm_phase={cur_iqmm_phase}. "
+            f"iqmm_phase={cur_iqmm_phase}, cfo={cur_effective_cfo}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
             f"load_escnn_weights_tag to an explicit tag.")
 
@@ -598,7 +637,7 @@ def resolve_auto_escnn_weights_tag():
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
               f"which_augment={conf.which_augment} n_users={conf.n_users} n_ants={conf.n_ants} "
               f"num_res={conf.num_res} modulation={mod_text} iqmm_gain={cur_iqmm_gain} "
-              f"iqmm_phase={cur_iqmm_phase}: "
+              f"iqmm_phase={cur_iqmm_phase} cfo={cur_effective_cfo}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
     else:
         print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)
@@ -642,15 +681,11 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         ldpc_k = 0
         mi_healthy_threshold = None
 
-    # cfo=1 is a sentinel that requests modulation-aware effective cfo
-    # (higher-order constellations are more sensitive to phase noise).
-    # Any other value of cfo is used as-is.
-    if conf.cfo == 1:
-        _cfo_per_qm = {2: 0.3, 4: 0.15, 6: 0.075, 8: 0.03}
-        if num_bits_data in _cfo_per_qm:
-            new_cfo = _cfo_per_qm[num_bits_data]
-            print(f"[cfo] cfo=1 sentinel: effective cfo={new_cfo} for num_bits_data={num_bits_data}")
-            conf.set_value('cfo', new_cfo)
+    # See resolve_effective_cfo()'s comment for the cfo=1 sentinel -- also used by
+    # resolve_auto_escnn_weights_tag() so the two can never disagree on what it resolves to.
+    resolved_cfo = resolve_effective_cfo(conf.cfo, num_bits_data, verbose=True)
+    if resolved_cfo != conf.cfo:
+        conf.set_value('cfo', resolved_cfo)
 
     n_users = conf.n_users
     n_ants = conf.n_ants

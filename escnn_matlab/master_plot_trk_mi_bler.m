@@ -14,7 +14,7 @@
 clear; clc;
 
 % ---- User configuration ----
-dir_path          = 'C:\Projects\Scratchpad\mat_files\mcs7nolim\base';
+dir_path          = 'C:\Projects\Scratchpad\mat_files\mcs7\ps=40k';
 extra_text        = '';           % e.g. '_transfer'
 add_snr_target    = false;        % append SNR@10% to BLER legend labels
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)

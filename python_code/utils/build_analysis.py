@@ -263,7 +263,11 @@ def build(tag):
         try:
             aug_type = pmc.detect_aug_type(k) or "LMMSE"
             mat_dir, mat_name, trk_mode = mat_target(tag, k, diffs[k], short, aug_type)
-            mat_extra = {"trk_mode": trk_mode} if trk_mode is not None else None
+            # aug_type alongside trk_mode: the trk-comparison plot also wants
+            # the un-augmented baseline (bler_no_aug/mi_no_aug, already saved
+            # for every config) drawn as a labeled 5th curve, and needs to
+            # know which detector that baseline actually is (LMMSE/SPHERE/...).
+            mat_extra = {"trk_mode": trk_mode, "aug_type": aug_type} if trk_mode is not None else None
             if mat_dir is not None:
                 mat_key = (mat_dir, mat_name)
                 if mat_key in seen_mat_targets:

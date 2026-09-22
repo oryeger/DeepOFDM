@@ -1,6 +1,7 @@
 from typing import Tuple
 
 import numpy as np
+import torch
 from numpy.random import default_rng
 
 from python_code import conf
@@ -10,9 +11,13 @@ import commpy.modulation as mod
 import matplotlib.pyplot as plt
 import tensorflow as tf
 
+from python_code.coding.dmrs_pilots import (build_dmrs_tx_symbols, dmrs_known_tx, dmrs_layout,
+                                             dmrs_reference_values, estimate_channel_from_dmrs,
+                                             interleave_group_symbols)
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.pilot_coding import encode_pilots
+from python_code.utils.constants import DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, NUM_SYMB_PER_SLOT
 from python_code.utils.probs_utils import skip_indices
 
 
@@ -170,6 +175,32 @@ class MIMOChannel:
         if conf.plot_channel:
             s = np.ones_like(s)
 
+        # conf.chanestmode == 'dmrs': interleave a standard-layout, comb-2 OCC/FCC in-slot DMRS
+        # (2 symbols/slot, matching ekf.py's own embedded-pilot scheme exactly - see
+        # coding/dmrs_pilots.py) into the payload before the one transmit() call below, instead of
+        # relying on this block's own dedicated pilot region for CE. This must happen on the
+        # combined payload `s` (pilot-equivalent + data together) and before it, so DMRS and
+        # payload ride through the identical channel draw in a single transmit() call - two
+        # separate transmit() calls would not be guaranteed to see the same TDL realization (see
+        # sed_channel.py's own external_chan reuse for its internal genie-CE companion pass).
+        chanestmode = getattr(conf, 'chanestmode', 'legacy')
+        dmrs_known_tx_dict = None
+        num_slots_dmrs = None
+        if chanestmode == 'dmrs':
+            total_payload_symbols = s.shape[1]
+            if total_payload_symbols % DMRS_NUM_PAYLOAD_SYMB != 0:
+                raise ValueError(
+                    f"chanestmode='dmrs' needs pilot_length+data_length to divide evenly into whole "
+                    f"slots of {DMRS_NUM_PAYLOAD_SYMB} payload symbols each (got {total_payload_symbols} "
+                    f"payload symbols) - round conf.pilot_size/data_size accordingly.")
+            num_slots_dmrs = total_payload_symbols // DMRS_NUM_PAYLOAD_SYMB
+            dmrs_layout_dict = dmrs_layout(n_users, num_res)
+            dmrs_ref_values = dmrs_reference_values(self._bits_generator, num_res)
+            dmrs_known_tx_dict = dmrs_known_tx(dmrs_layout_dict, dmrs_ref_values, n_users)
+            num_occasions = num_slots_dmrs * len(DMRS_SYMBOL_LOCAL_IDX)
+            dmrs_s = build_dmrs_tx_symbols(dmrs_known_tx_dict, n_users, num_res, num_occasions)
+            s = interleave_group_symbols(s, dmrs_s, num_slots_dmrs)
+
         s_orig = np.copy(s)
 
         if (cfo_tx!=0) or (iqmm_gain!=0) or (iqmm_phase!=0) or (self.clip_percentage_in_tx<100) or conf.run_tdcnn:
@@ -257,10 +288,67 @@ class MIMOChannel:
 
         s_orig = np.transpose(s_orig, (1, 0, 2))
 
-        return tx, rx, rx_ce, s_orig, rx_clean
+        H_est, noise_var_est = None, None
+        if chanestmode == 'dmrs':
+            # Genie CFO compensation (same math/ordering as evaluate.py's own inline GENIE_CFO
+            # block, which normally runs on the caller side after this function returns) must
+            # happen here, on the full interleaved (num_slots_dmrs*NUM_SYMB_PER_SLOT-symbol) grid,
+            # BEFORE DMRS rows get stripped below - stripping first would leave payload rows
+            # non-contiguous within their own slot, which this vector's per-symbol CP-relative
+            # indexing assumes. evaluate.py skips its own copy of this block under
+            # chanestmode='dmrs' for exactly this reason (see run_evaluate).
+            cfo_comp = genie_cfo_comp_vector(num_slots_dmrs)
+            if cfo_comp is not None:
+                rx = rx * cfo_comp[:, None, None]
+                if not conf.separate_pilots:
+                    rx_ce = rx_ce * cfo_comp[None, :, None, None]
+                else:
+                    rx_ce = rx_ce * cfo_comp[:, None, None]
+
+            # Per-group DMRS-based CE (one estimate_channel_from_dmrs call per conf.slots_per_group
+            # consecutive slots, mirroring ekf.py's own grouping exactly), then broadcast each
+            # group's H/noise_var out to every payload symbol in that group - H_est/noise_var_est
+            # come back already per-symbol (same length as the stripped-down rx/s_orig below), so
+            # evaluate.py's per-RE loop can index them exactly like rx/equalized with no
+            # group-boundary logic of its own (see lmmse_equalize_with_H's per-symbol-H branch).
+            dmrs_set = set(DMRS_SYMBOL_LOCAL_IDX)
+            payload_local_idx = [i for i in range(NUM_SYMB_PER_SLOT) if i not in dmrs_set]
+            payload_rows, dmrs_rows_by_slot = [], []
+            for slot in range(num_slots_dmrs):
+                base = slot * NUM_SYMB_PER_SLOT
+                payload_rows.extend(base + i for i in payload_local_idx)
+                dmrs_rows_by_slot.append([base + i for i in DMRS_SYMBOL_LOCAL_IDX])
+
+            total_payload_symbols = num_slots_dmrs * DMRS_NUM_PAYLOAD_SYMB
+            H_est = np.zeros((total_payload_symbols, num_res, conf.n_ants, n_users), dtype=complex)
+            noise_var_est = np.zeros(total_payload_symbols, dtype=float)
+            estimate_nv = not getattr(conf, 'override_noise_var', False)
+            slots_per_group = max(1, int(getattr(conf, 'slots_per_group', 1)))
+            payload_pos = 0
+            for group_start in range(0, num_slots_dmrs, slots_per_group):
+                group_end = min(group_start + slots_per_group, num_slots_dmrs)
+                group_dmrs_rows = [row for slot in range(group_start, group_end) for row in dmrs_rows_by_slot[slot]]
+                rx_dmrs_group = torch.from_numpy(rx[group_dmrs_rows])
+                est = estimate_channel_from_dmrs(rx_dmrs_group, dmrs_known_tx_dict, conf.n_ants, num_res, n_users,
+                                                  estimate_noise_var=estimate_nv)
+                H_group = est['H'].numpy()
+                group_payload_count = (group_end - group_start) * DMRS_NUM_PAYLOAD_SYMB
+                H_est[payload_pos:payload_pos + group_payload_count] = H_group[None, :, :, :]
+                if estimate_nv:
+                    noise_var_est[payload_pos:payload_pos + group_payload_count] = est['noise_var_est']
+                payload_pos += group_payload_count
+            if not estimate_nv:
+                noise_var_est[:] = noise_var
+
+            rx = rx[payload_rows]
+            s_orig = s_orig[payload_rows]
+            rx_ce = rx_ce[:, payload_rows] if not conf.separate_pilots else rx_ce[payload_rows]
+
+        return tx, rx, rx_ce, s_orig, rx_clean, H_est, noise_var_est
 
     def _transmit_and_detect(self, noise_var: float, num_res: int, index: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int, pilot_data_ratio: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
         # get channel values
         h = SEDChannel.calculate_channel(conf.n_ants, n_users, num_res)
-        tx, rx, rx_ce, s_orig, rx_clean = self._transmit(h, noise_var, num_res, n_users, mod_data, ldpc_k, ldpc_n, pilot_data_ratio)
-        return tx, h, rx, rx_ce, s_orig, rx_clean
+        tx, rx, rx_ce, s_orig, rx_clean, H_est, noise_var_est = self._transmit(
+            h, noise_var, num_res, n_users, mod_data, ldpc_k, ldpc_n, pilot_data_ratio)
+        return tx, h, rx, rx_ce, s_orig, rx_clean, H_est, noise_var_est

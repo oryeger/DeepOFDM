@@ -159,6 +159,10 @@ from python_code.channel.mimo_channels.sed_channel import SEDChannel
 from python_code.channel.modulator import BPSKModulator
 from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
+from python_code.coding.dmrs_pilots import (CONSTELLATION_FACTOR, build_dmrs_tx_symbols, dmrs_known_tx,
+                                             dmrs_layout, dmrs_reference_values, estimate_channel_from_dmrs,
+                                             genie_cfo_comp_vector, interleave_group_symbols,
+                                             lmmse_equalize_with_H)
 from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
@@ -168,55 +172,21 @@ from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.evaluate import (AUGMENT_SHORT_MAP, calc_mi_from_ldpc, check_weights_augment_match,
                                    crc_fail_mask, resolve_auto_escnn_weights_tag)
-from python_code.utils.constants import (CP, DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, FFT_size,
-                                          FIRST_CP, GENIE_CFO, NUM_SAMPLES_PER_SLOT,
-                                          NUM_SYMB_PER_SLOT, SAMPLING_RATE, SLOT_LENGTH_SEC)
+from python_code.utils.constants import DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC
 from python_code.utils.probs_utils import relevant_indices
-
-# M-QAM average-energy normalization constants (2*(M-1)/3), same table evaluate.py
-# uses to turn an SNR into a noise variance.
-CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 
 # --- In-slot DMRS pilots (replaces the old dedicated-calibration-slot CE mechanism for the
 # scored data region, and - for weights_track_mode='sgdbcei' - for the calib region too; see
 # module docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
-# CDM-multiplexed ports (FD-OCC). These are concrete numbers from the design, not tunables, so
-# they're kept as constants (in utils/constants.py, shared with escnn_trainer.py's syndrome/EKF
-# code - see that module's DMRS_NUM_PAYLOAD_SYMB) rather than new config.yaml keys.
+# CDM-multiplexed ports (FD-OCC). Layout/CE math itself lives in coding/dmrs_pilots.py (shared
+# with evaluate.py's conf.chanestmode path); only the slot-local symbol positions are specific
+# to this file's own interleaving.
 _DMRS_SYMBOL_LOCAL_IDX = DMRS_SYMBOL_LOCAL_IDX          # slot-local OFDM symbol indices carrying DMRS
 _DMRS_NUM_PAYLOAD_SYMB = DMRS_NUM_PAYLOAD_SYMB          # 12
-_DMRS_POWER_BOOST_DB = 3.0                   # extra pilot EPRE (dB) at n_users==1 only, where the
-                                              # 'odd' comb sits completely unused for DMRS (see
-                                              # _dmrs_known_tx/_dmrs_layout) - n_users in (2, 4)
-                                              # already occupy every comb RE, so no spare budget to
-                                              # redistribute and no boost
-_DMRS_DELAY_TRUNC_MARGIN = 12                # L_taps = ceil(margin * delay_spread / delay_bin_width)
 
 
 def _long_path(p: str) -> str:
     return ("\\\\?\\" + p) if os.name == 'nt' else p
-
-
-def _genie_cfo_comp_vector(num_slots: int):
-    """This group's genie CFO phase-compensation vector (one factor per OFDM symbol, length
-    num_slots*NUM_SYMB_PER_SLOT), mirroring evaluate.py's GENIE_CFO path (~line 786): cancels
-    the common per-symbol phase rotation using the true conf.cfo (the caller has already set
-    this to the group's drifted value before transmitting), leaving the intra-symbol phase
-    ramp - i.e. ICI - uncorrected by design, same as evaluate.py. Returns None (no-op) unless
-    GENIE_CFO and conf.cfo != 0."""
-    if not GENIE_CFO or conf.cfo == 0:
-        return None
-    n = np.arange(int(num_slots * NUM_SAMPLES_PER_SLOT))
-    cfo_phase = -2 * np.pi * conf.cfo * n / FFT_size
-    comp = []
-    pointer = 0
-    cp_length = FIRST_CP
-    for _ in range(NUM_SYMB_PER_SLOT):
-        pointer += cp_length + FFT_size // 2
-        comp.append(np.exp(1j * cfo_phase[pointer]))
-        pointer += FFT_size // 2
-        cp_length = CP
-    return np.tile(np.array(comp), num_slots)
 
 
 def _fmt_count(n: int) -> str:
@@ -302,25 +272,6 @@ def modulate_bits(tx_bits: np.ndarray, mod_order: int, n_users: int, num_res: in
         for re in range(num_res):
             s[user, :, re] = qam.modulate(tx_bits[:, user, re])
     return s
-
-
-def lmmse_equalize_with_H(H: torch.Tensor, rx_c: torch.Tensor, noise_var: float, re: int) -> Tuple[torch.Tensor, torch.Tensor]:
-    """Same linear-MMSE equalization math as LmmseEqualize (lmmse_equalizer.py lines 61-70),
-    but against an H estimated elsewhere (from that region's own embedded DMRS here - see
-    _estimate_channel_from_dmrs) instead of re-estimating it from rx_c itself - LmmseEqualize
-    always re-estimates H from whatever it's given, which would leak the answer if rx_c were the
-    same symbols being scored."""
-    n_users = H.shape[1]
-    I_users = torch.eye(n_users, dtype=H.dtype, device=H.device)
-    W = torch.linalg.inv(H.T.conj() @ H + noise_var * I_users) @ H.T.conj()
-    bias = (W @ H).diag().real
-    W = W.cpu()
-    bias = bias.cpu()
-    equalized = torch.zeros(rx_c.shape[0], n_users, dtype=torch.cfloat)
-    for i in range(rx_c.shape[0]):
-        equalized[i, :] = torch.matmul(W, rx_c[i, :, re]) / bias
-    postEqSINR = bias / (1 - bias)
-    return equalized, postEqSINR
 
 
 def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
@@ -474,269 +425,6 @@ def _ground_truth_channel(rng: np.random.Generator, n_users: int, n_ants: int, n
     return torch.from_numpy(H_gt)
 
 
-def _dmrs_layout(n_users: int, num_res: int) -> dict:
-    """Per-user DMRS RE/OCC assignment (comb-2 Type-1 FD-OCC, up to 4 CDM-multiplexed ports -
-    see module docstring). Returns {user: {'comb': 'even'|'odd', 'pairs': [(re_a, re_b_or_None), ...],
-    'sign': (s_a, s_b_or_None), 'occ_active': bool}}. Pairing (for FD-OCC and for the shared
-    reference sequence) groups consecutive same-comb REs two at a time; a trailing unpaired RE
-    (only when a comb has an odd count) becomes a trivial single-port pair. 'occ_active' is True
-    only when two users genuinely share a comb (n_users==4) - it tells
-    _estimate_channel_from_dmrs whether Step 1 must deocc-combine each RE-pair into one estimate
-    (spacing 4) or can treat every comb RE as its own independent pilot point (spacing 2,
-    n_users in (1,2))."""
-    if n_users not in (1, 2, 4):
-        raise NotImplementedError(f"DMRS layout only supports n_users in (1, 2, 4); got {n_users}.")
-    evens, odds = list(range(0, num_res, 2)), list(range(1, num_res, 2))
-
-    def _pairs(comb_res):
-        pairs = [(comb_res[i], comb_res[i + 1]) for i in range(0, len(comb_res) - 1, 2)]
-        if len(comb_res) % 2 == 1:
-            pairs.append((comb_res[-1], None))
-        return pairs
-
-    even_pairs, odd_pairs = _pairs(evens), _pairs(odds)
-    layout = {}
-    for user in range(n_users):
-        if n_users in (1, 2):
-            comb, pairs, sign = (('even', even_pairs, (1, 1)) if user == 0
-                                  else ('odd', odd_pairs, (1, 1)))
-        else:  # n_users == 4
-            comb, pairs = ('even', even_pairs) if user in (0, 2) else ('odd', odd_pairs)
-            sign = (1, 1) if user in (0, 1) else (1, -1)
-        layout[user] = {'comb': comb, 'pairs': pairs, 'sign': sign, 'occ_active': n_users == 4}
-    return layout
-
-
-def _dmrs_reference_values(rng: np.random.Generator, num_res: int) -> dict:
-    """One random unit-average-energy QPSK value per comb RE-pair - shared by both members of a
-    pair (required for FD-OCC deocc to work; harmless for the non-OCC n_users in (1,2) case,
-    where it just means both REs of a pair happen to carry the same known value). Independent of
-    qm/mcs - closer to real DMRS (always QPSK regardless of the data's own modulation), and it
-    means DMRS carries no codeword structure."""
-    evens, odds = list(range(0, num_res, 2)), list(range(1, num_res, 2))
-    n_even_pairs, n_odd_pairs = (len(evens) + 1) // 2, (len(odds) + 1) // 2
-
-    def _qpsk(n):
-        bits = rng.integers(0, 2, size=(2, n))
-        return ((1 - 2 * bits[0]) + 1j * (1 - 2 * bits[1])) / np.sqrt(2)
-
-    return {'even': _qpsk(n_even_pairs), 'odd': _qpsk(n_odd_pairs)}
-
-
-def _dmrs_known_tx(layout: dict, ref_values: dict, n_users: int) -> dict:
-    """Per user: {'occ_active': bool, 'entries': [(re_a, re_b_or_None, val_a, val_b_or_None), ...]}
-    - the exact known complex symbol each of that user's DMRS REs carries (comb reference value
-    x OCC sign x amplitude). DMRS is always QPSK, independent of whatever modulation the payload
-    (mod_data) uses (module docstring), so amplitude is fixed at QPSK's own nominal per-RE energy
-    (CONSTELLATION_FACTOR[4] - the same Es convention noise_var is derived from, just always at
-    QPSK's value rather than the payload's) - plus the +3dB (linear sqrt(2) amplitude) boost only
-    at n_users==1, where the 'odd' comb sits completely unused for DMRS (see _dmrs_layout) so the
-    freed budget goes entirely into the one active port; at n_users==2 both combs are already
-    occupied (one user each, no spare to redistribute), same as n_users==4's OCC-shared case, so
-    neither gets a boost. Shared by _build_dmrs_tx_symbols (what gets transmitted) and
-    _estimate_channel_from_dmrs (what the LS/deocc division uses)."""
-    amp = np.sqrt(CONSTELLATION_FACTOR[4])  # DMRS's own (QPSK) reference energy, not mod_data's
-    if n_users == 1:
-        amp *= 10 ** (_DMRS_POWER_BOOST_DB / 20.0)  # dB -> linear amplitude factor
-    out = {}
-    for user, info in layout.items():
-        ref = ref_values[info['comb']]
-        sign_a, sign_b = info['sign']
-        entries = []
-        for pair_idx, (re_a, re_b) in enumerate(info['pairs']):
-            val = amp * ref[pair_idx]
-            val_a = sign_a * val
-            val_b = (sign_b * val) if re_b is not None else None
-            entries.append((re_a, re_b, val_a, val_b))
-        out[user] = {'occ_active': info['occ_active'], 'entries': entries}
-    return out
-
-
-def _build_dmrs_tx_symbols(known_tx: dict, n_users: int, num_res: int, num_occasions: int) -> np.ndarray:
-    """(n_users, num_occasions, num_res) complex DMRS tx symbols from _dmrs_known_tx's per-user
-    known values - constant across every occasion (only the channel/noise differ between
-    occasions), so Step 1's time-averaging in _estimate_channel_from_dmrs is coherent. No data is
-    multiplexed onto any DMRS RE, including off-comb ones (module docstring) - everything else
-    in the array stays zero."""
-    s = np.zeros((n_users, num_occasions, num_res), dtype=complex)
-    for user, info in known_tx.items():
-        for re_a, re_b, val_a, val_b in info['entries']:
-            s[user, :, re_a] = val_a
-            if re_b is not None:
-                s[user, :, re_b] = val_b
-    return s
-
-
-def _interleave_group_symbols(payload_s: np.ndarray, dmrs_s: np.ndarray, num_slots: int) -> np.ndarray:
-    """Interleave a region's payload symbols (n_users, num_slots*_DMRS_NUM_PAYLOAD_SYMB, num_res)
-    and DMRS symbols (n_users, num_slots*len(_DMRS_SYMBOL_LOCAL_IDX), num_res) into
-    (n_users, num_slots*NUM_SYMB_PER_SLOT, num_res): DMRS at _DMRS_SYMBOL_LOCAL_IDX within every
-    slot, payload at the other slot-local positions, in order - so the combined array is a
-    genuine contiguous per-slot symbol sequence, letting the existing CP/CFO machinery
-    (_genie_cfo_comp_vector) treat it exactly like any other slot-based transmission with no
-    changes needed there."""
-    n_users, _, num_res = payload_s.shape
-    s = np.zeros((n_users, num_slots * NUM_SYMB_PER_SLOT, num_res), dtype=complex)
-    dmrs_set = set(_DMRS_SYMBOL_LOCAL_IDX)
-    payload_local_idx = [i for i in range(NUM_SYMB_PER_SLOT) if i not in dmrs_set]
-    for slot in range(num_slots):
-        base = slot * NUM_SYMB_PER_SLOT
-        for j, local_idx in enumerate(payload_local_idx):
-            s[:, base + local_idx, :] = payload_s[:, slot * _DMRS_NUM_PAYLOAD_SYMB + j, :]
-        for j, local_idx in enumerate(_DMRS_SYMBOL_LOCAL_IDX):
-            s[:, base + local_idx, :] = dmrs_s[:, slot * len(_DMRS_SYMBOL_LOCAL_IDX) + j, :]
-    return s
-
-
-def _edge_taper(length: int) -> np.ndarray:
-    """Length-`length` array of 1s except the last quarter (min 1 tap), which raised-cosine
-    tapers down to 0 - used to fight Gibbs ringing at the *discarded* edge of a kept delay-domain
-    segment, without attenuating the (presumably larger) energy nearer delay 0."""
-    w = np.ones(length)
-    edge = max(1, length // 4)
-    w[length - edge:] = 0.5 * (1 + np.cos(np.pi * np.arange(edge) / edge))
-    return w
-
-
-def _fold_delay_taps(h_alias: np.ndarray, num_res: int, causal_len: int, anticausal_len: int,
-                      taper: bool) -> np.ndarray:
-    """Place an M-point aliased delay-domain sequence into a full num_res-length array, split
-    between its causal (near-zero, non-negative-delay) front and its *wrapped* tail - IFFT/DFT
-    periodicity puts negative delays at the far end of h_alias (index M-1 = delay -1, M-2 = delay
-    -2, ...; this is where a pulse-shaping filter's pre-cursor taps - e.g. TLD_channel.py's
-    negative l_min - show up). Zero-padding by naively appending zeros after index
-    causal_len+anticausal_len-1 would jam a hard discontinuity right against any real wrapped
-    content, ringing across the whole spectrum on FFT - this is what the untruncated diagnostic
-    surfaced (see _estimate_channel_from_dmrs). Correct placement: causal part goes at the front,
-    anticausal part goes at the *end* of the full-length array, zeros in between.
-
-    taper=True raised-cosine-tapers the *discarded* edge of each kept segment - the end farthest
-    from delay 0 (only meaningful when causal_len/anticausal_len are a truncation, not the full M;
-    the untruncated caller passes taper=False since nothing is being discarded)."""
-    M = h_alias.shape[0]
-    h_out = np.zeros((num_res,) + h_alias.shape[1:], dtype=complex)
-    if causal_len > 0:
-        w = _edge_taper(causal_len) if taper else np.ones(causal_len)
-        h_out[:causal_len] = h_alias[:causal_len] * w[:, None]
-    if anticausal_len > 0:
-        w = _edge_taper(anticausal_len)[::-1] if taper else np.ones(anticausal_len)
-        h_out[num_res - anticausal_len:] = h_alias[M - anticausal_len:] * w[:, None]
-    return h_out
-
-
-def _estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: int, num_res: int,
-                                 n_users: int, return_untruncated: bool = False,
-                                 estimate_noise_var: bool = False):
-    """Per user, per antenna: LS+deocc at each DMRS pilot position (averaged over every DMRS
-    occasion in the region - the two in-slot symbols x every slot in it), then an IFFT
-    delay-domain denoise/interpolate to fill every RE. Returns (num_res, n_ants, n_users)
-    complex128 (matching rx's own dtype - see transmit_symbols - so lmmse_equalize_with_H's
-    matmul against rx_c doesn't hit a complex64/complex128 dtype mismatch), replacing what a
-    dedicated-calibration-slot ChannelEstimate used to produce.
-
-    Step 1 (LS + deocc + time-average): for occ_active users (n_users==4), each RE-pair is
-    deocc-combined into one estimate (spacing-4 resolution across num_res - "3 missing REs out
-    of 4"); otherwise (n_users in (1,2)) every comb RE gets its own independent estimate
-    (spacing-2 - "every other RE") since there's no second port sharing it to separate out.
-
-    Step 2 (delay domain): IFFT the user's M uniformly-spaced pilot estimates -> an aliased
-    delay-domain estimate; white noise spreads evenly across all M delay bins while true channel
-    energy concentrates within the delay spread, so truncating to L_taps (from conf.delay_spread)
-    and zeroing the rest is a large, SNR-independent noise reduction. L_taps is split evenly
-    between causal and anticausal (wrapped/pre-cursor - see _fold_delay_taps), the same ratio the
-    untruncated path uses (there, an even split isn't a policy choice, it's the only correct one -
-    see below) - an earlier draft here reserved only 1/4 of the budget for the anticausal side on
-    the (real but overstated) assumption that pre-cursor content is much smaller than the main
-    response; the ground-truth-vs-truncated diagnostic showed that assumption starving one side of
-    the seam of resolution while the other side (which happened to get more of the budget) matched
-    well - an artifact of the ratio, not of L_taps overall. Zero-pad back to num_res (correctly
-    split, not just appended - _fold_delay_taps) and FFT -> full-resolution H, including at the
-    original pilot REs (denoised the same as everywhere else, not left as their raw single-shot LS
-    value).
-
-    return_untruncated (diagnostic only - see run_group's save_diag path): also returns a second
-    (num_res, n_ants, n_users) estimate from the *same* h_alias with no truncation/taper at all
-    (L_taps=M, i.e. plain DFT interpolation of the raw pilot estimates, no denoising assumption) -
-    split exactly at the Nyquist point M//2 (the only correct split when nothing is discarded,
-    unlike L_taps's causal/anticausal ratio above, which is a truncation policy choice). Comparing
-    the two on a noise_var=0 pass isolates exactly what the L_taps truncation choice is doing to
-    the estimate, with noise out of the picture entirely.
-
-    estimate_noise_var: also returns a receiver-side noise_var estimate (see noise_var_terms
-    below) - the DMRS-pilot analog of what LmmseEqualize computes inline from its own LS
-    estimate, for conf.override_noise_var=False to use instead of the genie theoretical
-    noise_var (see run_group). Meaningless (and not requested) on the noise_var=0 save_diag
-    pass, so this and return_untruncated are never both True in practice.
-
-    Returns a dict: {'H': ..., and optionally 'H_untrunc'/'noise_var_est'} - a dict rather than
-    a positional tuple since which optional fields are present depends on which of the two
-    independent flags above is set."""
-    delta_f = SAMPLING_RATE / FFT_size  # real subcarrier spacing (Hz)
-    delay_bin = 1.0 / (num_res * delta_f)
-    rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
-    H = np.zeros((num_res, n_ants, n_users), dtype=complex)
-    H_untrunc = np.zeros((num_res, n_ants, n_users), dtype=complex) if return_untruncated else None
-    # noise_var_terms: per-(user, pilot RE) residual of the raw, undivided per-occasion rx sample
-    # around its own across-occasion mean (see estimate_noise_var branch below for why undivided) -
-    # the same idea LmmseEqualize (lmmse_equalizer.py:74/80) uses for its noise_var, adapted to
-    # this estimator's pilot layout. Averaged over ~num_res/2 pilot REs (all entries, all users)
-    # below, not just the 2 DMRS occasions in isolation - see run_group's noise_var discussion for
-    # why that matters (the per-RE residual alone is a noisy 1-2 degree-of-freedom estimate, but
-    # pooling across REs meaningfully reduces the final noise_var_est's variance).
-    noise_var_terms = [] if estimate_noise_var else None
-    for user, info in known_tx.items():
-        pair_est = []
-        for re_a, re_b, val_a, val_b in info['entries']:
-            if info['occ_active']:
-                if re_b is not None:
-                    est = 0.5 * (rx_np[:, :, re_a] / val_a + rx_np[:, :, re_b] / val_b)
-                else:
-                    est = rx_np[:, :, re_a] / val_a
-                pair_est.append(est.mean(axis=0))
-            else:
-                est_a = rx_np[:, :, re_a] / val_a
-                pair_est.append(est_a.mean(axis=0))
-                if re_b is not None:
-                    est_b = rx_np[:, :, re_b] / val_b
-                    pair_est.append(est_b.mean(axis=0))
-            if estimate_noise_var:
-                # Residual on the RAW (undivided, uncombined) rx samples, not on est/est_a/est_b
-                # above - dividing by val_a/val_b first would scale the residual by the DMRS
-                # reference amplitude (which includes _DMRS_POWER_BOOST_DB and
-                # CONSTELLATION_FACTOR[4]), silently deflating the noise_var estimate by that
-                # factor squared. h_true*val is constant across occasions either way (block
-                # fading + val doesn't vary per occasion - see _build_dmrs_tx_symbols), so
-                # raw - mean(raw) equals noise - mean(noise) exactly regardless of amplitude or
-                # FD-OCC combining, with no rescaling needed.
-                for re_i in (re_a, re_b):
-                    if re_i is not None:
-                        raw = rx_np[:, :, re_i]
-                        noise_var_terms.append(np.mean(np.abs(raw - raw.mean(axis=0, keepdims=True)) ** 2))
-        pair_est = np.stack(pair_est, axis=0)              # (M, n_ants)
-        M = pair_est.shape[0]
-
-        h_alias = np.fft.ifft(pair_est, axis=0)             # (M, n_ants), aliased delay-domain estimate
-
-        L_taps = int(np.clip(np.ceil(_DMRS_DELAY_TRUNC_MARGIN * conf.delay_spread / delay_bin), 1, M))
-        anticausal_trunc = L_taps // 2
-        causal_trunc = L_taps - anticausal_trunc
-        h_trunc = _fold_delay_taps(h_alias, num_res, causal_trunc, anticausal_trunc, taper=True)
-        H[:, :, user] = np.fft.fft(h_trunc, axis=0)          # (num_res, n_ants), full-resolution
-
-        if return_untruncated:
-            anticausal_full = M // 2
-            causal_full = M - anticausal_full
-            h_full = _fold_delay_taps(h_alias, num_res, causal_full, anticausal_full, taper=False)
-            H_untrunc[:, :, user] = np.fft.fft(h_full, axis=0)
-
-    result = {'H': torch.from_numpy(H)}
-    if return_untruncated:
-        result['H_untrunc'] = torch.from_numpy(H_untrunc)
-    if estimate_noise_var:
-        result['noise_var_est'] = float(np.mean(noise_var_terms)) if noise_var_terms else 0.0
-    return result
-
-
 def _nearest_owned_re(owned: list, num_res: int) -> np.ndarray:
     """For every RE in range(num_res), the closest (by index distance) RE in `owned` - the
     nearest-neighbor fill used by _build_dmrs_bce_training_data for REs that aren't a given
@@ -868,10 +556,10 @@ def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: 
     payload_bit_length = num_slots * _DMRS_NUM_PAYLOAD_SYMB * qm
     tx_bits = encode_pilots(rng, payload_bit_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     payload_s = modulate_bits(tx_bits, mod_data, n_users, num_res)
-    ref_values = _dmrs_reference_values(rng, num_res)
-    known_tx = _dmrs_known_tx(layout, ref_values, n_users)
-    dmrs_s = _build_dmrs_tx_symbols(known_tx, n_users, num_res, num_occasions)
-    s = _interleave_group_symbols(payload_s, dmrs_s, num_slots)
+    ref_values = dmrs_reference_values(rng, num_res)
+    known_tx = dmrs_known_tx(layout, ref_values, n_users)
+    dmrs_s = build_dmrs_tx_symbols(known_tx, n_users, num_res, num_occasions)
+    s = interleave_group_symbols(payload_s, dmrs_s, num_slots)
     return {'tx_bits': tx_bits, 'known_tx': known_tx, 's': s, 'num_slots': num_slots}
 
 
@@ -893,7 +581,7 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
     combined with return_untruncated (see _estimate_channel_from_dmrs's docstring)."""
     num_slots = content['num_slots']
     rx, _, _ = transmit_symbols(content['s'], n_users, num_res, h, noise_var)
-    cfo_comp = _genie_cfo_comp_vector(num_slots)
+    cfo_comp = genie_cfo_comp_vector(num_slots)
     if cfo_comp is not None:
         rx = rx * cfo_comp[:, None, None]
     dmrs_set = set(_DMRS_SYMBOL_LOCAL_IDX)
@@ -906,9 +594,9 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
     rx_payload = rx[payload_rows]
     rx_dmrs = torch.from_numpy(rx[dmrs_rows])
     result = {'tx_bits': content['tx_bits'], 'rx_payload': rx_payload, 'rx_dmrs': rx_dmrs}
-    est = _estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users,
-                                       return_untruncated=return_untruncated,
-                                       estimate_noise_var=estimate_noise_var)
+    est = estimate_channel_from_dmrs(rx_dmrs, content['known_tx'], n_ants, num_res, n_users,
+                                      return_untruncated=return_untruncated,
+                                      estimate_noise_var=estimate_noise_var)
     result['H_est'] = est['H']
     if return_untruncated:
         result['H_est_untrunc'] = est['H_untrunc']
@@ -1445,7 +1133,7 @@ def main():
                                    "mod_pilot padding isn't supported. Set mod_pilot <= 0.")
     num_bits_pilot = qm
 
-    layout = _dmrs_layout(n_users, num_res)
+    layout = dmrs_layout(n_users, num_res)
 
     noise_var = 10 ** (-0.1 * conf.snr) * CONSTELLATION_FACTOR[mod_data]
     h = SEDChannel.calculate_channel(n_ants, n_users, num_res)

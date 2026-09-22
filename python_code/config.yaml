@@ -89,6 +89,7 @@ tsyn_fallback_iters: 1 # tsyn only: number of erasure-peeling rounds for punctur
 encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
+chanestmode: 'legacy'  # 'legacy' (default, unchanged): LMMSE/JointLLR estimate H from this block's own dedicated (genie, whole-block) pilot region, same as always. 'dmrs': evaluate.py's training pipeline instead embeds a standard in-slot DMRS (2 symbols/slot, comb-2 OCC/FCC, matching ekf.py's own scheme exactly - see coding/dmrs_pilots.py) and estimates H per conf.slots_per_group group from just those 2 symbols, closing the train/inference channel-estimate mismatch ekf.py's streaming eval otherwise hits. Feeds LMMSE's reported metrics, ESCNN's augmentation input, and Sphere; JointLLR keeps the legacy genie H regardless (still computed over the smaller 12/14-symbols-per-slot payload grid this mode leaves behind). Only 12 of every 14 slot symbols carry real payload in this mode - pilot_size/data_size are converted accordingly, so a 'dmrs' run needs more OFDM symbols than a 'legacy' run for the same bit budget.
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)

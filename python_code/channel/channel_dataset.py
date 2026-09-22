@@ -48,9 +48,18 @@ class ChannelModelDataset(Dataset):
         rx_ce_full = np.empty((self.blocks_num, n_users, ofdm_sym_num, self.channel_type.rx_length, self.num_res), dtype=np.complex128)
         s_orig_full = np.empty((self.blocks_num, ofdm_sym_num, self.channel_type.tx_length, self.num_res), dtype=np.complex128)
         rx_clean_full = np.empty((self.blocks_num, ofdm_sym_num, self.channel_type.rx_length, self.num_res), dtype=np.complex128)
+        # H_est/noise_var_est (conf.chanestmode == 'dmrs' only): per-symbol DMRS-derived channel
+        # estimate/noise_var, already broadcast to ofdm_sym_num length by MIMOChannel._transmit -
+        # see its own docstring. Left as None (no allocation) in legacy mode, since most runs never
+        # use them and ofdm_sym_num x num_res x n_ants x n_users complex128 isn't free.
+        chanestmode = getattr(conf, 'chanestmode', 'legacy')
+        h_est_full = (np.empty((self.blocks_num, ofdm_sym_num, self.num_res, conf.n_ants, n_users), dtype=np.complex128)
+                      if chanestmode == 'dmrs' else None)
+        noise_var_est_full = np.empty((self.blocks_num, ofdm_sym_num), dtype=np.float64) if chanestmode == 'dmrs' else None
         # accumulate words until reaches desired number
         for index in range(self.blocks_num):
-            tx, h, rx, rx_ce, s_orig, rx_clean = self.channel_type._transmit_and_detect(noise_var, self.num_res, index, n_users, mod_data, ldpc_k, ldpc_n, pilot_data_ratio)
+            tx, h, rx, rx_ce, s_orig, rx_clean, H_est, noise_var_est = self.channel_type._transmit_and_detect(
+                noise_var, self.num_res, index, n_users, mod_data, ldpc_k, ldpc_n, pilot_data_ratio)
             # accumulate
             tx_full[index] = tx
             rx_full[index] = rx
@@ -58,17 +67,23 @@ class ChannelModelDataset(Dataset):
             h_full[index] = h
             s_orig_full[index] = s_orig
             rx_clean_full[index] = rx_clean
+            if chanestmode == 'dmrs':
+                h_est_full[index] = H_est
+                noise_var_est_full[index] = noise_var_est
 
-        database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full, rx_clean_full))
+        database.append((tx_full, rx_full, rx_ce_full, h_full, s_orig_full, rx_clean_full, h_est_full, noise_var_est_full))
 
     def __getitem__(self, noise_var_list: List[float], num_bits_pilot: int, num_bits_data: int, n_users: int, mod_data: int, ldpc_k: int, ldpc_n: int) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         database = []
         for noise_var in noise_var_list:
             self.get_snr_data(noise_var, database, num_bits_pilot, num_bits_data, n_users, mod_data, ldpc_k, ldpc_n)
-        tx, rx, rx_ce, h, s_orig, rx_clean = (np.concatenate(arrays) for arrays in zip(*database))
+        tx, rx, rx_ce, h, s_orig, rx_clean, h_est, noise_var_est = (
+            None if arrays[0] is None else np.concatenate(arrays) for arrays in zip(*database))
         tx, rx, rx_ce, h , s_orig, rx_clean = torch.Tensor(tx).to(device=DEVICE), torch.from_numpy(rx).to(device=DEVICE), torch.from_numpy(rx_ce).to(device=DEVICE), torch.from_numpy(
             h).to(device=DEVICE), torch.from_numpy(s_orig).to(device=DEVICE), torch.from_numpy(rx_clean).to(device=DEVICE)
-        return tx, rx, rx_ce, h, s_orig, rx_clean
+        h_est = torch.from_numpy(h_est).to(device=DEVICE) if h_est is not None else None
+        noise_var_est = torch.from_numpy(noise_var_est).to(device=DEVICE) if noise_var_est is not None else None
+        return tx, rx, rx_ce, h, s_orig, rx_clean, h_est, noise_var_est
 
     def __len__(self):
         return self.block_length

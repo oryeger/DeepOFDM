@@ -96,6 +96,17 @@ def LmmseEqualize(rx_ce, rx_c, s_orig, ext_noise_var, pilot_chunk, re, H):
 
     return equalized, postEqSINR, noise_var
 
+def _sinr_multiplier(postEqSINR, user):
+    """postEqSINR is either a single (n_users,) vector - one SINR per user, broadcast across every
+    symbol (the legacy LmmseEqualize/lmmse_equalize_with_H single-H case) - or a per-symbol
+    (n_symbols, n_users) array (lmmse_equalize_with_H's conf.chanestmode per-symbol-H case).
+    Either way, return something that broadcasts correctly against llr_out's own
+    (n_symbols, num_bits, 1) reshape below."""
+    if postEqSINR.dim() == 1:
+        return postEqSINR[user].numpy()
+    return postEqSINR[:, user].numpy().reshape(-1, 1, 1)
+
+
 def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, pilot_data_ratio):
     llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0], dtype=np.float32)
     if num_bits == 1:
@@ -115,7 +126,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 num_bits_int = num_bits
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits_int):((user + 1) * num_bits_int), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * postEqSINR[user].numpy()
+                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 4:
         for user in range(conf.n_users):
@@ -130,13 +141,13 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 num_bits_int = num_bits
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits_int):((user + 1) * num_bits_int), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * postEqSINR[user].numpy()
+                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 6:
         for user in range(conf.n_users):
             detected_word_lmmse_for_aug[:, user, re], llr_out = QAM64Modulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 8:
 
@@ -146,7 +157,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
 
-                int(llr_out.shape[0] / num_bits), num_bits, 1) * postEqSINR[user].numpy()
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * _sinr_multiplier(postEqSINR, user)
     else:
             print('Unknown modulator')
 

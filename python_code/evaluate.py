@@ -28,8 +28,9 @@ import matplotlib.pyplot as plt
 from python_code.utils.probs_utils import relevant_indices
 from python_code.utils.probs_utils import skip_indices
 
-from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO,
+from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO, DMRS_NUM_PAYLOAD_SYMB,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
+from python_code.coding.dmrs_pilots import lmmse_equalize_with_H
 
 import pandas as pd
 
@@ -899,13 +900,21 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
         if conf.run_jointllr:
             jointllr_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
 
-        pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * NUM_SYMB_PER_SLOT * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
+        # chanestmode='dmrs' only carries real payload on DMRS_NUM_PAYLOAD_SYMB (12) of every
+        # NUM_SYMB_PER_SLOT (14) slot symbols (2 go to the embedded DMRS - see
+        # mimo_channel_dataset.py/coding/dmrs_pilots.py), so pilot_size/data_size must round to a
+        # whole number of DMRS_NUM_PAYLOAD_SYMB-symbol slots instead of NUM_SYMB_PER_SLOT-symbol
+        # ones, or MIMOChannel._transmit's interleave step raises. Same bit budget therefore spans
+        # more slots (and more wall-clock-equivalent symbols) than an equal-sized legacy run.
+        chanestmode = getattr(conf, 'chanestmode', 'legacy')
+        payload_symb_per_slot = DMRS_NUM_PAYLOAD_SYMB if chanestmode == 'dmrs' else NUM_SYMB_PER_SLOT
+        pilot_size = get_next_divisible(conf.pilot_size, num_bits_pilot * payload_symb_per_slot * 3) # The 3 is for the possible 64QAM->16QAM->QPSK
         pilot_chunk = int(pilot_size / num_bits_pilot)
 
         if getattr(conf, 'data_size', -1) > 0:
-            data_size = get_next_divisible(conf.data_size, num_bits_data * NUM_SYMB_PER_SLOT * 3)
+            data_size = get_next_divisible(conf.data_size, num_bits_data * payload_symb_per_slot * 3)
         else:
-            data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * NUM_SYMB_PER_SLOT * 3)
+            data_size = get_next_divisible(conf.pilot_size*(conf.block_length_factor-1), num_bits_data * payload_symb_per_slot * 3)
 
 
         noise_var = 10 ** (-0.1 * snr_cur) * constellation_factor
@@ -920,7 +929,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                               kernel_size=conf.kernel_size,
                                               n_users=n_users)
 
-        transmitted_words, received_words, received_words_ce, hs, s_orig_words, received_words_clean = channel_dataset.__getitem__(
+        (transmitted_words, received_words, received_words_ce, hs, s_orig_words, received_words_clean,
+         h_est_words, noise_var_est_words) = channel_dataset.__getitem__(
             noise_var_list=[noise_var], num_bits_pilot=num_bits_pilot, num_bits_data=num_bits_data, n_users
             =n_users, mod_data=mod_data, ldpc_k=ldpc_k, ldpc_n=ldpc_n)
 
@@ -933,9 +943,18 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             # get current word and channel
             tx, h, rx, rx_ce, s_orig, rx_clean = transmitted_words[block_ind], hs[block_ind], received_words[block_ind], \
                 received_words_ce[block_ind], s_orig_words[block_ind], received_words_clean[block_ind]
+            # chanestmode='dmrs' only: this block's per-symbol DMRS-derived H/noise_var (already
+            # broadcast to rx's own symbol length - see MIMOChannel._transmit). None in legacy mode.
+            H_dmrs_est = h_est_words[block_ind] if h_est_words is not None else None
+            noise_var_dmrs_est = noise_var_est_words[block_ind] if noise_var_est_words is not None else None
 
             NUM_SLOTS = int(s_orig.shape[0] / NUM_SYMB_PER_SLOT)
-            if conf.cfo != 0:
+            # chanestmode='dmrs': this compensation already happened inside MIMOChannel._transmit,
+            # on the full interleaved grid before DMRS rows were stripped (this block's own
+            # per-symbol CP-relative indexing assumes a contiguous NUM_SYMB_PER_SLOT-per-slot
+            # layout, which rx/s_orig no longer have once DMRS rows are gone - see
+            # mimo_channel_dataset.py). Applying it again here would be both redundant and wrong.
+            if conf.cfo != 0 and chanestmode != 'dmrs':
                 # Compensate for CFO linear phase
                 pointer = 0
                 n = np.arange(int(NUM_SLOTS * NUM_SAMPLES_PER_SLOT))
@@ -1126,15 +1145,29 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
-                H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
-
-                # Regular CE
-                equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                if chanestmode == 'dmrs':
+                    # Per-group DMRS CE, already broadcast to per-symbol shape by
+                    # MIMOChannel._transmit (see coding/dmrs_pilots.py's lmmse_equalize_with_H
+                    # per-symbol branch) - feeds LMMSE's reported metrics and ESCNN's
+                    # augmentation input directly, no group-boundary loop needed here.
+                    H_re = H_dmrs_est[:, re, :, :]
+                    equalized, postEqSINR = lmmse_equalize_with_H(H_re, rx_c, noise_var_dmrs_est, re)
+                    H = H_re[0]                    # representative single matrix (constant within
+                    noise_var = noise_var_dmrs_est[0]  # group 0) for Sphere/accumulator/debug below
+                else:
+                    H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
+                    # Regular CE
+                    equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
                 post_eq_sinr_sum += float(postEqSINR.mean().item())
                 post_eq_sinr_count += 1
-                LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
+                # postEqSINR is per-user (legacy LmmseEqualize) or per-symbol (chanestmode='dmrs')
+                # - slice it to match whichever equalized[...] slice each call gets, same as
+                # LmmseDemod's own _sinr_multiplier does; a no-op slice in the legacy 1D case.
+                postEqSINR_pilot = postEqSINR[pilot_first_half:pilot_chunk] if postEqSINR.dim() > 1 else postEqSINR
+                postEqSINR_data = postEqSINR[pilot_chunk:] if postEqSINR.dim() > 1 else postEqSINR
+                LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
                            detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
-                LmmseDemod(equalized[pilot_chunk:], postEqSINR, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
+                LmmseDemod(equalized[pilot_chunk:], postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
                            detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
 
                 # Accumulate per-user post-MRC SNR for this RE:
@@ -1155,9 +1188,16 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                           f"|H|^2={h_pwr_per_user.tolist()} noise_var_est={nv:.6g} "
                           f"postEqSINR_dB={sinr_db:.2f}", flush=True)
 
-                # Store H for JointLLR detector (convert complex to real/imag interleaved)
+                # Store H for JointLLR detector (convert complex to real/imag interleaved).
+                # JointLLR always gets the legacy genie CE, even under chanestmode='dmrs' (see
+                # config.yaml) - recompute it separately here rather than reusing the dmrs H above.
                 if conf.run_jointllr:
-                    H_cpu = H.cpu()
+                    if chanestmode == 'dmrs':
+                        H_jointllr = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
+                        LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H_jointllr)
+                    else:
+                        H_jointllr = H
+                    H_cpu = H_jointllr.cpu()
                     # H is (n_ants, n_users) complex, convert to (2*n_ants*n_users) real
                     # Interleave real/imag: [Re(H[0,0]), Im(H[0,0]), Re(H[1,0]), Im(H[1,0]), ...]
                     H_real = torch.zeros(2 * conf.n_ants * conf.n_users, dtype=torch.float32)
@@ -1170,6 +1210,12 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     H_all_res[:, :, re] = H_real.unsqueeze(0).expand(rx_c.shape[0], -1)
 
                 if run_sphere and not (num_bits_pilot == 8 and conf.increase_prime_modulation == 0):
+                    # Sphere's decoder does one QR decomposition for a whole call and reuses it
+                    # across every symbol passed in - it has no per-symbol-H notion the way
+                    # lmmse_equalize_with_H now does. Under chanestmode='dmrs', H already holds
+                    # group 0's own DMRS estimate here (H_re[0], set above) - used for the whole
+                    # block rather than restructuring every QAM-order Sphere variant below into a
+                    # per-group loop.
                     H = H.cpu().numpy()
                     # When pvo_skip is on, sphere skips the first half of pilots; results go into the
                     # tail of the full-size output arrays, leaving zeros (initial value) up to pilot_first_half_bits.

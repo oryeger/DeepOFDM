@@ -1089,6 +1089,12 @@ def main():
     args = parser.parse_args()
 
     conf.reload_config(args.config)
+    # Forces group 0's channel through the same frozen generate_drift_channel() snapshot every
+    # other group uses (see TLD_channel.py's conv_cir) instead of the plain, continuously-Doppler-
+    # evolving tdl() call that channel_drift_base_index==0 would otherwise take. Without this,
+    # group 0 alone carried a real intra-slot Doppler ramp (absent from every later, frozen
+    # group), which showed up as an extra, group-0-only syndrome degradation at speed>0.
+    conf.set_value('channel_drift_force_freeze', True)
     resolve_auto_escnn_weights_tag()
     # weights_track_mode is this file's single training-mode knob (see module docstring) - unlike
     # evaluate.py, there's no separate training_loss key to keep in sync. conf.training_loss is

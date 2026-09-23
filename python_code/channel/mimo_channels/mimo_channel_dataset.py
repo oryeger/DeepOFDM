@@ -13,7 +13,7 @@ import tensorflow as tf
 
 from python_code.coding.dmrs_pilots import (build_dmrs_tx_symbols, dmrs_known_tx, dmrs_layout,
                                              dmrs_reference_values, estimate_channel_from_dmrs,
-                                             interleave_group_symbols)
+                                             genie_cfo_comp_vector, interleave_group_symbols)
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.pilot_coding import encode_pilots

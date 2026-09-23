@@ -193,7 +193,18 @@ class TDLChannel:
 
         if tf.size(external_channel) == 0:
             drift_index = getattr(conf, 'channel_drift_base_index', 0)
-            if drift_index:
+            # channel_drift_force_freeze (ekf.py only, set once in ekf.main()): without it,
+            # drift_index==0 falls through to the plain tdl() branch below, which - unlike
+            # generate_drift_channel(freeze_time=True) - lets the channel evolve continuously
+            # across the slot via a real Doppler ramp. That makes group 0 the only group whose
+            # channel isn't a frozen per-group snapshot (every later group has a nonzero
+            # drift_index and always takes the generate_drift_channel path); this flag forces
+            # index 0 through the same frozen path as every other group, for consistency within
+            # a drift run. Left off by default because regular (non-ekf) evaluate.py runs stay at
+            # drift_index==0 for their whole run, and rely on exactly this intra-slot ramp for
+            # conf.speed to have any effect at all - freezing it there would silently zero out
+            # mobility effects for every non-ekf run.
+            if drift_index or getattr(conf, 'channel_drift_force_freeze', False):
                 from python_code.channel.sionna.TDL_drift import generate_drift_channel
                 h_time = generate_drift_channel(tdl_params, num_time_samples + l_tot - 1, bandwidth,
                                                 seed=seed, channel_drift_index=drift_index,

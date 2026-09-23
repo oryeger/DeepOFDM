@@ -819,7 +819,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             _banner_loss_tag += f" tw={getattr(conf, 'tw', 0.5)}"
         if _tl_banner in ('gfmi', 'tent', 'tsyn'):
             _banner_loss_tag += f" bb={getattr(conf, 'beta_balance', 0.0)}"
-        print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment}{_banner_loss_tag} =====", flush=True)
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] ===== SNR={snr_cur}dB | channel={conf.channel_model} | corr={getattr(conf, 'spatial_correlation', 'none')} | n_ants={conf.n_ants} n_users={conf.n_users} | mcs={conf.mcs} | cfo={conf.cfo} | aug={conf.which_augment}{_banner_loss_tag} | chanestmode={getattr(conf, 'chanestmode', 'legacy')} =====", flush=True)
         ber_sum = np.zeros(iterations)
         post_eq_sinr_sum = 0.0
         post_eq_sinr_count = 0

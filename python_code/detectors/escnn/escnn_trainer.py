@@ -33,9 +33,28 @@ class ESCNNTrainer(Trainer):
         return 'ESCNN'
 
     def _deep_learning_setup(self, single_model):
+        """
+        Builds self.optimizer/self.criterion for one _train_model call. By default a fresh Adam
+        every call. With self.persist_optimizer set (ekf.py's sgd_* modes, via
+        conf.sgd_persist_optimizer), each network instead keeps one Adam for the whole run, so
+        its moment estimates carry across groups: a fresh Adam's first step is lr*sign(grad)
+        on every weight regardless of gradient size, which is all a per-group epochs=1 update
+        ever got. The cached Adam is rebuilt if that network's trainable-parameter set changed
+        (set_stage/set_load_freeze), since it'd otherwise be stepping the wrong tensors.
+        """
         weight_decay = float(getattr(conf, 'escnn_weight_decay', 0.0))
-        self.optimizer = Adam(filter(lambda p: p.requires_grad, single_model.parameters()),
-                              lr=self.lr, weight_decay=weight_decay)
+        trainable = [p for p in single_model.parameters() if p.requires_grad]
+        if getattr(self, 'persist_optimizer', False):
+            cache = self.__dict__.setdefault('_optimizer_cache', {})
+            key = id(single_model)
+            param_ids = tuple(id(p) for p in trainable)
+            cached = cache.get(key)
+            if cached is None or cached[0] != param_ids:
+                cached = (param_ids, Adam(trainable, lr=self.lr, weight_decay=weight_decay))
+                cache[key] = cached
+            self.optimizer = cached[1]
+        else:
+            self.optimizer = Adam(trainable, lr=self.lr, weight_decay=weight_decay)
         from torch.nn import BCEWithLogitsLoss
         self.criterion = BCEWithLogitsLoss(reduction='none').to(DEVICE)
 

@@ -251,6 +251,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
         title_string += '_loss=' + loss_mode
         if loss_mode == 'tsyn':
             title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
+        if getattr(conf, 'sgd_persist_optimizer', False):
+            title_string += '_po=1'  # absent = old per-group Adam reset, so older names stay valid
     title_string += '_ps=' + _fmt_count(int(getattr(conf, 'pilot_size', -1)))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:
@@ -1164,6 +1166,10 @@ def main():
     escnn_trainer = ESCNNTrainer(num_bits_pilot, n_users, n_ants)
     escnn_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
     best_weights_path = load_pretrained_weights(escnn_trainer)
+    # One Adam per network for this whole run (= one SNR) instead of a fresh one per group -
+    # see ESCNNTrainer._deep_learning_setup. Only the sgd_* modes ever reach _train_model here.
+    escnn_trainer.persist_optimizer = (getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdbce', 'sgdbcei')
+                                       and bool(getattr(conf, 'sgd_persist_optimizer', False)))
     deepsic_trainer, deeprx_trainer = load_frozen_augment_weights(
         best_weights_path, which_augment, num_bits_pilot, n_users, n_ants)
 

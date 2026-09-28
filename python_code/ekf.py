@@ -152,6 +152,7 @@ import commpy.modulation as commpy_mod
 import h5py
 import numpy as np
 import pandas as pd
+import tensorflow as tf
 import torch
 
 from python_code import DEVICE, conf
@@ -171,7 +172,7 @@ from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.evaluate import (AUGMENT_SHORT_MAP, calc_mi_from_ldpc, check_weights_augment_match,
-                                   crc_fail_mask, resolve_auto_escnn_weights_tag)
+                                   crc_fail_mask, resolve_auto_escnn_weights_tag, warn_weights_clip_mismatch)
 from python_code.utils.constants import DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC
 from python_code.utils.probs_utils import relevant_indices
 
@@ -306,6 +307,7 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
                                  f"load_escnn_weights_snr_override to pick one explicitly.")
     best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
     check_weights_augment_match(best_weights_path, getattr(conf, 'which_augment', 'AUGMENT_LMMSE'))
+    warn_weights_clip_mismatch(best_weights_path, conf.clip_percentage_in_tx)
     escnn_trainer.load_weights(_long_path(best_weights_path))
     # weights_track_mode='notrack' is just a more convenient spelling of escnn_load_freeze='all'
     # (nothing left trainable, so ekf_predict_update/the SGD branches below both fall back to
@@ -359,15 +361,25 @@ def load_frozen_augment_weights(best_weights_path: str, which_augment: str, num_
 
 
 def transmit_symbols(s: np.ndarray, n_users: int, num_res: int, h: np.ndarray,
-                      noise_var: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+                      noise_var: float, clip_percentage_in_tx=None) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Transmit an already-modulated symbol array (n_users, num_symbols, num_res) through
     SEDChannel (at whatever conf.channel_drift_base_index is currently set to) and return
     (rx, rx_ce, s_orig): complex128, symbol-major. rx_ce (the genie per-user channel-estimation
     array) is unused by the DMRS CE path below - _estimate_channel_from_dmrs works from the
     plain composite rx instead, since DMRS's CDM ports are genuinely superimposed on the same
     REs and need real deocc, not a per-user-interference-free shortcut - kept in the return only
-    for signature parity."""
+    for signature parity.
+
+    clip_percentage_in_tx: TX PA clipping, None -> conf.clip_percentage_in_tx. SEDChannel.transmit
+    itself never clips (it hard-codes 100) - evaluate.py gets its clipping from
+    MIMOChannel._transmit (mimo_channel_dataset.py:206-209) before calling it, which this file
+    bypasses, so it's applied here the same way. s_orig stays the unclipped symbols, as there."""
     s_orig = np.copy(s)
+    if clip_percentage_in_tx is None:
+        clip_percentage_in_tx = conf.clip_percentage_in_tx
+    if clip_percentage_in_tx < 100:
+        s, _ = SEDChannel.apply_td_and_impairments(s, False, 0, clip_percentage_in_tx, num_res, n_users, False,
+                                                   tf.zeros([0], dtype=tf.float32), 0, 0, conf.channel_seed)
     rx, rx_ce = SEDChannel.transmit(s=s, h=h, noise_var=noise_var, num_res=num_res,
                                      cfo_and_iqmm_in_rx=conf.cfo_and_iqmm_in_rx,
                                      n_users=n_users, pilot_length=s.shape[1])
@@ -417,7 +429,8 @@ def _ground_truth_channel(rng: np.random.Generator, n_users: int, n_ants: int, n
     s = np.zeros((n_users, n_users * NUM_SYMB_PER_SLOT, num_res), dtype=complex)
     for user in range(n_users):
         s[user, user * NUM_SYMB_PER_SLOT:(user + 1) * NUM_SYMB_PER_SLOT, :] = ref[user, :][None, :]
-    rx, _, _ = transmit_symbols(s, n_users, num_res, h, 0.0)  # (n_users*NUM_SYMB_PER_SLOT, n_ants, num_res)
+    # clip=100: this is a channel probe, not a data transmission - clipping would bias H_gt
+    rx, _, _ = transmit_symbols(s, n_users, num_res, h, 0.0, clip_percentage_in_tx=100)  # (n_users*NUM_SYMB_PER_SLOT, n_ants, num_res)
     H_gt = np.zeros((num_res, n_ants, n_users), dtype=complex)
     for user in range(n_users):
         block = rx[user * NUM_SYMB_PER_SLOT:(user + 1) * NUM_SYMB_PER_SLOT]  # (NUM_SYMB_PER_SLOT, n_ants, num_res)

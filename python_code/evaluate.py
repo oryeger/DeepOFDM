@@ -468,6 +468,31 @@ def check_weights_augment_match(path: str, which_augment: str):
             f"mismatched checkpoint.")
 
 
+def _find_clip_in_filename(name: str):
+    """Returns the clip_percentage_in_tx encoded in a saved weights filename (current '_Clp=<v>'
+    or older '_Clip=<v>' spelling) as a float, or None if absent/unparseable."""
+    m = re.search(r'_Cl(?:i)?p=([^_]+)', name)
+    if not m:
+        return None
+    try:
+        return float(m.group(1))
+    except ValueError:
+        return None
+
+
+def warn_weights_clip_mismatch(path: str, clip_percentage_in_tx):
+    """Explicit-tag loads only: print a warning (not an error - loading a checkpoint trained at one
+    clip level and testing it at another is a legitimate transfer experiment) when the
+    checkpoint's filename-encoded clip level differs from this run's. 'auto' filters on it instead
+    (resolve_auto_escnn_weights_tag)."""
+    name = os.path.basename(path)
+    file_clip = _find_clip_in_filename(name)
+    if file_clip is not None and file_clip != float(clip_percentage_in_tx):
+        print(f"[ESCNN] WARNING: checkpoint {name!r} was trained at Clp={file_clip:g} but this run has "
+              f"clip_percentage_in_tx={clip_percentage_in_tx} - loading anyway (cross-clip transfer).",
+              flush=True)
+
+
 # cfo=1 is a sentinel that requests modulation-aware effective cfo (higher-order constellations
 # are more sensitive to phase noise). Any other cfo value is used as-is (no scaling). Shared by
 # resolve_effective_cfo() below so run_evaluate()'s actual per-run cfo and
@@ -494,7 +519,8 @@ def resolve_auto_escnn_weights_tag():
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
     checkpoint matching the current channel_model, channel_seed, which_augment, n_users,
     n_ants, num_res, modulation (mod_pilot's modulation if set - the network's own architecture
-    width - else mcs if set, else mod_data), iqmm_gain/iqmm_phase, and cfo, and set
+    width - else mcs if set, else mod_data), iqmm_gain/iqmm_phase, cfo, and clip_percentage_in_tx
+    (the filename's _Clp=/_Clip= token; a filename without one never matches), and set
     conf.load_escnn_weights_tag to its tag (so the caller doesn't have to hand-copy a hash out
     of the filename every time the config changes). n_ants (like n_users/num_res) affects
     ESCNNDetector's fc1 input width (conv_num_channels = num_bits*n_users + n_ants*2, see
@@ -569,6 +595,7 @@ def resolve_auto_escnn_weights_tag():
     # walked it to mid-run -- a checkpoint's filename only ever records the cfo it was trained
     # at, which is this static per-run value. See resolve_effective_cfo()'s comment.
     cur_effective_cfo = resolve_effective_cfo(conf.cfo, num_bits_data)
+    cur_clip = float(conf.clip_percentage_in_tx)
 
     matches = []
     for path in all_pt_files:
@@ -610,6 +637,9 @@ def resolve_auto_escnn_weights_tag():
             continue
         if file_cfo != cur_effective_cfo:
             continue
+        file_clip = _find_clip_in_filename(name)
+        if file_clip is None or file_clip != cur_clip:
+            continue
         tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
         if not tag_m:
             continue
@@ -621,7 +651,7 @@ def resolve_auto_escnn_weights_tag():
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
             f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, n_ants={conf.n_ants}, "
             f"num_res={conf.num_res}, modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, "
-            f"iqmm_phase={cur_iqmm_phase}, cfo={cur_effective_cfo}. "
+            f"iqmm_phase={cur_iqmm_phase}, cfo={cur_effective_cfo}, clip={cur_clip:g}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
             f"load_escnn_weights_tag to an explicit tag.")
 
@@ -638,7 +668,7 @@ def resolve_auto_escnn_weights_tag():
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
               f"which_augment={conf.which_augment} n_users={conf.n_users} n_ants={conf.n_ants} "
               f"num_res={conf.num_res} modulation={mod_text} iqmm_gain={cur_iqmm_gain} "
-              f"iqmm_phase={cur_iqmm_phase} cfo={cur_effective_cfo}: "
+              f"iqmm_phase={cur_iqmm_phase} cfo={cur_effective_cfo} clip={cur_clip:g}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
     else:
         print(f"[ESCNN] load_escnn_weights_tag='auto' resolved to '{resolved_tag}'", flush=True)
@@ -873,6 +903,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     f"Available SNRs for this tag: {available_snrs}. Set load_escnn_weights_snr_override to pick one explicitly.")
             best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
             check_weights_augment_match(best_weights_path, conf.which_augment)
+            warn_weights_clip_mismatch(best_weights_path, conf.clip_percentage_in_tx)
             escnn_trainer.load_weights(_long_path(best_weights_path))
             escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
         if conf.run_tdfdcnn:

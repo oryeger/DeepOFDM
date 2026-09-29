@@ -9,15 +9,16 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=t2x2lim  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=sadam  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
-snrs=($(seq -10 30))
-cfos=(0)
+snrs=($(seq 0 30))
+#snrs=(25)
+cfos=(0.2)
 cfo_drift_vals=(0)
-speed_vals=(10)
+speed_vals=(2.5 5 10)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -34,12 +35,13 @@ epochs_vals=(1)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(5.0e-3)
+learning_rate_vals=(2.0e-2)
 
 escnn_load_freeze_vals=(
 # 'all'
+# 'first_conv_only'
  'first_conv_and_scale_only'
- 'none'
+# 'none'
 )
 
 pretrain_loss_vals=(
@@ -59,16 +61,20 @@ channel_drift_base_index_vals=(0)
 
 # ekf.py only
 weights_track_mode_vals=(
+ # 'ekf'
   'ekf'
-  'sgdsyn'
-  'sgdbce'
-  'sgdbcei'
+#  'sgdsyn'
+#  'sgdbce'
+#  'sgdbcei'
+#  'notrack'
 )
 calib_slots_per_group_vals=(1)
+
 load_escnn_weights_snr_max_override_vals=(
-  'null'  # disabled (not -1: negative SNRs are valid cap values)
-  5
+  'null'  
+#  25
 )
+
 
 increase_prime_modulation_vals=(False)
 spatial_correlation_vals=('low')
@@ -83,13 +89,13 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(40000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(2)
+pilot_size_vals=(5000 10000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+mcs_vals=(5)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(2)
-n_ants_vals=(4)
+n_users_vals=(1)
+n_ants_vals=(1)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
@@ -397,6 +403,7 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 
 

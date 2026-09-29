@@ -88,12 +88,13 @@ tsyn_fallback_iters: 3 # tsyn only: number of erasure-peeling rounds for punctur
 encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
+chanestmode: 'dmrs'  # 'legacy': dedicated whole-block genie pilot region (today's CE, unchanged). 'dmrs': embedded in-slot DMRS CE matching ekf.py's own scheme (see coding/dmrs_pilots.py) - LMMSE/ESCNN/Sphere only, JointLLR unaffected
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 escnn_weights_only: False  # When True (with save_escnn_weights), train+save then exit immediately - skips inference/BER/plots/CSV to save time
-load_escnn_weights_tag: 'auto'  # 1c8c38/ff8324 (TDLC 24/96)  fef0f0/03e5ad (TDLB 24/96) 356e94 (QPSK TDLB 1 UE 123) 875dcb (NO_AUG TDLC 1 UE 123 5K pilots) 5d1a6b/2b2784 (QPSK TDLC 1 UE 123 5K pilots 24/48 REs) d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7 (QPSK Flat) 7aa9ab (QPSK TDLC 4 UEs 123) 505bd8 (QPSK TDLC 123 4 UEs NO_AUG) 08ae06 (QPSK TDLC 1 UE 123) 5e96b4 (QPSK TDLC 1 UE 123 NO_AUG) b91af9 (QPSK TDLC 123 with clipping) eee812 (16QAM TDLC 123)  '' = don't load
-load_escnn_weights_snr_override: null  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set to deliberately load a different-SNR-trained model (cross-SNR transfer test). null = no override.
+load_escnn_weights_tag: 'auto' 
+load_escnn_weights_snr_override: null
 load_escnn_weights_snr_max_override: null
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
 
@@ -101,13 +102,15 @@ escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_c
 # whichever params escnn_load_freeze leaves unfrozen - requires load_escnn_weights_tag to be
 # set. See ekf_syndrome.tex.
 escnn_ekf_dynamics: 'ar1'  # State evolution f(theta): 'random_walk' (f=identity, F=I) | 'ar1' (f=alpha*theta+(1-alpha)*theta_pretrained, F=alpha*I; mean-reverts to the pretrained checkpoint, guards against drifting to a degenerate syndrome-satisfying solution)
+
+
 escnn_ekf_alpha: 0.99  # ar1 only: per-slot reversion rate toward theta_pretrained (1.0 reproduces random_walk). Ignored if escnn_ekf_dynamics == 'random_walk'. Applied once per slot (~15/block at this config's pilot_size/block_length_factor) - move closer to 1.0 if that's too strong an anchor
 escnn_ekf_sigma_p0: 0.1  # Initial state std: P_0|0 = sigma_p0^2 * I (confidence in theta_pretrained at the first slot)
 escnn_ekf_sigma_q: 0.01  # Process noise std: Q = sigma_q^2 * I (how fast tracked params may drift per slot, applied once per slot - lower this if that adds up to too much per-block drift)
 escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the soft-syndrome check values; larger = more conservative updates)
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []
-slots_per_group: 1  # Data slots per Kalman epoch/channel realization.
+slots_per_group: -1  # Data slots per Kalman epoch/channel realization.
 weights_track_mode: 'ekf' # 'ekf', 'sgd_syn', 'sgd_bce', 'sgd_bcei'
 calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
 

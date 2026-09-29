@@ -8,7 +8,7 @@ being fixed per block. Every group of data slots is treated as fully known (a
 pilot) for BER scoring.
 
 Channel estimation is in-band, 5G-style: every slot (both the scored data slots in
-conf.slots_per_group, and - for weights_track_mode='sgdbcei' only - the separate
+conf.slots_per_group, and - for weights_track_mode='sgdbcei'/'ekfi' only - the separate
 conf.calib_slots_per_group training slots) carries its own embedded DMRS: 2 OFDM
 symbols (PUSCH mapping-type-A style, comb-2 Type-1, up to 4 CDM-multiplexed ports
 - see _dmrs_layout) instead of the whole slot being a known pilot. The other
@@ -58,6 +58,12 @@ here - see config.yaml's weights_track_mode comment):
       whole-slot-known-pilot estimate); it does keep its own normal held-out
       validation split, since (unlike the other sgd_* modes) it's a real
       supervised fit with genuine unseen data to validate against.
+  'ekfi' - the EKF counterpart of 'sgdbcei' ('i' = impractical, same as sgdbcei): the
+      same separate calib region, but instead of epochs of BCE it gets one EKF predict per
+      group and one update per calib slot, with the calib region's known bits as the
+      measurement (single-step supervised CM-EKF, as in Gusakov et al., IEEE TSP 2026) - see
+      ESCNNTrainer.ekf_predict_update_supervised. Uses the same escnn_ekf_* settings as 'ekf'.
+      No validation split (nothing to validate/early-stop).
   'notrack' - no adaptation at all: runs the loaded checkpoint statically,
       exactly as any other mode would if escnn_load_freeze were 'all' (see
       load_pretrained_weights). It overrides escnn_load_freeze to 'all'
@@ -115,19 +121,21 @@ Relevant config keys (see config.yaml for the full list/defaults):
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF), 'sgdsyn'
                                     (blind tsyn, trains on the group's own scored data),
                                     'sgdbce' (practical BCE on the group's own DMRS pilots),
-                                    'sgdbcei' (BCE on a separate calib region), or 'notrack'
+                                    'sgdbcei' (BCE on a separate calib region), 'ekfi' (EKF
+                                    measuring that same calib region's known bits), or 'notrack'
                                     (no adaptation - forces escnn_load_freeze='all') - see
                                     module docstring above
-    calib_slots_per_group         - 'sgdbcei' mode only: slots in the separate training-only
+    calib_slots_per_group         - 'sgdbcei'/'ekfi' modes only: slots in the separate training-only
                                     region (2-DMRS+12-payload structure, same as the data
                                     region). Not used at all by any other mode. Default 1; raise
                                     well above 1 - a single slot's worth of bits is unlikely to
                                     move the weights via gradient descent.
     escnn_ekf_*                  - EKF dynamics/noise/chunking (same knobs as the
-                                    block-based evaluate.py path); 'ekf' mode only
+                                    block-based evaluate.py path); 'ekf' and 'ekfi' modes only
     epochs                        - any sgd_* mode only: epochs of full training per group
                                     (same knob evaluate.py's own pilot training uses)
-    slots_per_group               - slots per group (= slots per channel realization, and per CFO value)
+    slots_per_group               - slots per group (= slots per channel realization, and per CFO value);
+                                    -1 = equal to calib_slots_per_group
     channel_drift_base_index     - starting slot offset into the TDL trajectory
     cfo                           - base/starting CFO (scs); constant within a group
     cfo_drift                     - CFO drift rate (scs/sec); advances cfo by cfo_drift *
@@ -177,7 +185,7 @@ from python_code.utils.constants import DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL
 from python_code.utils.probs_utils import relevant_indices
 
 # --- In-slot DMRS pilots (replaces the old dedicated-calibration-slot CE mechanism for the
-# scored data region, and - for weights_track_mode='sgdbcei' - for the calib region too; see
+# scored data region, and - for weights_track_mode='sgdbcei'/'ekfi' - for the calib region too; see
 # module docstring). PUSCH mapping-type-A style: 2 OFDM symbols/slot, comb-2 Type-1, up to 4
 # CDM-multiplexed ports (FD-OCC). Layout/CE math itself lives in coding/dmrs_pilots.py (shared
 # with evaluate.py's conf.chanestmode path); only the slot-local symbol positions are specific
@@ -242,17 +250,22 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
-    if track_mode == 'sgdbcei':
+    if track_mode in ('sgdbcei', 'ekfi'):
         title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_lr=' + f"{getattr(conf, 'learning_rate', 5.0e-3):.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
     if track_mode in ('sgdsyn', 'sgdbce', 'sgdbcei'):
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
+        _bs = int(getattr(conf, 'batch_size', -1))
+        if _bs > 0:  # absent = full batch (-1), so older names stay valid
+            title_string += '_bs=' + str(_bs)
         loss_mode = getattr(conf, 'training_loss', 'bce')
         title_string += '_loss=' + loss_mode
         if loss_mode == 'tsyn':
             title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
-        if getattr(conf, 'sgd_persist_optimizer', False):
-            title_string += '_po=1'  # absent = old per-group Adam reset, so older names stay valid
+        # Persistent Adam, betas (0.0, 0.99) - see ESCNNTrainer._deep_learning_setup. po=2 so these
+        # names can't be confused with the 2026-09-29 po=1 runs (persistent, torch-default betas)
+        # or the older untagged runs (fresh Adam per group).
+        title_string += '_po=2'
     title_string += '_ps=' + _fmt_count(int(getattr(conf, 'pilot_size', -1)))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:
@@ -677,6 +690,38 @@ def _llr_diag_line(snr, group_idx: int, slot: int, user: int, llr_scored: np.nda
             f"top_re_share={top_re_share:.3f}(re={top_wrong_re})")
 
 
+def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc,
+                               ldpc_k, ldpc_n, n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio):
+    """Generate, transmit and LMMSE-demodulate a separate calib_slots-sized region, built the same
+    DMRS+payload way as the scored data, for the supervised modes ('sgdbcei', 'ekfi') - never
+    scored, only trained on. Returns (tx_calib_t, rx_calib_real_t, probs_for_aug_calib): the known
+    bits (symbols*num_bits_pilot, n_users, num_res), the real/imag-interleaved rx, and the LMMSE
+    prior ESCNN is augmented with."""
+    calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
+                                               mod_data, layout, codec, crc, ldpc_k, ldpc_n)
+    calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
+                                           estimate_noise_var=True)
+    calib_tx_bits = calib_result['tx_bits']
+    rx_calib, H_calib = calib_result['rx_payload'], calib_result['H_est']
+    lmmse_noise_var_calib = (noise_var if getattr(conf, 'override_noise_var', True)
+                              else calib_result['noise_var_est'])
+    num_calib_symbols = rx_calib.shape[0]
+    rx_calib_t = torch.from_numpy(rx_calib)
+    detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
+    llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
+    for re in range(num_res):
+        equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re)
+        LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
+                   detected_word_lmmse_calib, pilot_data_ratio)
+    rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
+    rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
+    rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
+    rx_calib_real_t = torch.from_numpy(rx_calib_real)
+    probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
+    tx_calib_t = torch.from_numpy(calib_tx_bits.astype(np.float32))
+    return tx_calib_t, rx_calib_real_t, probs_for_aug_calib
+
+
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
               ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
@@ -882,7 +927,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                 for p in net.parameters())
         if escnn_frozen:
             escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing "
-                                           "trainable - skipping SGD update (running loaded "
+                                           "trainable - skipping the weight update (running loaded "
                                            "weights statically).", tag='sgd')
         elif weights_track_mode == 'sgdsyn':
             # Blind loss (no ground truth in L_tent/L_synd - see escnn_trainer._calculate_loss)
@@ -910,32 +955,25 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                             conf.iterations, conf.epochs, False, probs_dmrs,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
                                             real_bit_idx=dmrs_real_bit_idx)
+        elif weights_track_mode == 'ekfi':
+            # Same separate calib region as sgdbcei (drawn from rng at the same point, so both
+            # modes see identical channels/data), but one EKF predict + one update per calib slot
+            # with the known calib bits as the measurement instead of epochs of BCE - see
+            # ESCNNTrainer.ekf_predict_update_supervised. No train/val split: the EKF has nothing
+            # to validate or early-stop, so all calib symbols are measurements.
+            tx_calib_t, rx_calib_real_t, probs_for_aug_calib = _build_calib_training_data(
+                rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc, ldpc_k, ldpc_n,
+                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio)
+            escnn_trainer.ekf_predict_update_supervised(rx_calib_real_t, tx_calib_t, num_bits_pilot, n_users,
+                                                         conf.iterations, probs_for_aug_calib,
+                                                         payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
         else:  # 'sgdbcei'
             # Supervised loss - can't train on the same bits it's about to be scored against, so
             # build a separate calib_slots-sized region, the same DMRS+payload way as the scored
             # data above - never scored, only trained on (see module docstring).
-            calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
-                                                       mod_data, layout, codec, crc, ldpc_k, ldpc_n)
-            calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
-                                                   estimate_noise_var=True)
-            calib_tx_bits = calib_result['tx_bits']
-            rx_calib, H_calib = calib_result['rx_payload'], calib_result['H_est']
-            lmmse_noise_var_calib = (noise_var if getattr(conf, 'override_noise_var', True)
-                                      else calib_result['noise_var_est'])
-            num_calib_symbols = rx_calib.shape[0]
-            rx_calib_t = torch.from_numpy(rx_calib)
-            detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
-            llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
-            for re in range(num_res):
-                equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re)
-                LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
-                           detected_word_lmmse_calib, pilot_data_ratio)
-            rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
-            rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
-            rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
-            rx_calib_real_t = torch.from_numpy(rx_calib_real)
-            probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
-            tx_calib_t = torch.from_numpy(calib_tx_bits.astype(np.float32))
+            tx_calib_t, rx_calib_real_t, probs_for_aug_calib = _build_calib_training_data(
+                rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc, ldpc_k, ldpc_n,
+                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio)
             # payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB here only turns off the
             # primary-detector cut (see escnn_trainer._train_model's docstring) - the normal
             # train/val split still applies since this is a real supervised fit with genuine
@@ -1110,6 +1148,10 @@ def main():
     # group 0 alone carried a real intra-slot Doppler ramp (absent from every later, frozen
     # group), which showed up as an extra, group-0-only syndrome degradation at speed>0.
     conf.set_value('channel_drift_force_freeze', True)
+    # slots_per_group: -1 = same as calib_slots_per_group. Resolved here, before anything reads
+    # it, so the trainer's per-group predict and the output names all see the actual number.
+    if int(getattr(conf, 'slots_per_group', 1)) == -1:
+        conf.set_value('slots_per_group', max(1, int(getattr(conf, 'calib_slots_per_group', 1))))
     resolve_auto_escnn_weights_tag()
     # weights_track_mode is this file's single training-mode knob (see module docstring) - unlike
     # evaluate.py, there's no separate training_loss key to keep in sync. conf.training_loss is
@@ -1118,7 +1160,7 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack')
+    _MODE_CHOICES = ('ekf', 'ekfi', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack')
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
     conf.set_value('training_loss', {'sgdsyn': 'tsyn'}.get(weights_track_mode, 'bce'))
@@ -1168,8 +1210,7 @@ def main():
     best_weights_path = load_pretrained_weights(escnn_trainer)
     # One Adam per network for this whole run (= one SNR) instead of a fresh one per group -
     # see ESCNNTrainer._deep_learning_setup. Only the sgd_* modes ever reach _train_model here.
-    escnn_trainer.persist_optimizer = (getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdbce', 'sgdbcei')
-                                       and bool(getattr(conf, 'sgd_persist_optimizer', False)))
+    escnn_trainer.persist_optimizer = getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdbce', 'sgdbcei')
     deepsic_trainer, deeprx_trainer = load_frozen_augment_weights(
         best_weights_path, which_augment, num_bits_pilot, n_users, n_ants)
 
@@ -1218,6 +1259,8 @@ def main():
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
     if weights_track_mode == 'sgdbcei':
         calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
+    elif weights_track_mode == 'ekfi':
+        calib_note = f", {calib_slots_per_group} calib slot(s)/group as supervised EKF measurements"
     elif weights_track_mode == 'sgdbce':
         calib_note = ", training directly on the group's own DMRS pilots"
     elif weights_track_mode == 'sgdsyn':

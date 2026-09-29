@@ -24,6 +24,10 @@ from python_code.utils.probs_utils import relevant_indices
 
 Softmax = torch.nn.Softmax(dim=1)
 
+# (beta1, beta2) for ekf.py's persistent per-network Adam (see _deep_learning_setup).
+_PERSIST_ADAM_BETAS = (0.0, 0.99)
+
+
 class ESCNNTrainer(Trainer):
 
     def __init__(self, num_bits: int, n_users: int, n_ants: int):
@@ -35,12 +39,16 @@ class ESCNNTrainer(Trainer):
     def _deep_learning_setup(self, single_model):
         """
         Builds self.optimizer/self.criterion for one _train_model call. By default a fresh Adam
-        every call. With self.persist_optimizer set (ekf.py's sgd_* modes, via
-        conf.sgd_persist_optimizer), each network instead keeps one Adam for the whole run, so
+        every call - evaluate.py always gets this. With self.persist_optimizer set (only ever by
+        ekf.py, for its sgd_* modes), each network instead keeps one Adam for the whole run, so
         its moment estimates carry across groups: a fresh Adam's first step is lr*sign(grad)
         on every weight regardless of gradient size, which is all a per-group epochs=1 update
         ever got. The cached Adam is rebuilt if that network's trainable-parameter set changed
         (set_stage/set_load_freeze), since it'd otherwise be stepping the wrong tensors.
+        The persistent Adam uses _PERSIST_ADAM_BETAS, not torch's (0.9, 0.999): with one
+        step per group, beta1=0.9 momentum keeps pushing along ~10 groups' worth of stale
+        gradient after the model has already passed the optimum, and beta2=0.999 lets the
+        large gradients of that overshoot hold the step size down for ~1000 groups.
         """
         weight_decay = float(getattr(conf, 'escnn_weight_decay', 0.0))
         trainable = [p for p in single_model.parameters() if p.requires_grad]
@@ -50,7 +58,8 @@ class ESCNNTrainer(Trainer):
             param_ids = tuple(id(p) for p in trainable)
             cached = cache.get(key)
             if cached is None or cached[0] != param_ids:
-                cached = (param_ids, Adam(trainable, lr=self.lr, weight_decay=weight_decay))
+                cached = (param_ids, Adam(trainable, lr=self.lr, betas=_PERSIST_ADAM_BETAS,
+                                          weight_decay=weight_decay))
                 cache[key] = cached
             self.optimizer = cached[1]
         else:
@@ -597,6 +606,75 @@ class ESCNNTrainer(Trainer):
                     index_start = user * num_bits
                     index_end = (user + 1) * num_bits
                     next_probs_vec[:, index_start:index_end, :, :] = output
+            probs_vec = next_probs_vec
+
+    def ekf_predict_update_supervised(self, rx_real: torch.Tensor, tx: torch.Tensor, num_bits: int, n_users: int,
+                                       iterations: int, probs_in: torch.Tensor = None,
+                                       payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
+        """Supervised counterpart of ekf_predict_update (ekf.py's weights_track_mode='ekfi'): the
+        same EkfParamTracker predict/update, but the measurement is the known transmitted bits of a
+        separate calibration region instead of the soft syndrome - the single-step CM-EKF of
+        Gusakov et al. (IEEE TSP 2026) applied to ESCNN. One predict per call (= per group), then
+        one update per calibration slot. Impractical in the same sense as sgdbcei: it needs a whole
+        known, extra region every group.
+
+        Per-bit measurement is the agreement (2b-1)*tanh(L/2) in [-1, 1] with target 1, i.e. the
+        same "1 - p" innovation form the tracker already uses for the syndrome. Since
+        tanh(L/2) = 2*sigmoid(L) - 1, the innovation is 2*|b - sigmoid(L)|: the paper's
+        b - h(x), scaled by 2.
+
+        tx: (symbols*num_bits, n_users, num_res) bits, the same layout sgdbcei passes to
+        _online_training (llr > 0 <=> bit 1, as in BCEWithLogitsLoss)."""
+        if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
+            self._tsyn_warn_once('ekfi_all_frozen', "escnn_load_freeze leaves nothing trainable - "
+                                  "skipping EKF update (running loaded weights statically).", tag='ekf')
+            return
+        num_slots = rx_real.shape[0] // payload_symbols_per_slot
+        if num_slots == 0:
+            return
+
+        trackers = self._get_ekf_trackers()
+        rx_real = rx_real.to(DEVICE).unsqueeze(-1)
+        if getattr(conf, 'which_augment', 'NO_AUGMENT') == 'NO_AUGMENT' or probs_in is None:
+            probs_vec = self._initialize_probs_for_infer(rx_real, num_bits, n_users)
+        else:
+            probs_vec = probs_in.to(DEVICE)
+        no_samples = getattr(conf, 'no_samples', False)
+        log_stats = getattr(conf, 'log_train_every_epochs', 0) > 0
+        num_res = rx_real.shape[2]
+
+        for i in range(iterations):
+            next_probs_vec = probs_vec.clone()
+            for user in range(n_users):
+                net = self.detector[user][i]
+                if conf.no_probs:
+                    rx_prob = rx_real
+                elif no_samples:
+                    rx_prob = probs_vec
+                else:
+                    rx_prob = torch.cat((rx_real, probs_vec), dim=1)
+                # +-1 per bit, (symbols, num_bits, num_res)
+                sign = (2.0 * tx[:, user, :].reshape(-1, num_bits, num_res) - 1.0).to(DEVICE, dtype=rx_prob.dtype)
+
+                tracker = trackers[user][i]
+                tracker.predict()
+                for s in range(num_slots):
+                    sl = slice(s * payload_symbols_per_slot, (s + 1) * payload_symbols_per_slot)
+                    rx_slot, sign_slot = rx_prob[sl], sign[sl]
+
+                    def measurement_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot):
+                        _, llrs = functional_call(_net, param_dict, (_rx,))
+                        return (_sign * torch.tanh(0.5 * llrs.squeeze(-1))).reshape(-1)
+
+                    stats = tracker.update(measurement_fn)
+                    if log_stats and not stats.get('skipped', True):
+                        print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
+                              f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
+                              f"mean_agree={stats['mean_p']:.3f}", flush=True)
+
+                with torch.no_grad():
+                    output, _ = net(rx_prob)
+                    next_probs_vec[:, user * num_bits:(user + 1) * num_bits, :, :] = output
             probs_vec = next_probs_vec
 
     def _log_static_syndrome_stats(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,

@@ -95,10 +95,10 @@ def differing_tokens(keys):
 SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
 
 # Token names that are intrinsic to the tracking mode itself (ekf.py only
-# emits csg/ep/loss/tw/po for specific track_modes; lr is always emitted right
+# emits csg/ep/bs/loss/tw/po for specific track_modes; lr is always emitted right
 # after trk) rather than independent sweep axes -- see ekf.py's
 # get_escnn_title_string, ~line 272-282.
-TRK_FAMILY = {"trk", "csg", "lr", "ep", "loss", "tw", "po"}
+TRK_FAMILY = {"trk", "csg", "lr", "ep", "bs", "loss", "tw", "po"}
 
 def mat_target(tag, k, diffs_k, short, aug_type):
     """Where plot_csvs() should save this config's .mat file(s).
@@ -273,7 +273,7 @@ def build(tag):
                 if mat_key in seen_mat_targets:
                     print(f"  [WARN] mat collision: this config's trk={trk_mode} .mat file "
                           f"will overwrite the one just written for config [{seen_mat_targets[mat_key]}] "
-                          f"-- they share a trk mode but differ in csg/lr/ep/loss/tw/po, which the bare "
+                          f"-- they share a trk mode but differ in csg/lr/ep/bs/loss/tw/po, which the bare "
                           f"'{mat_name}.mat' filename can't distinguish.")
                 seen_mat_targets[mat_key] = label
             pmc.plot_csvs(pattern, mat_out_dir=mat_dir, mat_name=mat_name, mat_extra=mat_extra)

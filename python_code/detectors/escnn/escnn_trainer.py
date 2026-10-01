@@ -481,7 +481,8 @@ class ESCNNTrainer(Trainer):
         return self._ekf_trackers
 
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
-                            probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
+                            probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
+                            tx_ref: torch.Tensor = None):
         """Unsupervised, syndrome-driven test-time adaptation: for every (user, iteration)
         network, whatever escnn_load_freeze leaves unfrozen gets one EKF predict+update per
         *slot* (one TB/LDPC codeword each) from that slot's soft-syndrome measurement (no
@@ -493,7 +494,12 @@ class ESCNNTrainer(Trainer):
         full NUM_SYMB_PER_SLOT, but ekf.py's streaming-drift script embeds DMRS in-slot and
         passes its own payload-symbols-per-slot count instead, since rx_real there already
         excludes DMRS rows (see _get_syndrome_helper's docstring for why this must also match
-        the codec that built the actual LDPC codewords). See ekf_syndrome.tex."""
+        the codec that built the actual LDPC codewords). See ekf_syndrome.tex.
+
+        tx_ref (diagnostic only): the same slots' true bits, (symbols*qm, n_users, num_res), llr > 0
+        <=> bit 1. When given and logging is on, each update also computes the step those true bits
+        would have produced (ekfi's agreement measurement, same prior) and logs cos_true, its
+        cosine similarity with the applied syndrome step. Never applied; doubles the per-slot cost."""
         helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
         if helper is None:
             self._tsyn_warn_once('ekf_mcs', "EKF tracking needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
@@ -549,6 +555,7 @@ class ESCNNTrainer(Trainer):
             probs_vec = probs_in.to(DEVICE)
         no_samples = getattr(conf, 'no_samples', False)
         log_stats = getattr(conf, 'log_train_every_epochs', 0) > 0
+        use_ref = log_stats and tx_ref is not None
 
         for i in range(iterations):
             next_probs_vec = probs_vec.clone()
@@ -560,6 +567,10 @@ class ESCNNTrainer(Trainer):
                     rx_prob = probs_vec
                 else:
                     rx_prob = torch.cat((rx_real, probs_vec), dim=1)
+                if use_ref:
+                    # +-1 per real bit, (symbols, qm, num_res)
+                    sign_ref = (2.0 * tx_ref[:, user, :].reshape(-1, qm, rx_real.shape[2]) - 1.0).to(
+                        DEVICE, dtype=rx_prob.dtype)
 
                 # One slot = one TB = one LDPC codeword here (this project has no CB
                 # segmentation), and slots are the actual unit of elapsed transmission
@@ -594,12 +605,24 @@ class ESCNNTrainer(Trainer):
                             stream = llrs.squeeze(-1).reshape(-1)[:_n].reshape(1, _n)
                             return helper.p_vector(stream).reshape(-1)
 
-                        stats = tracker.update(measurement_fn)
+                        reference_fn = None
+                        if use_ref:
+                            _sign = sign_ref[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
+
+                            def reference_fn(param_dict, _net=net, _rx=rx_slot, _idx=real_bit_idx, _sign=_sign):
+                                _, llrs = functional_call(_net, param_dict, (_rx,))
+                                if _idx is not None:
+                                    llrs = llrs[:, _idx, :, :]
+                                return (_sign * torch.tanh(0.5 * llrs.squeeze(-1))).reshape(-1)
+
+                        stats = tracker.update(measurement_fn, reference_fn=reference_fn)
                         if log_stats and not stats.get('skipped', True):
+                            cos_txt = (f" cos_true={stats['cos_ref']:.3f}"
+                                       if stats.get('cos_ref') is not None else "")
                             print(f"[ekf] user={user} it={i} slot={s + 1}/{num_slots} "
                                   f"(epoch {group_start // slots_per_predict + 1}) "
                                   f"checks={stats['num_checks']} mean_hard_sat={stats['mean_hard_sat']:.3f} "
-                                  f"mean_p={stats['mean_p']:.3f}", flush=True)
+                                  f"mean_p={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}{cos_txt}", flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)
@@ -670,7 +693,7 @@ class ESCNNTrainer(Trainer):
                     if log_stats and not stats.get('skipped', True):
                         print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
                               f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
-                              f"mean_agree={stats['mean_p']:.3f}", flush=True)
+                              f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}", flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)

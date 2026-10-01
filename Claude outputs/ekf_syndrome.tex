@@ -1,0 +1,575 @@
+\documentclass{article}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath, amsfonts, amssymb}
+\usepackage{parskip}
+\usepackage{enumitem}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{array}
+\usepackage[bookmarks,colorlinks,allcolors=blue]{hyperref}
+
+\newcommand{\state}{\boldsymbol{\theta}}
+\newcommand{\clamp}{\operatorname{clamp}}
+
+\title{EKF Tracking of ESCNN Weights:\\Unsupervised Soft-Syndrome (\texttt{ekf}) and Supervised (\texttt{ekfi}) Measurements}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Unsupervised EKF via soft-syndrome measurements (\texttt{ekf})}
+\label{sec:ekf}
+
+\subsection{State-space model}
+\label{sec:model}
+
+The ESCNN weights are treated as a latent state $\state_i \in \mathbb{R}^d$ that drifts slowly
+from frame to frame, and is tracked using only the channel code's parity structure —
+no ground-truth bits are needed.
+
+\subsubsection*{State evolution}
+
+\begin{equation}
+\state_i = f(\state_{i-1}) + \mathbf{w}_i, \qquad Q = \operatorname{Cov}(\mathbf{w}_i)
+\end{equation}
+
+In the simplest (and most common) case $f$ is the identity, i.e.\ the weights follow a random
+walk and the process noise $Q$ controls how fast tracking is allowed to move.
+
+\paragraph{Choice of $f$.} Two natural dynamics models:
+
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{Random walk:} $f(\state) = \state$, so $F_i = I$. The weight estimate has no
+  pull-back term — under this model, whatever the filter drifts to is held purely by the
+  balance of $Q$ and $R$, with no anchor to a known-good solution.
+  \item \textbf{First-order Markov / AR(1):}
+  $f(\state) = \alpha\,\state + (1-\alpha)\,\state_{\text{pretrained}}$, $0 < \alpha \le 1$,
+  so $F_i = \alpha I$. The weights are mean-reverting toward the pretrained solution
+  $\state_{\text{pretrained}}$ at rate $1-\alpha$ per frame; $\alpha=1$ recovers the random
+  walk exactly. This adds an implicit regularizer that keeps the filter anchored near a
+  known-good solution rather than free to wander indefinitely under noisy syndrome
+  measurements — useful given that "all checks satisfied" alone does not guarantee the tracked
+  weights are still correct (see the earlier discussion on degenerate syndrome solutions).
+\end{itemize}
+
+\subsubsection*{Measurement model}
+
+\begin{equation}
+\mathbf{y}_i = h_i(\state_i) + \mathbf{v}_i, \qquad R = \operatorname{Cov}(\mathbf{v}_i), \qquad
+\mathbf{y}_i = \mathbf{1}_M
+\end{equation}
+
+The pseudo-label is the all-ones vector: the filter is driven to make every one of the $M$
+parity checks satisfied, which is the only supervision signal available. The measurement
+function $h_i$ is the composition
+
+\begin{equation}
+h_i \; : \quad \state_i \xrightarrow[\mathbf{X}_i]{\text{ESCNN}} \widetilde{\mathbf{L}}_i
+\;\to\; \mathbf{q}_i \;\to\; \mathbf{t}_i \;\to\; \mathbf{p}_i ,
+\end{equation}
+
+built from the network's soft output and the parity-check matrix $H$ (bit $n$, check $m$,
+entry $H_{mn}$):
+
+\begin{align}
+\widetilde{L}_{i,n} &= f_{\state_i}(\mathbf{X}_i) \label{eq:llr} \\[4pt]
+q_{i,n} &=
+\begin{cases}
+\widetilde{L}_{i,n}, & n \text{ transmitted} \\
+L_{\max}, & n \text{ filler} \\
+0, & n \text{ punctured}
+\end{cases} \\[4pt]
+t_{i,n} &= \tanh\!\left(\frac{\clamp(q_{i,n}, \pm L_{\max})}{2}\right) \label{eq:t} \\[4pt]
+p_{i,m} &= \prod_{n \,:\, H_{mn}=1} t_{i,n}, \qquad
+\mathbf{p}_i = [p_{i,1}, \dots, p_{i,M}]^T \label{eq:p}
+\end{align}
+
+Filler and punctured positions are fixed constants w.r.t.\ $\state_i$; only the transmitted
+bits carry gradient information back to the weights. Noise covariances are taken isotropic,
+$Q = \sigma_Q^2 I$, $R = \sigma_R^2 I$.
+
+\subsubsection*{Initialization}
+
+\begin{equation}
+\hat{\state}_{0|0} = \state_{\text{pretrained}}, \qquad
+P_{0|0} = \sigma_{P_0}^2 I, \qquad
+Q = \sigma_Q^2 I, \qquad
+R = \sigma_R^2 I
+\end{equation}
+
+\begin{itemize}[itemsep=2pt]
+  \item $\hat{\state}_{0|0}$ is set to the offline-pretrained ESCNN weights — the filter starts
+  from a good point and only tracks drift away from it, rather than learning from scratch.
+  \item $P_{0|0}$, $Q$, and $R$ are all initialized as \emph{scaled identity matrices}: a single
+  scalar variance times $I$, rather than any structured (e.g.\ per-layer or per-check)
+  covariance. This keeps the filter cheap to initialize and gives three interpretable knobs:
+  \begin{itemize}
+    \item $\sigma_{P_0}^2$ — initial confidence in $\hat{\state}_{0|0}$ (larger $\Rightarrow$
+    the first few updates are allowed to move the weights more).
+    \item $\sigma_Q^2$ — how fast the weights are allowed to drift per frame (tracking speed
+    vs.\ stability trade-off).
+    \item $\sigma_R^2$ — how much the syndrome measurement is trusted (larger $\Rightarrow$
+    softer, more conservative updates).
+    \item $\alpha$ (only if the AR(1) dynamics model is used) — reversion strength toward
+    $\state_{\text{pretrained}}$; $\alpha \to 1$ behaves like the random walk, smaller $\alpha$
+    anchors the estimate more tightly.
+  \end{itemize}
+  \item All three scalars are hyperparameters to be tuned (e.g.\ via a validation sweep, or by
+  monitoring filter consistency through the normalized innovation
+  $\Delta\mathbf{y}_i^T S_i^{-1} \Delta\mathbf{y}_i$, which should track $\chi^2(M)$ if $Q$ and
+  $R$ are well-scaled). The scaled-identity choice is a starting point, not a constraint — it
+  can later be replaced with a block-diagonal or per-layer form if needed.
+\end{itemize}
+
+\subsection{Predict step}
+\label{sec:predict}
+
+\begin{align}
+\hat{\state}_{i|i-1} &= f\big(\hat{\state}_{i-1|i-1}\big) \label{eq:pred-mean}
+  && \text{(propagate the estimate through the dynamics)} \\
+F_i &= \left.\frac{\partial f(\state)}{\partial \state}\right|_{\hat{\state}_{i-1|i-1}} \label{eq:pred-F}
+  && \Big(\Rightarrow\ \state_i-\hat{\state}_{i|i-1} \approx F_i\big(\state_{i-1}-\hat{\state}_{i-1|i-1}\big)+\mathbf{w}_i\Big) \\
+P_{i|i-1} &= F_i \, P_{i-1|i-1} \, F_i^T + Q \label{eq:pred-P}
+  && \big(= \operatorname{Cov}(\state_i-\hat{\state}_{i|i-1})\text{: old uncertainty + drift}\big)
+\end{align}
+
+Equation~\eqref{eq:pred-F} comes from a first-order Taylor expansion,
+$f(\state)\approx f(\hat{\state}_{i-1|i-1}) + F_i(\state-\hat{\state}_{i-1|i-1})$, which makes
+the prediction error a linear function of the previous estimation error plus the process
+noise. Since $\mathbf{w}_i$ is independent of that error, its covariance is \eqref{eq:pred-P}. For both
+dynamics models used here $f$ is affine, so the expansion is exact.
+
+\textbf{What needs to be computed:}
+\begin{enumerate}[itemsep=2pt]
+  \item Propagate the weight estimate through $f$.
+  \begin{itemize}[itemsep=2pt]
+    \item Random walk: $\hat{\state}_{i|i-1} = \hat{\state}_{i-1|i-1}$ (no-op).
+    \item AR(1): $\hat{\state}_{i|i-1} = \alpha\,\hat{\state}_{i-1|i-1} +
+    (1-\alpha)\,\state_{\text{pretrained}}$ — a single scalar-weighted average with the fixed
+    pretrained checkpoint.
+  \end{itemize}
+  \item $F_i$, the Jacobian of the dynamics model. Both proposed choices of $f$ are affine in
+  $\state$, so $F_i$ is a known constant, not something that needs autodiff:
+  $F_i = I$ for the random walk, $F_i = \alpha I$ for AR(1). The predict covariance is then
+  simply $P_{i|i-1} = \alpha^2 P_{i-1|i-1} + Q$ (random walk is the $\alpha=1$ special case).
+\end{enumerate}
+
+\subsection{Update step}
+\label{sec:update}
+
+\begin{align}
+\hat{\mathbf{y}}_{i|i-1} &= h_i\big(\hat{\state}_{i|i-1}\big) = \mathbf{p}_i \label{eq:yhat}
+  && \text{(predicted checks)} \\
+\Delta \mathbf{y}_i &= \mathbf{1}_M - \mathbf{p}_i \label{eq:innov}
+  && \text{(innovation: unmet parity)} \\
+H_i &= \left.\frac{\partial h_i(\state)}{\partial \state}\right|_{\hat{\state}_{i|i-1}} \label{eq:H}
+  && \Big(\Rightarrow\ \Delta\mathbf{y}_i \approx H_i\big(\state_i-\hat{\state}_{i|i-1}\big)+\mathbf{v}_i\Big) \\
+S_i &= H_i P_{i|i-1} H_i^T + R \label{eq:S}
+  && \big(= \operatorname{Cov}(\Delta\mathbf{y}_i)\big) \\
+K_i &= P_{i|i-1} H_i^T S_i^{-1} \label{eq:K}
+  && \big(= \operatorname{Cov}(\state_i,\Delta\mathbf{y}_i)\,\operatorname{Cov}(\Delta\mathbf{y}_i)^{-1}\big) \\
+\hat{\state}_{i|i} &= \hat{\state}_{i|i-1} + K_i \, \Delta \mathbf{y}_i \label{eq:upd}
+  && \text{(LMMSE correction of } \hat{\state}_{i|i-1}\text{)} \\
+P_{i|i} &= P_{i|i-1} - K_i S_i K_i^T \label{eq:Pupd}
+  && \text{(uncertainty removed by } \Delta\mathbf{y}_i\text{)}
+\end{align}
+
+Equation~\eqref{eq:H} comes from a first-order Taylor expansion,
+$h_i(\state)\approx \mathbf{p}_i + H_i(\state-\hat{\state}_{i|i-1})$, which makes the
+innovation a linear, noisy measurement of the weight error. Equations~\eqref{eq:S}--\eqref{eq:Pupd} are
+then the standard linear-Gaussian update: with
+$\operatorname{Cov}(\state_i-\hat{\state}_{i|i-1})=P_{i|i-1}$ and
+$\mathbf{v}_i\sim(\mathbf{0},R)$, \eqref{eq:S} and the cross-covariance
+$P_{i|i-1}H_i^T$ follow directly from the linearized model.
+
+\textbf{What needs to be computed:}
+\begin{enumerate}[itemsep=2pt]
+  \item \emph{Forward pass:} run $\state_i \to \widetilde{\mathbf{L}}_i \to \mathbf{q}_i \to
+  \mathbf{t}_i \to \mathbf{p}_i$ once to get $\hat{\mathbf{y}}_{i|i-1}$ and the innovation
+  $\Delta\mathbf{y}_i$.
+  \item \emph{Jacobian $H_i$:} this does \emph{not} need to be hand-derived. It is obtained
+  automatically by differentiating the same forward pass with reverse-mode autodiff
+  (e.g.\ \texttt{torch.func.jacrev} or \texttt{vjp} over $h_i$ as a function of $\state$).
+  Since the number of parity checks $M$ is typically far smaller than the number of weights
+  $d$, reverse mode is the efficient direction (cost $\sim M$ backward passes).
+  \item \emph{Pruning:} any check row $m$ that includes a punctured bit has $p_{i,m}=0$
+  identically, and its corresponding row of $H_i$ is also identically zero. These rows carry
+  no information and should be dropped before forming $S_i$. (Refined further in
+  Section~\ref{sec:fallback}: in practice almost every row touches a punctured bit, so this
+  naive rule alone is not enough — punctured bits are first estimated from the code's own
+  structure, and pruning is then based on that estimation's provenance, not simply on whether
+  a row touches $\mathcal{P}$.)
+  \item \emph{Gain and covariance update:} standard linear algebra once $H_i$ (or its action
+  on vectors, if $d$ is too large to form $H_i$ explicitly) is available. For large $d$,
+  avoid materializing $P$ densely — use a low-rank or diagonal approximation and matrix-free
+  $H_i v$ / $H_i^T v$ products instead.
+\end{enumerate}
+
+\subsection{The punctured-bit fallback and its self-referential failure mode}
+\label{sec:fallback}
+
+The pruning rule in Section~\ref{sec:update} — drop any check row that touches a punctured bit — is a
+simplification that does not survive contact with real operating points. At MCS2,
+$\text{num\_res}=96$ ($n_{\text{ldpc}}=4576$, $M=3696$), \emph{every single check row}
+touches at least one punctured position, so that rule alone leaves $\mathbf{y}_i$ empty and
+the update step vacuous. What is actually implemented is a two-stage scheme: first estimate
+the punctured bits from the code's own structure, then prune more carefully than "touches a
+punctured bit" — this section derives why the second step is necessary.
+
+\subsubsection*{Erasure-peeling estimate of the punctured bits}
+
+Let $\mathcal{P} \subset \{1,\dots,N\}$ be the punctured bit indices (where $q_{i,n}=0$ by
+construction, hence $t_{i,n}=0$). For $n \in \mathcal{P}$ still unresolved ($t_{i,n}=0$), a
+check $m$ with $H_{mn}=1$ can send $n$ a message only if $n$ is check $m$'s \emph{sole}
+remaining unresolved neighbour:
+\begin{equation}
+\mu_{m \to n} = 2\operatorname{artanh}\!\Big(\prod_{\substack{n' \ne n \\ H_{mn'}=1}} t_{i,n'}\Big),
+\qquad\text{sent iff } \big|\{n' \in \mathcal{P} : H_{mn'}=1,\ t_{i,n'}=0\}\big| = 1 .
+\end{equation}
+Each punctured bit's estimate sums every message it receives this round,
+$L_n = \sum_{m \in \mathcal{C}(n)} \mu_{m\to n}$, $t_{i,n} \leftarrow \tanh(L_n/2)$, where
+$\mathcal{C}(n)$ is the (possibly empty) set of checks that contributed to $n$ this round.
+Resolving one bit can unlock a check for its neighbours next round, so this is iterated for a
+fixed round budget (\texttt{tsyn\_fallback\_iters}), stopping early at a fixpoint.
+
+\subsubsection*{The circularity this introduces}
+
+Define $\text{contributing}(m) = 1$ if check $m$ ever supplied a message to one of its own
+neighbours, i.e.\ $m \in \mathcal{C}(n)$ for some $n$. If check $m$ is later scored using that
+same $n$'s estimate, it is tested against a value it helped fabricate. Note that this
+definition — and the exclusion rule built on it below — is entirely degree-agnostic: \emph{a
+check is excluded if it ever contributed a message to resolve one of its own punctured
+neighbours, regardless of whether that neighbour's degree is 1 or 22.} Degree only determines
+how \emph{likely} a check is to end up excluded (see below), not whether the exclusion
+criterion itself applies.
+
+This is not merely inelegant — it is provably vacuous in the worst case. Suppose $n$ has
+degree 1 (check $m$ is the \emph{only} row touching it) and gets resolved. Then
+$\mathcal{C}(n) = \{m\}$ necessarily, and writing $X := \prod_{n' \ne n,\,H_{mn'}=1} t_{i,n'}$,
+\begin{equation}
+t_{i,n} = \tanh\!\big(\operatorname{artanh}(X)\big) = X
+\quad\Longrightarrow\quad
+p_{i,m} = t_{i,n} \cdot X = X^2 \;\ge 0 \ \text{identically.}
+\end{equation}
+$p_{i,m}$ depends only on $|X|$ — the \emph{magnitude} of check $m$'s real, transmitted
+neighbours — and is completely blind to their sign. Flipping the sign of any one real neighbour
+(exactly the event a parity check exists to catch) leaves $p_{i,m}$ unchanged. Such a check
+rewards confident outputs regardless of correctness; scored into the EKF's innovation, it
+biases $\hat{\state}_{i|i}$ toward sharpening the network's confidence rather than correcting
+its errors. For $n$ with degree $>1$, resolved from several checks at once, the same leakage is
+present but diluted — $t_{i,n}$ mixes $m$'s own contribution with genuinely extrinsic
+information from the other resolving checks.
+
+\subsubsection*{Classification of checks: clean / self-referential / dead}
+
+Run the peeling process to its round budget or fixpoint, and classify every check row by the
+result:
+\begin{itemize}[itemsep=2pt]
+  \item \textbf{dead}: at least one neighbour of $m$ is punctured and never resolved
+  ($t_{i,n}=0$ for some $n \in \mathcal{P} \cap \{n : H_{mn}=1\}$). Since $t_{i,n}=0$
+  identically and does not depend on $\state_i$, $p_{i,m}=0$ identically too — the
+  corresponding row of $H_i$ is exactly zero, contributing nothing to the update (harmless,
+  but wasted compute if left in).
+  \item \textbf{self-referential}: every neighbour of $m$ is resolved, and
+  $\text{contributing}(m)=1$ — $m$ helped produce at least one of the values it would be
+  tested against.
+  \item \textbf{clean}: every neighbour of $m$ is resolved, and $\text{contributing}(m)=0$ — $m$
+  only \emph{consumes} estimates that came entirely from other checks.
+\end{itemize}
+Crucially, a degree-1 punctured bit can never yield a clean check: its only possible
+contributor and its only possible consumer are the same row, so if it resolves at all, that
+row is self-referential by construction. Degree-1 bits are not the only source of
+self-referential rows, though — for a bit resolved from several checks (e.g.\ degree 22 at
+MCS2), the checks that did the resolving are self-referential even though the bit's value
+itself is legitimately multi-sourced; other checks that merely consume that value, without
+having contributed to it, remain clean.
+
+This classification depends only on $H$ and which positions are punctured — never on
+$\state_i$ or the frame index $i$, since punctured positions are always exactly $0$ at
+initialization regardless of the forward pass. It is therefore computed once, not per update.
+
+\paragraph{Example (MCS2, $\text{num\_res}=96$; $Z=88$, $n_{\text{ldpc}}=4576$).} Three real
+rows illustrate all three outcomes:
+\begin{itemize}[itemsep=2pt]
+  \item \emph{Dead:} bit 3080 (degree 1) is check 2200's only unresolved neighbour candidate,
+  but check 2200 also touches bit 72 (punctured, still unresolved that round) — two
+  simultaneous unknowns block the update rule, so 3080 never receives a value.
+  \item \emph{Self-referential:} bit 4136 (degree 1) is resolved solely by check 3256 (real
+  neighbours 959, 1182). With $t_{959}=0.9,\ t_{1182}=-0.7$: $t_{4136}=-0.63$ and
+  $p_{3256}=(-0.63)(0.9)(-0.7)=0.3969$. Flipping $t_{1182}\to+0.7$ gives $t_{4136}=0.63$ and
+  $p_{3256}=0.3969$ again — unchanged, exactly as predicted by $p=X^2$.
+  \item \emph{Clean:} bit 17 (degree 22) is resolved from six independent checks
+  ($88,586,982,1376,1604,1885$), none of which is check 371. Check 371 (neighbours
+  17, 174, 982, 1251) never contributed to either of its two punctured neighbours, so its
+  score genuinely reflects whether four independently-sourced values are jointly consistent.
+\end{itemize}
+At this operating point: 704/3696 rows clean, 1776/3696 self-referential, 1216/3696 dead.
+
+\subsubsection*{Exclusion rule (supersedes the Section~\ref{sec:update} pruning step)}
+
+Only clean rows are scored:
+\begin{equation}
+\mathcal{M}_{\text{clean}} = \{\, m : \text{every neighbour of } m \text{ resolved, and }
+\text{contributing}(m)=0 \,\}, \qquad
+\mathbf{y}_i, \mathbf{p}_i, H_i \ \text{restricted to } \mathcal{M}_{\text{clean}}.
+\end{equation}
+Dead rows are already harmless (zero row in $H_i$) and self-referential rows are actively
+biased, not merely uninformative, so both are dropped — refining "drop rows touching a
+punctured bit" in Section~\ref{sec:update} into "drop rows that are dead \emph{or} self-referential." Since
+$\mathcal{M}_{\text{clean}}$ is static, this reduces to a fixed row-index mask computed once
+from $H$, at negligible runtime cost per update.
+
+\paragraph{Remark: raising the round budget does not help.} Increasing
+\texttt{tsyn\_fallback\_iters} beyond 1 round does \emph{not} grow $\mathcal{M}_{\text{clean}}$
+— empirically (MCS2, MCS6, MCS12, MCS16; rounds 1 through 20) $|\mathcal{M}_{\text{clean}}|$ is
+identical at every round count, while dead rows convert entirely into self-referential ones by
+round 2--3. The reason is structural: a row $m$ becomes clean only if \emph{all} of its
+punctured neighbours resolve simultaneously, via other checks, in the very round before $m$
+would otherwise have become their sole remaining resolver. That either happens on the first
+round in which $m$'s unresolved count would drop to zero, or it never happens — once $m$ itself
+becomes the sole remaining resolver for one of its neighbours, at any round, $m$ is
+self-referential from then on, permanently. More rounds only decide \emph{when} a still-dead
+row's fate resolves, never whether it resolves clean.
+
+%======================================================================
+\section{Supervised EKF with known calibration bits (\texttt{ekfi})}
+\label{sec:ekfi}
+
+\texttt{ekfi} is the supervised counterpart of \texttt{ekf}, and the EKF counterpart of the
+SGD genie baseline \texttt{sgdbcei} (the ``i'' stands for \emph{impractical}). It uses the same
+tracker (\texttt{EkfParamTracker}), the same state model and the same \texttt{escnn\_ekf\_*}
+hyperparameters as Section~\ref{sec:ekf}; only the measurement, and the slots it is taken on,
+change.
+
+\subsection{Calibration region}
+
+For every group of $S_{\text{data}}=\texttt{slots\_per\_group}$ scored data slots, the
+transmitter sends an additional, separate region of $S_{\text{cal}}=\texttt{calib\_slots\_per\_group}$
+calibration slots (\texttt{\_build\_calib\_training\_data} in \texttt{ekf.py}):
+\begin{itemize}[itemsep=2pt]
+  \item same structure as the data slots: 2 DMRS symbols $+$ 12 payload symbols of fresh,
+  CRC+LDPC-coded random bits;
+  \item same channel realization $\mathbf{h}$ as the group's data, and the same random draw as
+  \texttt{sgdbcei}, so the two modes see identical calibration data;
+  \item its own DMRS channel estimate and its own LMMSE prior, which is fed to the ESCNN as the
+  augmentation input;
+  \item used only for the EKF updates and never scored. The scored data slots are never
+  measured in this mode.
+\end{itemize}
+The calibration payload bits $b_{s,n}\in\{0,1\}$ are assumed known at the receiver; this is what
+makes the mode a genie baseline rather than a deployable scheme.
+
+\subsection{Measurement model}
+
+For calibration slot $s$ and user $k$, let $\widetilde{L}_{s,n}(\state)$, $n=1,\dots,N$, be the
+ESCNN output LLRs of that slot (convention $\widetilde{L}>0 \Leftrightarrow b=1$), with
+$N = 12\, q_m\, B$ payload bits per slot ($B=\texttt{num\_res}$; e.g.\ $N=4608$ for MCS39, 16QAM, at
+$B=96$). Each bit gives one measurement, its \emph{agreement} with the known bit:
+\begin{align}
+a_{s,n}(\state) &= (2b_{s,n}-1)\,\tanh\!\big(\widetilde{L}_{s,n}(\state)/2\big) \in [-1,1]
+  && \text{($+1$: confidently correct, $-1$: confidently wrong)} \label{eq:agree}\\
+\mathbf{y}_s &= \mathbf{1}_N
+  && \text{(target: every bit confidently correct)} \\
+\Delta\mathbf{y}_s &= \mathbf{1}_N - \mathbf{a}_s,\quad
+\Delta y_{s,n} = 2\,\big|b_{s,n} - \sigma(\widetilde{L}_{s,n})\big|
+  && \text{(innovation)} \label{eq:agree-innov}\\
+\frac{\partial a_{s,n}}{\partial \state} &= (2b_{s,n}-1)\,\tfrac12\big(1-t_{s,n}^2\big)\,
+  \frac{\partial \widetilde{L}_{s,n}}{\partial \state}
+  && \text{(row $n$ of $H_s$; $t_{s,n}=\tanh(\widetilde{L}_{s,n}/2)$)} \label{eq:agree-H}
+\end{align}
+The measurement has exactly the ``target $\mathbf{1}$, innovation $\mathbf{1}-$measurement''
+form of \eqref{eq:innov}, so the tracker code is shared unchanged: \eqref{eq:H}--\eqref{eq:Pupd}
+apply with $h_i \to \mathbf{a}_s$, $M\to N$, and $R=\sigma_R^2 I_N$. Unlike \eqref{eq:p}, each row
+of $H_s$ involves a single network output: because $b_{s,n}$ is known, every bit can be checked
+on its own, whereas a parity check only constrains a combination of bits, so each $p_m$ is a
+product over all $d_c$ LLRs of the check. The row is still dense in $\state$, since
+$\widetilde{L}_{s,n}$ depends on all shared convolution weights. In \eqref{eq:p}, the gradient
+reaching bit $n$ is scaled by $\prod_{n'\neq n} t_{n'}$, so one uncertain bit ($t_{n'}\approx0$)
+in a check silences that row for all of its bits; in \eqref{eq:agree-H} there is no such
+coupling. No clamp, filler or puncturing handling is needed either: the measured bits are
+exactly the transmitted ones.
+
+\subsection{Schedule}
+
+Per group: one predict step \eqref{eq:pred-mean}--\eqref{eq:pred-P}, then $S_{\text{cal}}$
+sequential update steps, one per calibration slot, with no predict in between. Only then is the
+updated network run on the group's scored data slots. In \texttt{ekf}, the group also gets one
+predict, but the $S_{\text{data}}$ updates are taken on the scored slots themselves, which are
+then scored with the updated weights (test-time adaptation).
+
+\subsection{What one update optimizes}
+
+An EKF update is one Gauss--Newton step, started at the prior mean, on the MAP objective
+\begin{equation}
+J(\state) = \tfrac{1}{\sigma_R^2}\,\big\|\mathbf{1}-h(\state)\big\|^2
+          + \big(\state-\hat{\state}_{i|i-1}\big)^T P_{i|i-1}^{-1}\big(\state-\hat{\state}_{i|i-1}\big).
+\end{equation}
+For \texttt{ekfi} the data term is
+$\tfrac{4}{\sigma_R^2}\sum_n \big(b_n-\sigma(\widetilde{L}_n)\big)^2$, a Brier (squared
+probability error) loss, not the BCE used by \texttt{sgdbcei}. One practical consequence: for a
+\emph{confidently wrong} bit, $\Delta y_n\approx 2$ but the factor $1-t_n^2$ in
+\eqref{eq:agree-H} is $\approx 0$, so the EKF barely moves it, whereas the BCE gradient
+$\sigma(\widetilde{L}_n)-b_n$ stays $\approx\pm1$. The same factor appears in every
+$\partial p_m/\partial\state$ of \texttt{ekf}.
+
+\subsection{Comparison: \texttt{ekf} vs.\ \texttt{ekfi}}
+
+Numbers are for MCS39 (16QAM, $R=0.21$) with $B=96$ and 12 payload symbols per slot:
+$N=12\cdot4\cdot96=4608$ coded bits, $k=967$ information bits $+$ 16 CRC $=983$, which gives
+base graph 2 with lifting size $Z=104$ ($k_{\text{ldpc}}=1040$, 57 filler bits,
+$n_{\text{ldpc}}=5408$) and $42Z=4368$ parity checks. The clean subset
+$\mathcal{M}_{\text{clean}}\subset\{1,\dots,4368\}$ is computed from the parity-check matrix at
+start-up and printed as \texttt{fallback check quality: $X$/4368 clean}.
+
+{\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{|>{\raggedright\arraybackslash}p{3.2cm}
+  |>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\hline
+ & \texttt{ekf} (Section~\ref{sec:ekf}) & \texttt{ekfi} (this section) \\
+\hline
+\multicolumn{3}{|l|}{\textbf{Same in both}} \\
+\hline
+State, dynamics $f$, $F_i$ & \multicolumn{2}{l|}{ESCNN weights left unfrozen by \texttt{escnn\_load\_freeze}; random walk or AR(1)} \\
+\hline
+$P_{0|0}$, $Q$, $R$, $\alpha$ & \multicolumn{2}{l|}{Same \texttt{escnn\_ekf\_*} values, same scaled-identity form} \\
+\hline
+Predict / update equations & \multicolumn{2}{l|}{\eqref{eq:pred-mean}--\eqref{eq:pred-P} and \eqref{eq:H}--\eqref{eq:Pupd}, same tracker code} \\
+\hline
+Innovation form & \multicolumn{2}{l|}{Target $\mathbf{1}$, innovation $\mathbf{1}-h(\hat{\state})\in[0,2]$ per row} \\
+\hline
+Predicts per group & \multicolumn{2}{l|}{One} \\
+\hline
+Jacobian & \multicolumn{2}{l|}{\texttt{torch.func.jacrev}, chunked by \texttt{escnn\_ekf\_jacobian\_chunk\_size}} \\
+\hline
+\multicolumn{3}{|l|}{\textbf{Different}} \\
+\hline
+Supervision & None: code parity only & Known transmitted bits (genie) \\
+\hline
+Slots measured & The scored data slots themselves & A separate calibration region, never scored \\
+\hline
+Extra transmission & None & $S_{\text{cal}}$ calibration slots per group \\
+\hline
+Updates per group & $S_{\text{data}}=\texttt{slots\_per\_group}$ & $S_{\text{cal}}=\texttt{calib\_slots\_per\_group}$ \\
+\hline
+Measurement row & Soft check $p_m=\prod_{n\in\mathcal{N}(m)} t_n$ & Bit agreement $a_n=(2b_n-1)\,t_n$ \\
+\hline
+Rows per slot (per user) & $|\mathcal{M}_{\text{clean}}|$, a subset of the 4368 checks & $N=12\,q_m B=4608$ \\
+\hline
+Network outputs per row & $d_c$ (all bits of the check); gradient to each scaled by the others' $t$ & One (the bit itself); no coupling \\
+\hline
+Sign information & Parity only: flipping an even number of bits in a check leaves $p_m$ unchanged & Direct: each row says which way the bit should go \\
+\hline
+Puncturing / filler & Erasure peeling + static clean-row mask (Section~\ref{sec:fallback}) & Not applicable \\
+\hline
+LLR clamp & $\pm 30$ before $\tanh$ & None \\
+\hline
+Implicit data term & $\sum_m (1-p_m)^2$ & $4\sum_n (b_n-\sigma(\widetilde{L}_n))^2$ (Brier) \\
+\hline
+Meaning of $\sigma_R^2$ & Noise on a check product & Noise on a bit agreement; same value, different quantity \\
+\hline
+Size of $S$ & $|\mathcal{M}_{\text{clean}}|\times|\mathcal{M}_{\text{clean}}|$, at most $4368\times4368$ & $4608\times4608$ \\
+\hline
+ESCNN prior input & \texttt{which\_augment} prior of the data slots & Always the LMMSE prior of the calibration slots \\
+\hline
+Main failure mode & Converging to confident, parity-consistent but wrong outputs & Limited by $S_{\text{cal}}$; confident errors are hard to undo \\
+\hline
+\end{tabularx}
+}
+
+Two of these differences deserve a note. First, $\sigma_R$ is shared, but it scales measurements
+of different kinds and dimensions, so the same value does not give the two modes the same
+measurement trust; tuning it separately per mode would make the comparison fairer. Second, the
+calibration prior is always LMMSE, even when \texttt{which\_augment} is, e.g.,
+\texttt{AUGMENT\_SPHERE}; in that case \texttt{ekfi} adapts the weights on a different prior from
+the one used at scoring time.
+
+%======================================================================
+\section{The \texttt{cos\_true} diagnostic in \texttt{ekf}}
+\label{sec:costrue}
+
+\texttt{ekf} can log, for every update, how well the step it takes agrees with the step that
+knowledge of the true bits would have produced. This is a diagnostic only: it never changes the
+filter's trajectory.
+
+\subsection{What ``true'' is}
+
+When logging is on (\texttt{log\_train\_every\_epochs} $>0$), \texttt{ekf.py} passes
+\texttt{tx\_ref}, the true CRC+LDPC-coded payload bits $b_{s,n}$ of the \emph{same scored data
+slots} that \texttt{ekf} is updating on. It is not the calibration region of
+Section~\ref{sec:ekfi}: those slots do not exist in \texttt{ekf} mode. The bits are the very ones
+the slot is later scored against.
+
+\subsection{How the reference step is computed}
+
+For each data slot $s$, inside the same update call and from the same prior
+$(\hat{\state}_{i|i-1}, P_{i|i-1})$ the applied step uses, i.e.\ after the group's predict and
+after the syndrome updates of slots $1,\dots,s-1$:
+\begin{align}
+\mathbf{r}_s(\state) &= \big[(2b_{s,n}-1)\tanh(\widetilde{L}_{s,n}(\state)/2)\big]_{n=1}^{N}
+  && \text{(agreement \eqref{eq:agree}, on slot $s$ itself)} \\
+H^{\text{ref}}_s &= \left.\frac{\partial \mathbf{r}_s}{\partial\state}\right|_{\hat{\state}_{i|i-1}},
+\quad S^{\text{ref}}_s = H^{\text{ref}}_s P_{i|i-1} H^{\text{ref}\,T}_s + R
+  && \text{(same $P_{i|i-1}$, same $\sigma_R^2$)} \\
+\Delta\state^{\text{ref}}_s &= P_{i|i-1}H^{\text{ref}\,T}_s \big(S^{\text{ref}}_s\big)^{-1}
+  \big(\mathbf{1}_N-\mathbf{r}_s(\hat{\state}_{i|i-1})\big)
+  && \text{(computed, never applied)} \\
+\Delta\state^{\text{syn}}_s &= K_i\,\Delta\mathbf{y}_i
+  && \text{(the step actually applied, \eqref{eq:upd})} \\
+\texttt{cos\_true} &= \frac{\langle \Delta\state^{\text{syn}}_s, \Delta\state^{\text{ref}}_s\rangle}
+  {\|\Delta\state^{\text{syn}}_s\|\,\|\Delta\state^{\text{ref}}_s\|}
+  && \text{($+1$ aligned, $0$ unrelated, $<0$ opposed)}
+\end{align}
+The LLRs are the same ones that form the syndrome measurement: same network input (received
+samples plus prior), same real-bit selection, and the same $N=12\,q_m B$ positions, which equal
+the LDPC codeword length \texttt{helper.n}. The cost is a second Jacobian with $N$ rows and an
+$N\times N$ solve per slot.
+
+\texttt{cos\_true} is therefore a one-step counterfactual: from exactly where the \texttt{ekf}
+filter is now, would a genie that knows this slot's bits push the weights the same way? It does
+not track an \texttt{ekfi} trajectory, and it compares directions only, not step sizes.
+
+\subsection{Comparison: applied \texttt{ekf} step vs.\ the \texttt{cos\_true} reference}
+
+{\small
+\renewcommand{\arraystretch}{1.25}
+\begin{tabularx}{\textwidth}{|>{\raggedright\arraybackslash}p{3.2cm}
+  |>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|>{\raggedright\arraybackslash}X|}
+\hline
+ & \texttt{ekf} applied step & \texttt{cos\_true} reference & \texttt{ekfi} step (Sec.~\ref{sec:ekfi}) \\
+\hline
+Slots measured & Scored data slot $s$ & Same scored data slot $s$ & Calibration slot, never scored \\
+\hline
+Ground truth & None & True bits of slot $s$ & True bits of the calibration slot \\
+\hline
+Measurement & Soft checks $p_m$, clean rows & Bit agreement $r_n$ & Bit agreement $a_n$ \\
+\hline
+Rows & $|\mathcal{M}_{\text{clean}}|$ & $N$ & $N$ \\
+\hline
+LLR clamp / puncturing & $\pm30$; peeling + clean mask & None; not needed & None; not needed \\
+\hline
+Prior $(\hat{\state}, P)$ & \texttt{ekf}'s own & Identical to the applied step & \texttt{ekfi}'s own trajectory \\
+\hline
+$R$ & $\sigma_R^2 I$ & $\sigma_R^2 I$ (same value) & $\sigma_R^2 I$ (same value) \\
+\hline
+Applied to weights & Yes & No & Yes \\
+\hline
+Purpose & Tracking & Diagnostic: is the blind step pointed the right way? & Genie upper-bound baseline \\
+\hline
+\end{tabularx}
+}
+
+\paragraph{Reading the diagnostic.}
+\begin{itemize}[itemsep=2pt]
+  \item The reference is stronger than \texttt{ekfi}: it knows the bits of the slot being scored,
+  whereas \texttt{ekfi} only knows calibration bits from the same channel.
+  \item The cosine is Euclidean over all tracked weights, so the parameter groups with the
+  largest step components (e.g.\ the element-wise scales vs.\ the convolution taps) dominate it.
+  A per-group cosine, computed separately for the scale vector and for each convolution layer,
+  would show which part of the network the blind step gets right.
+  \item Logging the norm ratio $\|\Delta\state^{\text{syn}}\|/\|\Delta\state^{\text{ref}}\|$
+  alongside the cosine would separate ``right direction, too small'' from ``wrong direction''.
+\end{itemize}
+
+\end{document}

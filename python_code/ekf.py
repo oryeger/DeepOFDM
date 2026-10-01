@@ -917,8 +917,11 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
         probs_for_aug = torch.tensor([], dtype=torch.float32)
 
     if weights_track_mode == 'ekf':
+        # tx_ref: the scored slots' true bits, used only for the cos_true diagnostic in the log
+        # (never as a measurement) - see ekf_predict_update's docstring.
         escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
-                                          payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
+                                          payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                          tx_ref=torch.from_numpy(tx_bits.astype(np.float32)))
     else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
         # raises on an empty param list) - same "run the loaded weights statically" fallback

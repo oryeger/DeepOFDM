@@ -55,6 +55,7 @@ tw_vals=(0.0)
 tsyn_fallback_iters_vals=(0)
 
 escnn_ekf_sigma_r_vals=(0.5)
+escnn_ekf_sigma_q_vals=(0.01)
 escnn_ekf_alpha_vals=(0.99)
 
 channel_drift_base_index_vals=(0)
@@ -269,6 +270,9 @@ for seed in "${seeds[@]}"; do
                                                                 for escnn_ekf_alpha in "${escnn_ekf_alpha_vals[@]}"; do
                                                                   alphatag="a${escnn_ekf_alpha//./p}"
 
+                                                                  for escnn_ekf_sigma_q in "${escnn_ekf_sigma_q_vals[@]}"; do
+                                                                  sqtag="sq${escnn_ekf_sigma_q//./p}"
+
                                                                   for channel_drift_base_index in "${channel_drift_base_index_vals[@]}"; do
                                                                     cditag="cdi${channel_drift_base_index}"
 
@@ -283,7 +287,7 @@ for seed in "${seeds[@]}"; do
 
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${cditag}_${trktag}_${csgtag}_${smxtag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
                                                                           -e "s/^channel_seed:.*/channel_seed: $seed/" \
@@ -322,6 +326,7 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
                                                                           -e "s/^escnn_ekf_sigma_r:.*/escnn_ekf_sigma_r: $escnn_ekf_sigma_r/" \
                                                                           -e "s/^escnn_ekf_alpha:.*/escnn_ekf_alpha: $escnn_ekf_alpha/" \
+                                                                          -e "s/^escnn_ekf_sigma_q:.*/escnn_ekf_sigma_q: $escnn_ekf_sigma_q/" \
                                                                           -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
                                                                           -e "s/^weights_track_mode:.*/weights_track_mode: '$weights_track_mode'/" \
                                                                           -e "s/^calib_slots_per_group:.*/calib_slots_per_group: $calib_slots_per_group/" \
@@ -335,6 +340,7 @@ for seed in "${seeds[@]}"; do
                                                                       done  # calib_slots_per_group
                                                                     done  # weights_track_mode
                                                                   done  # channel_drift_base_index
+                                                                  done  # escnn_ekf_sigma_q
                                                                 done  # escnn_ekf_alpha
                                                               done  # escnn_ekf_sigma_r
                                                             done  # tsyn_fallback_iters

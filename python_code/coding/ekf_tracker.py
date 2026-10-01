@@ -15,6 +15,7 @@ The tracked state is "whatever net.parameters() has requires_grad=True" - caller
 scope entirely through their own freeze logic (e.g. ESCNNDetector.set_load_freeze); this
 module has no notion of which parameters those are or what network they belong to.
 """
+import math
 from typing import Callable, Dict
 
 import torch
@@ -102,30 +103,50 @@ class EkfParamTracker:
             self.P.mul_(a * a)
         self.P.diagonal().add_(self.sigma_q2)
 
-    def update(self, measurement_fn: Callable[[Dict[str, torch.Tensor]], torch.Tensor]) -> dict:
-        """measurement_fn(param_dict) -> flat check-satisfaction vector p_i, differentiated
-        w.r.t. param_dict's values (e.g. via torch.func.functional_call inside measurement_fn).
-        Punctured-touching checks are expected to already be handled by measurement_fn
-        (SyndromeLoss.p_vector excludes them in restricted mode / fills them via the
-        erasure-peeling fallback), so no separate pruning happens here.
-
-        y_i = 1 (all checks satisfied) is implicit: the innovation is 1 - p_i directly."""
+    def _step(self, measurement_fn: Callable[[Dict[str, torch.Tensor]], torch.Tensor]):
+        """Kalman step for measurement_fn at the current prior (theta, P), without applying it.
+        Returns (dtheta, K, S, Kt, p_hat), or None when measurement_fn returns nothing."""
         def h(theta):
             p = measurement_fn(self._split(theta))
             return p, p
 
         H, p_hat = jacrev(h, has_aux=True, chunk_size=self.jacobian_chunk_size)(self.theta)
         if p_hat.numel() == 0:
-            return {'skipped': True}
-
+            return None
         dy = torch.ones_like(p_hat) - p_hat
         S = H @ self.P @ H.T
         S.diagonal().add_(self.sigma_r2)
         HP = H @ self.P                       # (M, d)
         Kt = torch.linalg.solve(S, HP)        # (M, d) = S^-1 H P
         K = Kt.T                              # (d, M)
+        return K @ dy, K, S, Kt, p_hat
 
-        self.theta = self.theta + K @ dy
+    def update(self, measurement_fn: Callable[[Dict[str, torch.Tensor]], torch.Tensor],
+               reference_fn: Callable[[Dict[str, torch.Tensor]], torch.Tensor] = None) -> dict:
+        """measurement_fn(param_dict) -> flat check-satisfaction vector p_i, differentiated
+        w.r.t. param_dict's values (e.g. via torch.func.functional_call inside measurement_fn).
+        Punctured-touching checks are expected to already be handled by measurement_fn
+        (SyndromeLoss.p_vector excludes them in restricted mode / fills them via the
+        erasure-peeling fallback), so no separate pruning happens here.
+
+        y_i = 1 (all checks satisfied) is implicit: the innovation is 1 - p_i directly.
+
+        reference_fn (diagnostic only, never applied): a second measurement function, e.g. the
+        slot's true bits in ekfi's agreement form. Its Kalman step is computed from the same
+        prior (theta, P) and the returned stats get 'cos_ref', the cosine similarity between the
+        applied update and that reference update (+1 same direction, 0 unrelated, <0 opposed).
+        Costs a second Jacobian and gain solve."""
+        step = self._step(measurement_fn)
+        if step is None:
+            return {'skipped': True}
+        dtheta, K, S, Kt, p_hat = step
+        cos_ref = None
+        if reference_fn is not None:
+            ref = self._step(reference_fn)
+            if ref is not None:
+                cos_ref = float(torch.nn.functional.cosine_similarity(dtheta, ref[0], dim=0, eps=1e-12))
+
+        self.theta = self.theta + dtheta
         self.P = self.P - K @ S @ Kt
         self.P = 0.5 * (self.P + self.P.T)    # guard against float asymmetry drift
         self._write_back()
@@ -136,4 +157,9 @@ class EkfParamTracker:
                 # keeps the confidence magnitude mean_hard_sat's >0 threshold throws away, so
                 # e.g. "barely satisfied" (p~0.01) and "confidently satisfied" (p~0.99) don't
                 # both just read as "satisfied".
-                'mean_p': float(p_hat.mean())}
+                'mean_p': float(p_hat.mean()),
+                # Size of this update: RMS change per tracked weight, ||dtheta|| / sqrt(d) - same
+                # per-weight scale as sigma_q / sigma_p0 (and an SGD learning rate), so a collapse
+                # toward 0 means the filter has effectively stopped updating.
+                'dtheta_rms': float(dtheta.norm() / math.sqrt(self.d)),
+                'cos_ref': cos_ref}

@@ -65,7 +65,10 @@ HEADER_RE = re.compile(
     # ", N calib slot(s)/group for sgd training" (calib_note in ekf.py) - both optional,
     # only present when weights_track_mode == 'sgd'.
     r'(?:\s+\+\s+(?P<calib_slots_old>\d+)\s+calib slot\(s\)/group)?'
-    r'(?:,\s+(?P<calib_slots_new>\d+)\s+calib slot\(s\)/group for sgd training)?'
+    # ...and any mode's note: ", N calib slot(s)/group <for sgd training | as supervised EKF
+    # measurements>" (sgdbcei/ekfi) or ", training directly on ..." (sgdbce/sgdsyn).
+    r'(?:,\s+(?P<calib_slots_new>\d+)\s+calib slot\(s\)/group [^,]*)?'
+    r'(?:,\s+training directly on [^,]*)?'
     # track_mode/which_augment - both optional so older logs predating them still parse.
     r'(?:,\s+track_mode=(?P<track_mode>\w+))?'
     r'(?:,\s+which_augment=\w+)?'
@@ -93,6 +96,16 @@ HARD_SAT_RE = re.compile(
     r'(?:\s+mean_p=(?P<mean_p>[-+\d.eE]+))?'
 )
 
+# Per-update size (RMS change per tracked weight) printed by both the syndrome EKF's "[ekf] ..."
+# lines and ekfi's "[ekfi] ..." lines (EkfParamTracker.update's dtheta_rms). Optional: logs from
+# before it was added simply have none, and the subplot is left empty.
+DTHETA_RE = re.compile(r'\[ekfi?\]\s+user=\d+\s+it=\d+\s.*?dtheta_rms=(?P<dtheta_rms>[-+\d.eE]+)')
+
+# Direction diagnostic on syndrome-EKF "[ekf] ..." lines: cosine similarity between the applied
+# syndrome update and the update the slot's true bits would have given (ekf_predict_update's
+# tx_ref). Optional - absent in older logs and in every other mode.
+COS_RE = re.compile(r'\[ekf\]\s+user=\d+\s+it=\d+\s.*?cos_true=(?P<cos_true>[-+\d.eE]+)')
+
 GROUP_RE = re.compile(
     r'\[drift\]\s+group\s+(?P<group_idx>\d+)/\d+\s+slots=[\d\-]+\s+'
     r'ber_escnn=(?P<ber_escnn>[-+\d.eE]+)\s+ber_lmmse=(?P<ber_lmmse>[-+\d.eE]+)\s+'
@@ -117,7 +130,7 @@ def parse_drift_log(path: str) -> dict:
     reconstruction correctly, they just aren't reflected in the title.
     """
     data = {k: [] for k in ('cfo', 'slots', 'ber_escnn', 'ber_lmmse', 'bler_escnn',
-                             'bler_lmmse', 'mi_escnn', 'mi_lmmse', 'mean_hard_sat', 'mean_p')}
+                             'bler_lmmse', 'mi_escnn', 'mi_lmmse', 'mean_hard_sat', 'mean_p', 'dtheta_rms', 'cos_true')}
     meta = None
     num_res = None  # from the weights-loaded line, which ekf.py prints BEFORE the "N groups x ..."
                      # header - so this has to be tracked independently of meta, not nested under it
@@ -132,10 +145,18 @@ def parse_drift_log(path: str) -> dict:
     # mean_hard_sat) so the plotted line simply leaves a gap there instead of lying about a value.
     pending_hard_sats = []
     pending_mean_ps = []
+    pending_dthetas = []
+    pending_cos = []
 
     group_size = base_cfo = cfo_drift = None
     with open(path, 'r', encoding='utf-8', errors='replace') as f:
         for line in f:
+            dtheta_m = DTHETA_RE.search(line)
+            if dtheta_m:
+                pending_dthetas.append(float(dtheta_m.group('dtheta_rms')))
+            cos_m = COS_RE.search(line)
+            if cos_m:
+                pending_cos.append(float(cos_m.group('cos_true')))
             hard_sat_m = HARD_SAT_RE.search(line)
             if hard_sat_m:
                 pending_hard_sats.append(float(hard_sat_m.group('mean_hard_sat')))
@@ -210,8 +231,12 @@ def parse_drift_log(path: str) -> dict:
 
             data['mean_hard_sat'].append(_mean(pending_hard_sats) if pending_hard_sats else float('nan'))
             data['mean_p'].append(_mean(pending_mean_ps) if pending_mean_ps else float('nan'))
+            data['dtheta_rms'].append(_mean(pending_dthetas) if pending_dthetas else float('nan'))
+            data['cos_true'].append(_mean(pending_cos) if pending_cos else float('nan'))
             pending_hard_sats = []
             pending_mean_ps = []
+            pending_dthetas = []
+            pending_cos = []
 
     if not data['cfo']:
         raise ValueError(f"{path}: no '[drift] group ...' lines found")
@@ -295,13 +320,13 @@ def plot_drift_log(data: dict, title: str = None):
     full_title = _format_title(data.get('meta', {}), title)
     title_lines = full_title.count('\n') + 1 if full_title else 0
 
-    # Landscape: the figure as a whole is wider than tall, but the 4 subplots
+    # Landscape: the figure as a whole is wider than tall, but the 6 subplots
     # are still stacked vertically (sharing the CFO x-axis) rather than side by
     # side. Figure height grows a bit with the title so a multi-line parameter
     # header doesn't eat into subplot space, and a bit more per extra subplot.
-    # Top-to-bottom: BER, MI, BLER, mean_p.
-    fig, (ax_ber, ax_mi, ax_bler, ax_meanp) = plt.subplots(
-        4, 1, figsize=(12, 9 + 0.18 * title_lines), sharex=True)
+    # Top-to-bottom: BER, MI, BLER, mean_p, EKF update size, update direction vs. true bits.
+    fig, (ax_ber, ax_mi, ax_bler, ax_meanp, ax_dth, ax_cos) = plt.subplots(
+        6, 1, figsize=(12, 13 + 0.18 * title_lines), sharex=True)
 
     ax_ber.semilogy(cfo, [data['ber_lmmse'][i] for i in order],
                      label=f"LMMSE: mean BER={_mean(data['ber_lmmse']):.2f}", color='r')
@@ -338,9 +363,32 @@ def plot_drift_log(data: dict, title: str = None):
                   label=f"mean syndrome={_mean(data['mean_p']):.2f}", color='b')
     ax_meanp.set_ylabel('syndrome')
     ax_meanp.set_ylim(*_padded_ylim(data['mean_p']))
-    ax_meanp.set_xlabel(xlabel)
     ax_meanp.legend()
     ax_meanp.grid(True)
+
+    # EKF update size per group: RMS change per tracked weight (mean over the group's updates).
+    # Log scale when there's anything positive to show - it spans orders of magnitude, and a
+    # filter that has stopped updating shows up as a collapse toward 0. NaN gaps (no ekf/ekfi
+    # update lines, e.g. SGD modes or an older log) are left as gaps.
+    dth = [data['dtheta_rms'][i] for i in order]
+    has_pos = any(v == v and v > 0 for v in dth)
+    (ax_dth.semilogy if has_pos else ax_dth.plot)(
+        cfo, dth, label=f"mean update size={_mean(data['dtheta_rms']):.2e}", color='m')
+    ax_dth.set_ylabel('|dθ| rms')
+    ax_dth.legend()
+    ax_dth.grid(True, which='both')
+
+    # Cosine similarity between the applied syndrome update and the true-bit update for the same
+    # slot (syndrome EKF only): +1 same direction, 0 unrelated, <0 opposed. Fixed [-1, 1] axis
+    # with a 0 reference line, since the sign is the point.
+    ax_cos.plot(cfo, [data['cos_true'][i] for i in order],
+                label=f"mean cos(Δθ_syn, Δθ_true)={_mean(data['cos_true']):.2f}", color='c')
+    ax_cos.axhline(0.0, color='k', linewidth=0.8)
+    ax_cos.set_ylim(-1.05, 1.05)
+    ax_cos.set_ylabel('cos to true')
+    ax_cos.set_xlabel(xlabel)
+    ax_cos.legend()
+    ax_cos.grid(True)
 
     if full_title:
         fig.suptitle(full_title)
@@ -351,7 +399,7 @@ def plot_drift_log(data: dict, title: str = None):
     # BER's log-scale tick labels (e.g. "3x10^-1") are wider than the other subplots'
     # linear ones ("0.6"), so matplotlib's per-axes auto-padding otherwise leaves the
     # "BER" ylabel sitting further left than the rest.
-    fig.align_ylabels([ax_ber, ax_mi, ax_bler, ax_meanp])
+    fig.align_ylabels([ax_ber, ax_mi, ax_bler, ax_meanp, ax_dth, ax_cos])
     return fig
 
 

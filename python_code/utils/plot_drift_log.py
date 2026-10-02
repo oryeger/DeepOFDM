@@ -68,6 +68,10 @@ HEADER_RE = re.compile(
     # ...and any mode's note: ", N calib slot(s)/group <for sgd training | as supervised EKF
     # measurements>" (sgdbcei/ekfi) or ", training directly on ..." (sgdbce/sgdsyn).
     r'(?:,\s+(?P<calib_slots_new>\d+)\s+calib slot\(s\)/group [^,]*)?'
+    # DEBUG-LADDER: logs from the first ekfi1..ekfi6 version printed ", ladder step R<k> ..." as a
+    # separate comma-delimited part of the note (R6's also has a comma inside its parentheses) -
+    # accept it so those runs still parse.
+    r'(?:,\s+ladder step R\d+(?:\s*\([^)]*\))?[^,]*)?'
     r'(?:,\s+training directly on [^,]*)?'
     # track_mode/which_augment - both optional so older logs predating them still parse.
     r'(?:,\s+track_mode=(?P<track_mode>\w+))?'

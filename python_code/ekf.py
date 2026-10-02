@@ -250,7 +250,7 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_trk=' + track_mode
-    if track_mode in ('sgdbcei', 'ekfi'):
+    if track_mode == 'sgdbcei' or track_mode.startswith('ekfi'):  # DEBUG-LADDER: ekfi1..ekfi6
         title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     title_string += '_lr=' + f"{getattr(conf, 'learning_rate', 5.0e-3):.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
     if track_mode in ('sgdsyn', 'sgdbce', 'sgdbcei'):
@@ -958,7 +958,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                             conf.iterations, conf.epochs, False, probs_dmrs,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
                                             real_bit_idx=dmrs_real_bit_idx)
-        elif weights_track_mode == 'ekfi':
+        elif weights_track_mode.startswith('ekfi'):  # DEBUG-LADDER: 'ekfi' (R0) and 'ekfi1'..'ekfi6' (R1..R6)
             # Same separate calib region as sgdbcei (drawn from rng at the same point, so both
             # modes see identical channels/data), but one EKF predict + one update per calib slot
             # with the known calib bits as the measurement instead of epochs of BCE - see
@@ -967,9 +967,21 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             tx_calib_t, rx_calib_real_t, probs_for_aug_calib = _build_calib_training_data(
                 rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc, ldpc_k, ldpc_n,
                 n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio)
-            escnn_trainer.ekf_predict_update_supervised(rx_calib_real_t, tx_calib_t, num_bits_pilot, n_users,
-                                                         conf.iterations, probs_for_aug_calib,
-                                                         payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
+            # DEBUG-LADDER (remove after the ekfi -> ekf debug): ekfi<k> = step R<k>. R0-R5 change only
+            # the measurement on the calib slots (see ekf_predict_update_supervised). R6 still draws
+            # the calib region above (same rng consumption as R0-R5) but discards it and runs ekf's
+            # own update on the scored data slots, with their own prior - i.e. ekf except for the
+            # extra calib draw. R7 is plain 'ekf'.
+            _ekfi_step = int(weights_track_mode[4:] or 0)
+            if _ekfi_step == 6:
+                escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
+                                                  payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                                  tx_ref=torch.from_numpy(tx_bits.astype(np.float32)))
+            else:
+                escnn_trainer.ekf_predict_update_supervised(rx_calib_real_t, tx_calib_t, num_bits_pilot, n_users,
+                                                             conf.iterations, probs_for_aug_calib,
+                                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                                             ekfi_step=_ekfi_step)
         else:  # 'sgdbcei'
             # Supervised loss - can't train on the same bits it's about to be scored against, so
             # build a separate calib_slots-sized region, the same DMRS+payload way as the scored
@@ -1163,7 +1175,8 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'ekfi', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack')
+    _MODE_CHOICES = ('ekf', 'ekfi', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack',
+                     'ekfi1', 'ekfi2', 'ekfi3', 'ekfi4', 'ekfi5', 'ekfi6')  # DEBUG-LADDER: R1..R6
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
     conf.set_value('training_loss', {'sgdsyn': 'tsyn'}.get(weights_track_mode, 'bce'))
@@ -1262,8 +1275,15 @@ def main():
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
     if weights_track_mode == 'sgdbcei':
         calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
-    elif weights_track_mode == 'ekfi':
+    elif weights_track_mode.startswith('ekfi'):  # DEBUG-LADDER: ekfi1..ekfi6
+        # No commas after "calib slot(s)/group": plot_drift_log.py's HEADER_RE reads the note up to
+        # the next comma. Plain 'ekfi' keeps the original text exactly.
         calib_note = f", {calib_slots_per_group} calib slot(s)/group as supervised EKF measurements"
+        if weights_track_mode == 'ekfi6':
+            calib_note = (f", {calib_slots_per_group} calib slot(s)/group drawn and discarded "
+                          f"(ladder step R6: ekf update on the scored slots)")
+        elif weights_track_mode != 'ekfi':
+            calib_note += f" (ladder step R{int(weights_track_mode[4:])})"
     elif weights_track_mode == 'sgdbce':
         calib_note = ", training directly on the group's own DMRS pilots"
     elif weights_track_mode == 'sgdsyn':

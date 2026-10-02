@@ -633,7 +633,8 @@ class ESCNNTrainer(Trainer):
 
     def ekf_predict_update_supervised(self, rx_real: torch.Tensor, tx: torch.Tensor, num_bits: int, n_users: int,
                                        iterations: int, probs_in: torch.Tensor = None,
-                                       payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT):
+                                       payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
+                                       ekfi_step: int = 0):
         """Supervised counterpart of ekf_predict_update (ekf.py's weights_track_mode='ekfi'): the
         same EkfParamTracker predict/update, but the measurement is the known transmitted bits of a
         separate calibration region instead of the soft syndrome - the single-step CM-EKF of
@@ -647,7 +648,19 @@ class ESCNNTrainer(Trainer):
         b - h(x), scaled by 2.
 
         tx: (symbols*num_bits, n_users, num_res) bits, the same layout sgdbcei passes to
-        _online_training (llr > 0 <=> bit 1, as in BCEWithLogitsLoss)."""
+        _online_training (llr > 0 <=> bit 1, as in BCEWithLogitsLoss).
+
+        DEBUG-LADDER (remove after the ekfi -> ekf debug) - ekfi_step selects the measurement,
+        one change per step (ekf.py's 'ekfi' = R0, 'ekfi1'..'ekfi5' = R1..R5; R6 never gets here):
+          R0: agreement over all bits of the slot, no clamp (the original ekfi measurement)
+          R1: + LLRs clamped to +-LLR_CLAMP (30), as in the syndrome measurement
+          R2: + only the bits covered by >= 1 clean check (helper.edge_bit_clean)
+          R3: check rows p_m instead of bit rows, punctured bits filled from the TRUE codeword
+              (erasure peeling seeded with +-30 LLRs of the known bits - same rounds as ekf's
+              peeling), all non-dead checks. Data term becomes sum_m (1-p_m)^2.
+          R4: + only the clean checks
+          R5: punctured bits from peeling the network's own LLRs = helper.p_vector,
+              i.e. exactly ekf's measurement, still on the calib slots."""
         if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
             self._tsyn_warn_once('ekfi_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
@@ -655,6 +668,20 @@ class ESCNNTrainer(Trainer):
         num_slots = rx_real.shape[0] // payload_symbols_per_slot
         if num_slots == 0:
             return
+
+        # DEBUG-LADDER: steps >= 2 need the same SyndromeLoss helper ekf uses (same code, same
+        # clean/dead classification, same peeling rounds).
+        step = int(ekfi_step)
+        helper, tx_keep = None, None
+        if step >= 2:
+            helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
+            if helper is None:
+                raise ValueError(f"ekfi step R{step} needs the LDPC syndrome helper (conf.mcs > -1).")
+            helper._to(DEVICE)
+            if step == 2:
+                tx_keep = torch.isin(helper.tx_to_mother, torch.unique(helper.edge_bit_clean))  # (n,) bool
+        # Same +-30 as SyndromeLoss.LLR_CLAMP (not imported here: syndrome_loss imports Sionna lazily).
+        llr_clamp = (helper.LLR_CLAMP if helper is not None else 30.0) if step >= 1 else None
 
         trackers = self._get_ekf_trackers()
         rx_real = rx_real.to(DEVICE).unsqueeze(-1)
@@ -685,15 +712,49 @@ class ESCNNTrainer(Trainer):
                     sl = slice(s * payload_symbols_per_slot, (s + 1) * payload_symbols_per_slot)
                     rx_slot, sign_slot = rx_prob[sl], sign[sl]
 
-                    def measurement_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot):
+                    # DEBUG-LADDER R3/R4: punctured values from the TRUE codeword (constant in theta)
+                    t_punc_true, nondead = None, None
+                    if step in (3, 4):
+                        with torch.no_grad():
+                            llr_true = llr_clamp * sign_slot.reshape(1, -1)[:, :helper.n]
+                            t_true = torch.tanh(helper.map_to_mother(llr_true).clamp(-llr_clamp, llr_clamp) / 2.0)
+                            t_true = helper._estimate_punctured_t(t_true, helper.fallback_iters)
+                            t_punc_true = t_true[:, helper.punctured_idx]
+                            p_true = helper._check_products(t_true, helper.edge_check_all,
+                                                            helper.edge_bit_all, helper.num_checks)
+                            nondead = p_true[0].abs() > 0.5   # resolved checks: p = +1; dead: 0
+
+                    def measurement_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot,
+                                       _tp=t_punc_true, _nd=nondead):
                         _, llrs = functional_call(_net, param_dict, (_rx,))
-                        return (_sign * torch.tanh(0.5 * llrs.squeeze(-1))).reshape(-1)
+                        L = llrs.squeeze(-1).reshape(-1)               # L > 0 <=> bit 1
+                        sgn = _sign.reshape(-1)
+                        if step == 0:                                    # R0
+                            return sgn * torch.tanh(0.5 * L)
+                        L = L.clamp(-llr_clamp, llr_clamp)
+                        if step == 1:                                    # R1
+                            return sgn * torch.tanh(0.5 * L)
+                        if step == 2:                                    # R2
+                            return (sgn[:helper.n] * torch.tanh(0.5 * L[:helper.n]))[tx_keep]
+                        stream = L[:helper.n].reshape(1, -1)
+                        if step == 5:                                    # R5 (= ekf's measurement)
+                            return helper.p_vector(stream).reshape(-1)
+                        t = torch.tanh(helper.map_to_mother(stream).clamp(-llr_clamp, llr_clamp) / 2.0).clone()
+                        t[:, helper.punctured_idx] = _tp
+                        if step == 4:                                    # R4
+                            return helper._check_products(t, helper.edge_check_clean, helper.edge_bit_clean,
+                                                          helper.num_clean).reshape(-1)
+                        p = helper._check_products(t, helper.edge_check_all, helper.edge_bit_all,
+                                                   helper.num_checks)    # R3
+                        return p[:, _nd].reshape(-1)
 
                     stats = tracker.update(measurement_fn)
                     if log_stats and not stats.get('skipped', True):
+                        # Prefix stays "[ekfi]" (plot_drift_log.py's DTHETA_RE); step appended for R1..R5.
                         print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
                               f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
-                              f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}", flush=True)
+                              f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}"
+                              + (f" step=R{step}" if step else ""), flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)

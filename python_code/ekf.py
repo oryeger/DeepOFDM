@@ -198,6 +198,14 @@ def _long_path(p: str) -> str:
     return ("\\\\?\\" + p) if os.name == 'nt' else p
 
 
+# DEBUG-LADDER (remove after the ekfi -> ekf debug): weights_track_mode -> ladder step code passed to
+# ESCNNTrainer.ekf_predict_update_supervised. 41 = R4s (punctured columns: TRUE sign, network-peeled
+# magnitude), 42 = R4m (network-peeled sign, TRUE magnitude) - both on R4's clean rows, splitting the
+# R4 -> R5 change (true -> network-peeled punctured values) into its sign and magnitude parts.
+_EKFI_STEP_CODES = {'ekfi': 0, 'ekfi1': 1, 'ekfi2': 2, 'ekfi3': 3, 'ekfi4': 4, 'ekfi5': 5, 'ekfi6': 6,
+                    'ekfi4s': 41, 'ekfi4m': 42,
+                    'ekfibp': 50}  # RBP: all rows, punctured columns from a detached BP decoder
+
 def _fmt_count(n: int) -> str:
     """Compact tag=value form for a large integer count: whole thousands print as e.g. '20k'/'5k'
     instead of '20000'/'5000' (filenames here are already NTFS's 255-char component limit away
@@ -916,12 +924,13 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     else:
         probs_for_aug = torch.tensor([], dtype=torch.float32)
 
-    if weights_track_mode == 'ekf':
+    if weights_track_mode in ('ekf', 'ekfbp'):
         # tx_ref: the scored slots' true bits, used only for the cos_true diagnostic in the log
         # (never as a measurement) - see ekf_predict_update's docstring.
         escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
                                           payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
-                                          tx_ref=torch.from_numpy(tx_bits.astype(np.float32)))
+                                          tx_ref=torch.from_numpy(tx_bits.astype(np.float32)),
+                                          use_bp=(weights_track_mode == 'ekfbp'))
     else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
         # raises on an empty param list) - same "run the loaded weights statically" fallback
@@ -972,7 +981,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             # the calib region above (same rng consumption as R0-R5) but discards it and runs ekf's
             # own update on the scored data slots, with their own prior - i.e. ekf except for the
             # extra calib draw. R7 is plain 'ekf'.
-            _ekfi_step = int(weights_track_mode[4:] or 0)
+            _ekfi_step = _EKFI_STEP_CODES[weights_track_mode]
             if _ekfi_step == 6:
                 escnn_trainer.ekf_predict_update(rx_real_t, num_bits_pilot, n_users, conf.iterations, probs_for_aug,
                                                   payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
@@ -1175,8 +1184,8 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'ekfi', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack',
-                     'ekfi1', 'ekfi2', 'ekfi3', 'ekfi4', 'ekfi5', 'ekfi6')  # DEBUG-LADDER: R1..R6
+    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfi', 'sgdsyn', 'sgdbce', 'sgdbcei', 'notrack') + tuple(
+        m for m in _EKFI_STEP_CODES if m != 'ekfi')  # DEBUG-LADDER: R1..R6, R4s, R4m
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
     conf.set_value('training_loss', {'sgdsyn': 'tsyn'}.get(weights_track_mode, 'bce'))
@@ -1283,7 +1292,7 @@ def main():
             calib_note = (f", {calib_slots_per_group} calib slot(s)/group drawn and discarded "
                           f"(ladder step R6: ekf update on the scored slots)")
         elif weights_track_mode != 'ekfi':
-            calib_note += f" (ladder step R{int(weights_track_mode[4:])})"
+            calib_note += f" (ladder step R{weights_track_mode[4:]})"
     elif weights_track_mode == 'sgdbce':
         calib_note = ", training directly on the group's own DMRS pilots"
     elif weights_track_mode == 'sgdsyn':

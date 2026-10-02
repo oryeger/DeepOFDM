@@ -482,7 +482,7 @@ class ESCNNTrainer(Trainer):
 
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
                             probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
-                            tx_ref: torch.Tensor = None):
+                            tx_ref: torch.Tensor = None, use_bp: bool = False):
         """Unsupervised, syndrome-driven test-time adaptation: for every (user, iteration)
         network, whatever escnn_load_freeze leaves unfrozen gets one EKF predict+update per
         *slot* (one TB/LDPC codeword each) from that slot's soft-syndrome measurement (no
@@ -549,6 +549,17 @@ class ESCNNTrainer(Trainer):
 
         trackers = self._get_ekf_trackers()
         rx_real = rx_real.to(DEVICE).unsqueeze(-1)  # (symbols, C, num_res) -> (symbols, C, num_res, 1), matching probs_vec / _forward's rx.unsqueeze(-1)
+        # ekf.py weights_track_mode='ekfbp': measurement = ALL check rows, punctured columns filled
+        # per row from a detached BP decoder run on the network's own LLRs (BP's extrinsic message
+        # L_{v->m}, i.e. v's estimate from every row except m) instead of one peeling round + clean
+        # rows. Transmitted columns keep the network's t(theta) - the only part with a Jacobian.
+        # Validated in the ekfi ladder as step 'ekfibp' (tracks like the genie R3).
+        bp_punc_edge = None
+        if use_bp:
+            helper._to(DEVICE)
+            _is_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_all.device)
+            _is_p[helper.punctured_idx] = True
+            bp_punc_edge = _is_p[helper.edge_bit_all]
         if getattr(conf, 'which_augment', 'NO_AUGMENT') == 'NO_AUGMENT' or probs_in is None:
             probs_vec = self._initialize_probs_for_infer(rx_real, num_bits, n_users)
         else:
@@ -598,11 +609,43 @@ class ESCNNTrainer(Trainer):
                     for s in range(group_start, group_end):
                         rx_slot = rx_prob[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
 
-                        def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n, _idx=real_bit_idx):
+                        bp_tpe, bp_diag = None, ""
+                        if use_bp:
+                            with torch.no_grad():
+                                _, _llr_bp = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
+                                if real_bit_idx is not None:
+                                    _llr_bp = _llr_bp[:, real_bit_idx, :, :]
+                                _Lbp = _llr_bp.squeeze(-1).reshape(-1)[:helper.n]
+                                _v2c, _post = self._ladder_bp(helper, _Lbp)
+                                bp_tpe = torch.tanh(_v2c.clamp(-30.0, 30.0) / 2.0)
+                                if use_ref:
+                                    # Diagnostic only (true bits never enter the measurement).
+                                    _sg = sign_ref[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
+                                    _lt = 30.0 * _sg.reshape(1, -1)[:, :helper.n]
+                                    _tt = torch.tanh(helper.map_to_mother(_lt).clamp(-30.0, 30.0) / 2.0)
+                                    _flag = helper._fallback_rounds_logged
+                                    helper._fallback_rounds_logged = True
+                                    _tt = helper._estimate_punctured_t(_tt, 50)[0]
+                                    helper._fallback_rounds_logged = _flag
+                                    _pi, _ti = helper.punctured_idx, helper.tx_to_mother
+                                    _known = _tt[_pi].abs() > 0.5
+                                    _nk = max(int(_known.sum().item()), 1)
+                                    _pw = (((_post[_pi] * _tt[_pi]) < 0) & _known).sum().item() / _nk
+                                    _tw = ((_post[_ti] * _tt[_ti]) < 0).float().mean().item()
+                                    _rw = ((_Lbp > 0) != (_sg.reshape(-1)[:helper.n] > 0)).float().mean().item()
+                                    bp_diag = (f" tx_wrong={_rw:.4f} bp_punc_wrong={_pw:.4f}"
+                                               f" bp_tx_wrong={_tw:.4f}")
+
+                        def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n, _idx=real_bit_idx,
+                                           _tpe=bp_tpe):
                             _, llrs = functional_call(_net, param_dict, (_rx,))
                             if _idx is not None:
                                 llrs = llrs[:, _idx, :, :]
                             stream = llrs.squeeze(-1).reshape(-1)[:_n].reshape(1, _n)
+                            if _tpe is not None:
+                                t_col = torch.tanh(helper.map_to_mother(stream).clamp(-30.0, 30.0) / 2.0)
+                                te = torch.where(bp_punc_edge, _tpe, t_col[0, helper.edge_bit_all])
+                                return self._ladder_row_products(te, helper.edge_check_all, helper.num_checks)
                             return helper.p_vector(stream).reshape(-1)
 
                         reference_fn = None
@@ -622,7 +665,8 @@ class ESCNNTrainer(Trainer):
                             print(f"[ekf] user={user} it={i} slot={s + 1}/{num_slots} "
                                   f"(epoch {group_start // slots_per_predict + 1}) "
                                   f"checks={stats['num_checks']} mean_hard_sat={stats['mean_hard_sat']:.3f} "
-                                  f"mean_p={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}{cos_txt}", flush=True)
+                                  f"mean_p={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}{cos_txt}{bp_diag}",
+                                  flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)
@@ -660,7 +704,19 @@ class ESCNNTrainer(Trainer):
               peeling), all non-dead checks. Data term becomes sum_m (1-p_m)^2.
           R4: + only the clean checks
           R5: punctured bits from peeling the network's own LLRs = helper.p_vector,
-              i.e. exactly ekf's measurement, still on the calib slots."""
+              i.e. exactly ekf's measurement, still on the calib slots.
+          41 (R4s): R4's clean rows, punctured columns = TRUE sign x network-peeled magnitude
+          42 (R4m): R4's clean rows, punctured columns = network-peeled sign x TRUE magnitude (~1)
+          50 (RBP): ALL check rows. A detached sum-product BP decoder (_LADDER_BP_ITERS iterations)
+              runs over every column from the network's own LLRs; each punctured column v in row m
+              then gets BP's extrinsic message L_{v->m} (v's estimate from every row except m), so no
+              row is scored against a value it produced itself and no row is dead. Transmitted
+              columns keep the network's t(theta) - the only part that carries the Jacobian.
+
+        Diagnostics when log_train_every_epochs > 0: cos_true per update - cosine between the applied
+        step and the step R0's measurement (true-bit agreement over every bit of the same calib
+        slot) would take from the same prior, i.e. the same reference ekf's own cos_true uses; and,
+        once per run for steps >= 2, how many clean / non-dead rows each transmitted column is in."""
         if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
             self._tsyn_warn_once('ekfi_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
@@ -672,14 +728,29 @@ class ESCNNTrainer(Trainer):
         # DEBUG-LADDER: steps >= 2 need the same SyndromeLoss helper ekf uses (same code, same
         # clean/dead classification, same peeling rounds).
         step = int(ekfi_step)
-        helper, tx_keep = None, None
+        step_label = {41: '4s', 42: '4m', 50: 'BP'}.get(step, str(step))
+        helper, tx_keep, punc_in_clean, bp_punc_edge = None, None, None, None
         if step >= 2:
             helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
             if helper is None:
                 raise ValueError(f"ekfi step R{step} needs the LDPC syndrome helper (conf.mcs > -1).")
             helper._to(DEVICE)
             if step == 2:
-                tx_keep = torch.isin(helper.tx_to_mother, torch.unique(helper.edge_bit_clean))  # (n,) bool
+                # Plain mask instead of torch.isin (isin crashed with SIGILL on cluster node ise-cpu-intl-15).
+                _in_clean = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_clean.device)
+                _in_clean[helper.edge_bit_clean] = True
+                tx_keep = _in_clean[helper.tx_to_mother]  # (n,) bool
+            # Diagnostic: which punctured columns appear in >= 1 clean row (the ones R4/R5/ekf use).
+            _in_clean_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_clean.device)
+            _in_clean_p[helper.edge_bit_clean] = True
+            punc_in_clean = _in_clean_p[helper.punctured_idx]   # (P,) bool
+            if step == 50:
+                _is_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_all.device)
+                _is_p[helper.punctured_idx] = True
+                bp_punc_edge = _is_p[helper.edge_bit_all]          # (E,) bool
+            if getattr(conf, 'log_train_every_epochs', 0) > 0 and not getattr(self, '_ladder_cov_logged', False):
+                self._log_ladder_row_coverage(helper)
+                self._ladder_cov_logged = True
         # Same +-30 as SyndromeLoss.LLR_CLAMP (not imported here: syndrome_loss imports Sionna lazily).
         llr_clamp = (helper.LLR_CLAMP if helper is not None else 30.0) if step >= 1 else None
 
@@ -713,8 +784,34 @@ class ESCNNTrainer(Trainer):
                     rx_slot, sign_slot = rx_prob[sl], sign[sl]
 
                     # DEBUG-LADDER R3/R4: punctured values from the TRUE codeword (constant in theta)
+                    # DEBUG-LADDER RBP: detached BP on the network's own LLRs (prior weights), giving
+                    # per-edge punctured values tanh(L_{v->m}/2), constant w.r.t. theta.
+                    bp_tpe, bp_diag = None, ""
+                    if step == 50:
+                        with torch.no_grad():
+                            _, _llr_bp = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
+                            _Lbp = _llr_bp.squeeze(-1).reshape(-1)[:helper.n]
+                            _v2c, _post = self._ladder_bp(helper, _Lbp)
+                            bp_tpe = torch.tanh(_v2c.clamp(-30.0, 30.0) / 2.0)
+                            if log_stats:
+                                # Truth on every mother-code column (peeling the true bits to a fixpoint).
+                                _lt = 30.0 * sign_slot.reshape(1, -1)[:, :helper.n]
+                                _tt = torch.tanh(helper.map_to_mother(_lt).clamp(-30.0, 30.0) / 2.0)
+                                _flag = helper._fallback_rounds_logged
+                                helper._fallback_rounds_logged = True       # keep ekf's own log line intact
+                                _tt = helper._estimate_punctured_t(_tt, 50)[0]
+                                helper._fallback_rounds_logged = _flag
+                                _pi = helper.punctured_idx
+                                _known = _tt[_pi].abs() > 0.5
+                                _nk = max(int(_known.sum().item()), 1)
+                                _pw = (((_post[_pi] * _tt[_pi]) < 0) & _known).sum().item() / _nk
+                                _ti = helper.tx_to_mother
+                                _tw = ((_post[_ti] * _tt[_ti]) < 0).float().mean().item()
+                                bp_diag = (f" bp_punc_wrong={_pw:.4f} bp_tx_wrong={_tw:.4f}"
+                                           f" bp_punc_known={_nk}")
+
                     t_punc_true, nondead = None, None
-                    if step in (3, 4):
+                    if step in (3, 4, 41, 42):
                         with torch.no_grad():
                             llr_true = llr_clamp * sign_slot.reshape(1, -1)[:, :helper.n]
                             t_true = torch.tanh(helper.map_to_mother(llr_true).clamp(-llr_clamp, llr_clamp) / 2.0)
@@ -725,7 +822,7 @@ class ESCNNTrainer(Trainer):
                             nondead = p_true[0].abs() > 0.5   # resolved checks: p = +1; dead: 0
 
                     def measurement_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot,
-                                       _tp=t_punc_true, _nd=nondead):
+                                       _tp=t_punc_true, _nd=nondead, _tpe=bp_tpe):
                         _, llrs = functional_call(_net, param_dict, (_rx,))
                         L = llrs.squeeze(-1).reshape(-1)               # L > 0 <=> bit 1
                         sgn = _sign.reshape(-1)
@@ -737,9 +834,24 @@ class ESCNNTrainer(Trainer):
                         if step == 2:                                    # R2
                             return (sgn[:helper.n] * torch.tanh(0.5 * L[:helper.n]))[tx_keep]
                         stream = L[:helper.n].reshape(1, -1)
+                        if step == 50:                                   # RBP: all rows, BP punctured
+                            t_col = torch.tanh(helper.map_to_mother(stream).clamp(-llr_clamp, llr_clamp) / 2.0)
+                            te = t_col[0, helper.edge_bit_all]
+                            te = torch.where(bp_punc_edge, _tpe, te)
+                            return self._ladder_row_products(te, helper.edge_check_all, helper.num_checks)
                         if step == 5:                                    # R5 (= ekf's measurement)
                             return helper.p_vector(stream).reshape(-1)
                         t = torch.tanh(helper.map_to_mother(stream).clamp(-llr_clamp, llr_clamp) / 2.0).clone()
+                        if step in (41, 42):
+                            # Network-peeled punctured values, detached exactly as in p_vector (R5).
+                            t_net_p = helper._estimate_punctured_t(t.detach(), helper.fallback_iters)[
+                                :, helper.punctured_idx]
+                            if step == 41:                               # R4s: true sign, network magnitude
+                                t[:, helper.punctured_idx] = torch.sign(_tp) * t_net_p.abs()
+                            else:                                        # R4m: network sign, true magnitude
+                                t[:, helper.punctured_idx] = torch.sign(t_net_p) * _tp.abs()
+                            return helper._check_products(t, helper.edge_check_clean, helper.edge_bit_clean,
+                                                          helper.num_clean).reshape(-1)
                         t[:, helper.punctured_idx] = _tp
                         if step == 4:                                    # R4
                             return helper._check_products(t, helper.edge_check_clean, helper.edge_bit_clean,
@@ -748,18 +860,115 @@ class ESCNNTrainer(Trainer):
                                                    helper.num_checks)    # R3
                         return p[:, _nd].reshape(-1)
 
-                    stats = tracker.update(measurement_fn)
+                    # DEBUG-LADDER diagnostic: R0's true-bit agreement on this same calib slot (all
+                    # bits, no clamp) - the same reference ekf's cos_true uses. Never applied.
+                    reference_fn = None
+                    if log_stats:
+                        def reference_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot):
+                            _, llrs = functional_call(_net, param_dict, (_rx,))
+                            return (_sign.reshape(-1) * torch.tanh(0.5 * llrs.squeeze(-1).reshape(-1)))
+
+                    # DEBUG-LADDER diagnostic, prior weights: sign errors of the network's own LLRs on
+                    # this calib slot (tx_wrong), and of the punctured values peeled from them, over the
+                    # punctured columns used by clean rows (punc_wrong, vs the true codeword; punc_unres =
+                    # fraction left unresolved). Read-only.
+                    diag_txt = ""
+                    if log_stats:
+                        with torch.no_grad():
+                            # Same prior weights the update linearizes at (tracker.theta after predict).
+                            _, _llr0 = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
+                            _L0 = _llr0.squeeze(-1).reshape(-1)
+                            _sg = sign_slot.reshape(-1)
+                            diag_txt = f" tx_wrong={((_L0 > 0) != (_sg > 0)).float().mean().item():.4f}"
+                            if helper is not None:
+                                _L0n = _L0[:helper.n].clamp(-30.0, 30.0).reshape(1, -1)
+                                _t0 = torch.tanh(helper.map_to_mother(_L0n).clamp(-30.0, 30.0) / 2.0)
+                                _pn = helper._estimate_punctured_t(_t0, helper.fallback_iters)[0, helper.punctured_idx]
+                                _lt = 30.0 * _sg.reshape(1, -1)[:, :helper.n]
+                                _tt = torch.tanh(helper.map_to_mother(_lt).clamp(-30.0, 30.0) / 2.0)
+                                _pt = helper._estimate_punctured_t(_tt, helper.fallback_iters)[0, helper.punctured_idx]
+                                _m = punc_in_clean & (_pt.abs() > 0.5)
+                                _nm = max(int(_m.sum().item()), 1)
+                                _wrong = ((_pn * _pt) < 0) & _m
+                                _unres = (_pn.abs() < 1e-12) & _m
+                                diag_txt += (f" punc_wrong={_wrong.sum().item() / _nm:.4f}"
+                                             f" punc_unres={_unres.sum().item() / _nm:.4f} punc_n={_nm}")
+
+                    diag_txt += bp_diag
+                    stats = tracker.update(measurement_fn, reference_fn=reference_fn)
                     if log_stats and not stats.get('skipped', True):
                         # Prefix stays "[ekfi]" (plot_drift_log.py's DTHETA_RE); step appended for R1..R5.
+                        cos_txt = (f" cos_true={stats['cos_ref']:.3f}"
+                                   if stats.get('cos_ref') is not None else "")
                         print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
                               f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
                               f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}"
-                              + (f" step=R{step}" if step else ""), flush=True)
+                              f"{cos_txt}{diag_txt}" + (f" step=R{step_label}" if step else ""), flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)
                     next_probs_vec[:, user * num_bits:(user + 1) * num_bits, :, :] = output
             probs_vec = next_probs_vec
+
+    _LADDER_BP_ITERS = 10   # DEBUG-LADDER RBP: sum-product iterations
+
+    @torch.no_grad()
+    def _ladder_bp(self, helper, llr_tx: torch.Tensor, iters: int = None):
+        """DEBUG-LADDER RBP: detached flooding sum-product BP over the full mother code.
+        llr_tx: (n,) project-convention LLRs (L>0 <=> bit 1) of one codeword. Channel LLRs: transmitted
+        columns from llr_tx, fillers +30, punctured 0 (erasures). Returns (v2c, post): the per-edge
+        variable-to-check messages after the last iteration (classical convention, L>0 <=> bit 0) -
+        v2c[e] for edge (m, v) is v's estimate from every row except m - and the posterior LLR per
+        mother-code column."""
+        iters = self._LADDER_BP_ITERS if iters is None else int(iters)
+        ec, eb = helper.edge_check_all, helper.edge_bit_all
+        Lch = helper.map_to_mother(llr_tx.clamp(-30.0, 30.0).reshape(1, -1))[0]
+        v2c = Lch[eb].clone()
+        post = Lch.clone()
+        M = helper.num_checks
+        for _ in range(iters):
+            t = torch.tanh(v2c.clamp(-30.0, 30.0) / 2.0)
+            la = torch.log(t.abs().clamp(min=1e-12, max=1.0 - 1e-7))
+            ng = (t < 0).to(t.dtype)
+            sla = torch.zeros(M, dtype=t.dtype, device=t.device).index_add_(0, ec, la)
+            sng = torch.zeros(M, dtype=t.dtype, device=t.device).index_add_(0, ec, ng)
+            prod = (1.0 - 2.0 * torch.remainder(sng[ec] - ng, 2.0)) * torch.exp(sla[ec] - la)
+            c2v = 2.0 * torch.atanh(prod.clamp(-1.0 + 1e-6, 1.0 - 1e-6))
+            post = Lch.clone().index_add_(0, eb, c2v)
+            v2c = post[eb] - c2v
+        return v2c, post
+
+    @staticmethod
+    def _ladder_row_products(te: torch.Tensor, edge_check: torch.Tensor, num_checks: int) -> torch.Tensor:
+        """Per-row product of per-edge t values (log domain, exact gradients) -> (num_checks,)."""
+        log_abs = torch.log(te.abs().clamp(min=1e-30))
+        sum_log = torch.zeros(num_checks, dtype=te.dtype, device=te.device).index_add(0, edge_check, log_abs)
+        neg = torch.zeros(num_checks, dtype=te.dtype, device=te.device).index_add(0, edge_check, (te < 0).to(te.dtype))
+        return (1.0 - 2.0 * torch.remainder(neg, 2.0)) * torch.exp(sum_log)
+
+    @torch.no_grad()
+    def _log_ladder_row_coverage(self, helper):
+        """DEBUG-LADDER diagnostic, printed once: for every transmitted column, how many clean rows
+        (R4/R5/ekf) and how many non-dead rows (R3) contain it. Structural only - non-dead rows are
+        found by peeling an all-known input with the same round budget as the real peeling."""
+        dev = helper.edge_bit_all.device
+        t = torch.ones(1, helper.n_ldpc, device=dev)
+        t[:, helper.punctured_idx] = 0.0
+        t = helper._estimate_punctured_t(t, helper.fallback_iters)
+        p = helper._check_products(t, helper.edge_check_all, helper.edge_bit_all, helper.num_checks)[0]
+        nondead_rows = p.abs() > 0.5
+        nd_edges = nondead_rows[helper.edge_check_all]
+        cnt_nd = torch.bincount(helper.edge_bit_all[nd_edges], minlength=helper.n_ldpc)[helper.tx_to_mother]
+        cnt_cl = torch.bincount(helper.edge_bit_clean, minlength=helper.n_ldpc)[helper.tx_to_mother]
+
+        def summary(c):
+            n = c.numel()
+            return (f"0 rows {100.0 * (c == 0).sum().item() / n:.1f}%, 1 row {100.0 * (c == 1).sum().item() / n:.1f}%, "
+                    f"2 rows {100.0 * (c == 2).sum().item() / n:.1f}%, >=3 rows {100.0 * (c >= 3).sum().item() / n:.1f}%, "
+                    f"mean {c.float().mean().item():.2f}")
+        print(f"[ekfi] row coverage of the {helper.n} transmitted columns - "
+              f"clean rows ({helper.num_clean}): {summary(cnt_cl)} | "
+              f"non-dead rows ({int(nondead_rows.sum().item())}): {summary(cnt_nd)}", flush=True)
 
     def _log_static_syndrome_stats(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
                                     probs_in: torch.Tensor, helper, num_slots: int, real_bit_idx=None,

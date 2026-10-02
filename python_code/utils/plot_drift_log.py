@@ -108,7 +108,15 @@ DTHETA_RE = re.compile(r'\[ekfi?\]\s+user=\d+\s+it=\d+\s.*?dtheta_rms=(?P<dtheta
 # Direction diagnostic on syndrome-EKF "[ekf] ..." lines: cosine similarity between the applied
 # syndrome update and the update the slot's true bits would have given (ekf_predict_update's
 # tx_ref). Optional - absent in older logs and in every other mode.
-COS_RE = re.compile(r'\[ekf\]\s+user=\d+\s+it=\d+\s.*?cos_true=(?P<cos_true>[-+\d.eE]+)')
+COS_RE = re.compile(r'\[ekfi?\]\s+user=\d+\s+it=\d+\s.*?cos_true=(?P<cos_true>[-+\d.eE]+)')
+
+# ekfi ladder lines ("[ekfi] ... calib slot=... bits=N frac_correct=... mean_agree=..."): for steps
+# R3+ these are the same check-satisfaction quantities as ekf's mean_hard_sat / mean_p (for R0-R2
+# they are per-bit agreement instead), so they feed the same "syndrome" panel.
+EKFI_SAT_RE = re.compile(
+    r'\[ekfi\]\s+user=\d+\s+it=\d+\s+calib slot=\d+/\d+\s+bits=\d+\s+'
+    r'frac_correct=(?P<mean_hard_sat>[-+\d.eE]+)\s+mean_agree=(?P<mean_p>[-+\d.eE]+)'
+)
 
 GROUP_RE = re.compile(
     r'\[drift\]\s+group\s+(?P<group_idx>\d+)/\d+\s+slots=[\d\-]+\s+'
@@ -161,7 +169,7 @@ def parse_drift_log(path: str) -> dict:
             cos_m = COS_RE.search(line)
             if cos_m:
                 pending_cos.append(float(cos_m.group('cos_true')))
-            hard_sat_m = HARD_SAT_RE.search(line)
+            hard_sat_m = HARD_SAT_RE.search(line) or EKFI_SAT_RE.search(line)
             if hard_sat_m:
                 pending_hard_sats.append(float(hard_sat_m.group('mean_hard_sat')))
                 if hard_sat_m.group('mean_p') is not None:

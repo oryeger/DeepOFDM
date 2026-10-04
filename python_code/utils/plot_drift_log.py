@@ -217,6 +217,13 @@ def parse_drift_log(path: str) -> dict:
                             pass
                     elif tok.startswith('frz=') and meta is not None:
                         meta.setdefault('freeze', tok[len('frz='):])
+                    elif tok.startswith('bpg=') and meta is not None:
+                        meta.setdefault('bp_gate', tok[len('bpg='):])
+                    elif tok.startswith('bpi=') and meta is not None and 'bp_iters' not in meta:
+                        try:
+                            meta['bp_iters'] = int(tok[len('bpi='):])
+                        except ValueError:
+                            pass
                     elif tok.startswith('tf=') and meta is not None and 'tsyn_fallback_iters' not in meta:
                         try:
                             meta['tsyn_fallback_iters'] = int(tok[len('tf='):])
@@ -280,6 +287,10 @@ def _format_title(meta: dict, user_title: str = None, wrap_width: int = 110) -> 
         parts.append(f"speed={meta['speed']:g}m/s")
     if 'tsyn_fallback_iters' in meta:
         parts.append(f"tsyn_fallback_iters={meta['tsyn_fallback_iters']}")
+    if 'bp_iters' in meta:
+        parts.append(f"bp_iters={meta['bp_iters']}")
+    if 'bp_gate' in meta:
+        parts.append(f"bp_gate={meta['bp_gate']}")
     if 'base_cfo' in meta:
         parts.append(f"cfo0={meta['base_cfo']:g}")
     if 'cfo_drift' in meta:

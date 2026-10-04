@@ -98,7 +98,8 @@ SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
 # emits csg/ep/bs/loss/tw/po for specific track_modes; lr is always emitted right
 # after trk) rather than independent sweep axes -- see ekf.py's
 # get_escnn_title_string, ~line 272-282.
-TRK_FAMILY = {"trk", "csg", "lr", "ep", "bs", "loss", "tw", "po"}
+# "t" is the tracking-mode token since 2026-10-04 (older names use "trk"); both are accepted.
+TRK_FAMILY = {"trk", "t", "csg", "lr", "ep", "bs", "loss", "tw", "po"}
 
 def mat_target(tag, k, diffs_k, short, aug_type):
     """Where plot_csvs() should save this config's .mat file(s).
@@ -144,10 +145,24 @@ def mat_target(tag, k, diffs_k, short, aug_type):
     if not trk_toks:
         return None, None, None
     rest_toks = [tok for name, tok in pairs if name not in TRK_FAMILY and tok in diffs_k]
-    trk_mode = trk_toks[0].split("=", 1)[1]
+    mode_toks = [tok for name, tok in pairs if name in ("trk", "t")]
+    trk_mode = (mode_toks[0] if mode_toks else trk_toks[0]).split("=", 1)[1]
     mat_dir  = os.path.join(SCRATCH, "mat_files", tag, SAFE("_".join(rest_toks)) or "base")
     mat_name = SAFE(f"{aug_type.lower()}_{trk_mode}")
     return mat_dir, mat_name, trk_mode
+
+def _trk_group(k):
+    """Presentation rank of a config's tracking mode: notrack, ekf, ekfi (incl. the ekfi1..ekfi6
+    debug ladder), sgdbcei, ekfbp (incl. ekfbps/ekfbpc), sgdsbp, then everything else
+    (other modes, e.g. ekfibp, and configs with no t=/trk= token)."""
+    mode = next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
+    if mode is None:
+        return 6
+    if re.fullmatch(r"ekfi\d*", mode):
+        return 2
+    if mode in ("ekfbp", "ekfbps", "ekfbpc"):
+        return 4
+    return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5}.get(mode, 6)
 
 def sort_key(diffs):
     """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5."""
@@ -214,7 +229,7 @@ def build(tag):
         print(f"No CSVs found for tag '{tag}'"); return 1
     keys = sorted(cfgs)
     diffs = differing_tokens(keys)
-    keys.sort(key=lambda k: sort_key(diffs[k]))
+    keys.sort(key=lambda k: (_trk_group(k), sort_key(diffs[k])))
 
     out_dir = _rotate_out_dir(tag)
     os.makedirs(out_dir, exist_ok=True)

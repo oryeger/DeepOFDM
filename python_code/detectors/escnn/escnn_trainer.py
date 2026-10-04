@@ -482,7 +482,8 @@ class ESCNNTrainer(Trainer):
 
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
                             probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
-                            tx_ref: torch.Tensor = None, use_bp: bool = False):
+                            tx_ref: torch.Tensor = None, use_bp: bool = False, crc_check_fn=None,
+                            bp_gate: str = 'none'):
         """Unsupervised, syndrome-driven test-time adaptation: for every (user, iteration)
         network, whatever escnn_load_freeze leaves unfrozen gets one EKF predict+update per
         *slot* (one TB/LDPC codeword each) from that slot's soft-syndrome measurement (no
@@ -555,6 +556,11 @@ class ESCNNTrainer(Trainer):
         # rows. Transmitted columns keep the network's t(theta) - the only part with a Jacobian.
         # Validated in the ekfi ladder as step 'ekfibp' (tracks like the genie R3).
         bp_punc_edge = None
+        # bp_gate (set by ekf.py's mode: 'ekfbp' none, 'ekfbps' 'syndrome', 'ekfbpc' 'crc'): skip a slot's
+        # update (predict still runs) unless the slot looks decodable - 'syndrome': the hard decision of
+        # the detached BP's posterior satisfies every parity check; 'crc': the Sionna LDPC decode of the
+        # prior-weight LLRs passes CRC (crc_check_fn) - see _gate_check.
+        bp_gate = self._bp_gate_mode(bp_gate, use_bp, crc_check_fn)
         if use_bp:
             helper._to(DEVICE)
             _is_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_all.device)
@@ -609,7 +615,7 @@ class ESCNNTrainer(Trainer):
                     for s in range(group_start, group_end):
                         rx_slot = rx_prob[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
 
-                        bp_tpe, bp_diag = None, ""
+                        bp_tpe, bp_diag, bp_unsat, gate_txt = None, "", None, ""
                         if use_bp:
                             with torch.no_grad():
                                 _, _llr_bp = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
@@ -618,6 +624,8 @@ class ESCNNTrainer(Trainer):
                                 _Lbp = _llr_bp.squeeze(-1).reshape(-1)[:helper.n]
                                 _v2c, _post = self._ladder_bp(helper, _Lbp)
                                 bp_tpe = torch.tanh(_v2c.clamp(-30.0, 30.0) / 2.0)
+                                if bp_gate != 'none':
+                                    bp_unsat, gate_txt = self._gate_check(bp_gate, helper, _post, _Lbp, crc_check_fn)
                                 if use_ref:
                                     # Diagnostic only (true bits never enter the measurement).
                                     _sg = sign_ref[s * payload_symbols_per_slot:(s + 1) * payload_symbols_per_slot]
@@ -635,6 +643,7 @@ class ESCNNTrainer(Trainer):
                                     _rw = ((_Lbp > 0) != (_sg.reshape(-1)[:helper.n] > 0)).float().mean().item()
                                     bp_diag = (f" tx_wrong={_rw:.4f} bp_punc_wrong={_pw:.4f}"
                                                f" bp_tx_wrong={_tw:.4f}")
+                                bp_diag += gate_txt
 
                         def measurement_fn(param_dict, _net=net, _rx=rx_slot, _n=helper.n, _idx=real_bit_idx,
                                            _tpe=bp_tpe):
@@ -658,6 +667,14 @@ class ESCNNTrainer(Trainer):
                                     llrs = llrs[:, _idx, :, :]
                                 return (_sign * torch.tanh(0.5 * llrs.squeeze(-1))).reshape(-1)
 
+                        if bp_unsat is not None and bp_unsat > 0:
+                            # Gated: BP did not reach a valid codeword, so its punctured values are not
+                            # trusted - keep the predicted state (push it into the net) and skip the update.
+                            tracker._write_back()
+                            if log_stats:
+                                print(f"[gate] user={user} it={i} slot={s + 1}/{num_slots} "
+                                      f"update skipped ({bp_gate} gate){bp_diag or gate_txt}", flush=True)
+                            continue
                         stats = tracker.update(measurement_fn, reference_fn=reference_fn)
                         if log_stats and not stats.get('skipped', True):
                             cos_txt = (f" cos_true={stats['cos_ref']:.3f}"
@@ -678,7 +695,8 @@ class ESCNNTrainer(Trainer):
     def ekf_predict_update_supervised(self, rx_real: torch.Tensor, tx: torch.Tensor, num_bits: int, n_users: int,
                                        iterations: int, probs_in: torch.Tensor = None,
                                        payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
-                                       ekfi_step: int = 0):
+                                       ekfi_step: int = 0, update_mask=None, log_suffix: str = "",
+                                       crc_check_fn=None, bp_gate: str = 'none'):
         """Supervised counterpart of ekf_predict_update (ekf.py's weights_track_mode='ekfi'): the
         same EkfParamTracker predict/update, but the measurement is the known transmitted bits of a
         separate calibration region instead of the soft syndrome - the single-step CM-EKF of
@@ -712,6 +730,13 @@ class ESCNNTrainer(Trainer):
               then gets BP's extrinsic message L_{v->m} (v's estimate from every row except m), so no
               row is scored against a value it produced itself and no row is dead. Transmitted
               columns keep the network's t(theta) - the only part that carries the Jacobian.
+
+        update_mask (optional, (num_slots, n_users) bool): slots/users whose update is skipped where
+        False (the group's predict still runs) - ekf.py's 'ekfcrc' passes its CRC-pass mask here, with
+        tx holding the re-encoded decoded codewords. bp_gate (default 'none') likewise skips step 50's update -
+        'syndrome': the BP posterior's hard decision fails a parity check; 'crc': the Sionna decode of
+        the prior-weight LLRs fails CRC (crc_check_fn). log_suffix is appended to
+        each [ekfi] line.
 
         Diagnostics when log_train_every_epochs > 0: cos_true per update - cosine between the applied
         step and the step R0's measurement (true-bit agreement over every bit of the same calib
@@ -753,6 +778,7 @@ class ESCNNTrainer(Trainer):
                 self._ladder_cov_logged = True
         # Same +-30 as SyndromeLoss.LLR_CLAMP (not imported here: syndrome_loss imports Sionna lazily).
         llr_clamp = (helper.LLR_CLAMP if helper is not None else 30.0) if step >= 1 else None
+        bp_gate = self._bp_gate_mode(bp_gate, step == 50, crc_check_fn)
 
         trackers = self._get_ekf_trackers()
         rx_real = rx_real.to(DEVICE).unsqueeze(-1)
@@ -782,17 +808,26 @@ class ESCNNTrainer(Trainer):
                 for s in range(num_slots):
                     sl = slice(s * payload_symbols_per_slot, (s + 1) * payload_symbols_per_slot)
                     rx_slot, sign_slot = rx_prob[sl], sign[sl]
+                    if update_mask is not None and not bool(update_mask[s][user]):
+                        # e.g. ekfcrc: this slot's decode failed CRC - no labels, keep the predicted state.
+                        tracker._write_back()
+                        if log_stats:
+                            print(f"[gate] user={user} it={i} calib slot={s + 1}/{num_slots} "
+                                  f"update skipped (masked){log_suffix}", flush=True)
+                        continue
 
                     # DEBUG-LADDER R3/R4: punctured values from the TRUE codeword (constant in theta)
                     # DEBUG-LADDER RBP: detached BP on the network's own LLRs (prior weights), giving
                     # per-edge punctured values tanh(L_{v->m}/2), constant w.r.t. theta.
-                    bp_tpe, bp_diag = None, ""
+                    bp_tpe, bp_diag, bp_unsat, gate_txt = None, "", None, ""
                     if step == 50:
                         with torch.no_grad():
                             _, _llr_bp = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
                             _Lbp = _llr_bp.squeeze(-1).reshape(-1)[:helper.n]
                             _v2c, _post = self._ladder_bp(helper, _Lbp)
                             bp_tpe = torch.tanh(_v2c.clamp(-30.0, 30.0) / 2.0)
+                            if bp_gate != 'none':
+                                bp_unsat, gate_txt = self._gate_check(bp_gate, helper, _post, _Lbp, crc_check_fn)
                             if log_stats:
                                 # Truth on every mother-code column (peeling the true bits to a fixpoint).
                                 _lt = 30.0 * sign_slot.reshape(1, -1)[:, :helper.n]
@@ -895,6 +930,14 @@ class ESCNNTrainer(Trainer):
                                              f" punc_unres={_unres.sum().item() / _nm:.4f} punc_n={_nm}")
 
                     diag_txt += bp_diag
+                    if bp_unsat is not None:
+                        diag_txt += gate_txt
+                        if bp_unsat > 0:
+                            tracker._write_back()
+                            if log_stats:
+                                print(f"[gate] user={user} it={i} calib slot={s + 1}/{num_slots} "
+                                      f"update skipped ({bp_gate} gate){diag_txt}{log_suffix}", flush=True)
+                            continue
                     stats = tracker.update(measurement_fn, reference_fn=reference_fn)
                     if log_stats and not stats.get('skipped', True):
                         # Prefix stays "[ekfi]" (plot_drift_log.py's DTHETA_RE); step appended for R1..R5.
@@ -903,14 +946,15 @@ class ESCNNTrainer(Trainer):
                         print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
                               f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
                               f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}"
-                              f"{cos_txt}{diag_txt}" + (f" step=R{step_label}" if step else ""), flush=True)
+                              f"{cos_txt}{diag_txt}" + (f" step=R{step_label}" if step else "") + log_suffix,
+                              flush=True)
 
                 with torch.no_grad():
                     output, _ = net(rx_prob)
                     next_probs_vec[:, user * num_bits:(user + 1) * num_bits, :, :] = output
             probs_vec = next_probs_vec
 
-    _LADDER_BP_ITERS = 10   # DEBUG-LADDER RBP: sum-product iterations
+    _LADDER_BP_ITERS = 10   # DEBUG-LADDER RBP: default sum-product iterations (config: bp_iters)
 
     @torch.no_grad()
     def _ladder_bp(self, helper, llr_tx: torch.Tensor, iters: int = None):
@@ -920,6 +964,8 @@ class ESCNNTrainer(Trainer):
         variable-to-check messages after the last iteration (classical convention, L>0 <=> bit 0) -
         v2c[e] for edge (m, v) is v's estimate from every row except m - and the posterior LLR per
         mother-code column."""
+        if iters is None:
+            iters = getattr(conf, 'bp_iters', None)
         iters = self._LADDER_BP_ITERS if iters is None else int(iters)
         ec, eb = helper.edge_check_all, helper.edge_bit_all
         Lch = helper.map_to_mother(llr_tx.clamp(-30.0, 30.0).reshape(1, -1))[0]
@@ -937,6 +983,45 @@ class ESCNNTrainer(Trainer):
             post = Lch.clone().index_add_(0, eb, c2v)
             v2c = post[eb] - c2v
         return v2c, post
+
+    _BP_GATES = ('none', 'syndrome', 'crc')
+
+    def _bp_gate_mode(self, gate: str, bp_active: bool, crc_check_fn=None) -> str:
+        """The requested gate, validated and reduced to 'none' where it cannot apply here."""
+        gate = str(gate or 'none').lower()
+        if gate not in self._BP_GATES:
+            raise ValueError(f"bp_gate={gate!r} not in {self._BP_GATES}.")
+        if gate != 'none' and not bp_active:
+            self._tsyn_warn_once('bp_gate_no_bp', f"bp_gate={gate!r} only applies to the BP modes "
+                                  "- ignored here.", tag='ekf')
+            return 'none'
+        if gate == 'crc' and crc_check_fn is None:
+            self._tsyn_warn_once('bp_gate_no_crc', "the CRC gate needs a CRC check callback from the "
+                                  "caller - none given, gate disabled.", tag='ekf')
+            return 'none'
+        return gate
+
+    def _gate_check(self, gate: str, helper, post: torch.Tensor, llr_tx: torch.Tensor, crc_check_fn):
+        """Returns (n_fail, log_text); n_fail > 0 means skip this slot's update.
+        'syndrome': unsatisfied checks of the BP posterior's hard decision (_bp_unsat).
+        'crc': 1 if crc_check_fn(llr_tx as numpy, project convention L>0 <=> bit 1) reports a CRC
+        failure of the Sionna LDPC decode of the prior-weight LLRs, else 0."""
+        if gate == 'syndrome':
+            n = self._bp_unsat(helper, post)
+            return n, f" bp_unsat={n}"
+        ok = bool(crc_check_fn(llr_tx.detach().cpu().numpy()))
+        return (0 if ok else 1), f" crc_ok={int(ok)}"
+
+    @staticmethod
+    @torch.no_grad()
+    def _bp_unsat(helper, post: torch.Tensor) -> int:
+        """Number of unsatisfied parity checks (over all mother-code rows) of the hard decision of
+        _ladder_bp's posterior (classical convention: post > 0 <=> bit 0). 0 = BP reached a valid
+        codeword, so its punctured values can be trusted (mode 'ekfbps')."""
+        x = (post < 0).to(post.dtype)
+        par = torch.zeros(helper.num_checks, device=post.device, dtype=post.dtype).index_add_(
+            0, helper.edge_check_all, x[helper.edge_bit_all])
+        return int((torch.remainder(par, 2.0) > 0.5).sum().item())
 
     @staticmethod
     def _ladder_row_products(te: torch.Tensor, edge_check: torch.Tensor, num_checks: int) -> torch.Tensor:
@@ -1206,9 +1291,37 @@ class ESCNNTrainer(Trainer):
                                           f"{payload_symbols_per_slot} symbols.")
             return None
         slots = stream[:num_slots * helper.n].reshape(num_slots, helper.n)
+        if getattr(self, 'synd_use_bp', False):    # ekf.py weights_track_mode='sgdsbp'
+            return self._syndrome_component_bp(helper, slots)
         l_synd = helper.loss(slots)
         sat = helper.hard_satisfaction(slots.detach())
         return l_synd, sat
+
+    def _syndrome_component_bp(self, helper, slots: torch.Tensor):
+        """L_synd with ekfbp's measurement (ekf.py weights_track_mode='sgdsbp'): ALL mother-code check
+        rows; each punctured column v in row m takes BP's extrinsic value tanh(L_{v->m}/2) from a detached
+        sum-product BP (_ladder_bp, conf.bp_iters iterations) run on the current LLRs of that codeword -
+        a constant, no gradient. Transmitted columns keep the network's tanh(L/2), the only part with a
+        gradient. Same per-row penalty as SyndromeLoss.loss: -log((1 + p_m) / 2), averaged over rows and
+        codewords. slots: (B, n) project-convention LLRs (L > 0 <=> bit 1). Returns (loss, sat) with
+        sat = fraction of rows with p_m > 0 (the same soft-sign health metric ekf's mean_hard_sat uses)."""
+        helper._to(slots.device)
+        if getattr(self, '_sbp_helper', None) is not helper:
+            _is_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_all.device)
+            _is_p[helper.punctured_idx] = True
+            self._sbp_punc_edge = _is_p[helper.edge_bit_all]
+            self._sbp_helper = helper
+        clamp = helper.LLR_CLAMP
+        t_col = torch.tanh(helper.map_to_mother(slots).clamp(-clamp, clamp) / 2.0)   # (B, n_ldpc)
+        rows = []
+        for b in range(slots.shape[0]):
+            v2c, _ = self._ladder_bp(helper, slots[b].detach())
+            tpe = torch.tanh(v2c.clamp(-clamp, clamp) / 2.0)
+            te = torch.where(self._sbp_punc_edge, tpe, t_col[b, helper.edge_bit_all])
+            rows.append(self._ladder_row_products(te, helper.edge_check_all, helper.num_checks))
+        p = torch.stack(rows)                                                           # (B, M)
+        l_synd = -torch.log(((1.0 + p) / 2.0).clamp(min=1e-9, max=1.0)).mean()
+        return l_synd, float((p.detach() > 0).float().mean())
 
     @staticmethod
     def _preprocess(rx: torch.Tensor) -> torch.Tensor:

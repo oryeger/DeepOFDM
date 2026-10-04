@@ -9,16 +9,18 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=sadam  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=ibpit  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
 seeds=(123)
-snrs=($(seq 0 30))
+#snrs=($(seq -5 40))
+snrs=($(seq 0 40))
+#snrs=(27)
 #snrs=(25)
-cfos=(0.2)
+cfos=(0.1 0.2)
 cfo_drift_vals=(0)
-speed_vals=(2.5 5 10)
+speed_vals=(2.5)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -31,7 +33,7 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(1)
+epochs_vals=(100)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
@@ -52,21 +54,32 @@ beta_balance_vals=(0)
 
 tw_vals=(0.0)
 
-tsyn_fallback_iters_vals=(0)
+tsyn_fallback_iters_vals=(1)
 
-escnn_ekf_sigma_r_vals=(0.5)
+bp_iters_vals=(1 5 10)   # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp only: sum-product BP iterations, e.g. (1 3 10 30)
+
+escnn_ekf_alpha_vals=(0.999)
+escnn_ekf_sigma_r_vals=(1.0)
 escnn_ekf_sigma_q_vals=(0.01)
-escnn_ekf_alpha_vals=(0.99)
+
 
 channel_drift_base_index_vals=(0)
 
 # ekf.py only
 weights_track_mode_vals=(
- # 'ekf'
-  'ekf'
+#  'ekfi'
+#  'ekfi1'
+#  'ekfi2'
+#  'ekfi3'
+#  'ekfi4'
+#  'ekfi5'
+#  'ekfi4s'
+#  'ekfi4m'
 #  'sgdsyn'
 #  'sgdbce'
 #  'sgdbcei'
+#   'ekfibp'
+   'ekfibp'
 #  'notrack'
 )
 calib_slots_per_group_vals=(1)
@@ -90,8 +103,8 @@ channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(5000 10000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(5)
+pilot_size_vals=(5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+mcs_vals=(39)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
@@ -285,9 +298,12 @@ for seed in "${seeds[@]}"; do
                                                                         for snr_max_ov in "${load_escnn_weights_snr_max_override_vals[@]}"; do
                                                                           smxtag="smx${snr_max_ov}"
 
+                                                                        for bp_iters in "${bp_iters_vals[@]}"; do
+                                                                          bpitag="bpi${bp_iters}"
+
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_${bpitag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
                                                                           -e "s/^channel_seed:.*/channel_seed: $seed/" \
@@ -330,12 +346,15 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
                                                                           -e "s/^weights_track_mode:.*/weights_track_mode: '$weights_track_mode'/" \
                                                                           -e "s/^calib_slots_per_group:.*/calib_slots_per_group: $calib_slots_per_group/" \
+                                                                          -e "s/^bp_iters:.*/bp_iters: $bp_iters/" \
                                                                           -e "s/^load_escnn_weights_snr_max_override:.*/load_escnn_weights_snr_max_override: $snr_max_ov/" \
                                                                           "$input_file" > "$out_file"
 
+                                                                      grep -q "^bp_iters:" "$out_file" || echo "bp_iters: $bp_iters" >> "$out_file"
                                                                       all_config_files+=("$out_file")
                                                                       ((total_count++))
                                                                         done  # snr
+                                                                        done  # bp_iters
                                                                         done  # snr_max_ov
                                                                       done  # calib_slots_per_group
                                                                     done  # weights_track_mode
@@ -409,6 +428,8 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
+
 
 
 

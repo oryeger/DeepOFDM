@@ -651,6 +651,7 @@ def _transmit_and_estimate(content: dict, n_ants: int, num_res: int, n_users: in
                                       return_untruncated=return_untruncated,
                                       estimate_noise_var=estimate_noise_var)
     result['H_est'] = est['H']
+    result['dd_window_s'] = est.get('dd_window_s', {})
     if return_untruncated:
         result['H_est_untrunc'] = est['H_untrunc']
     if estimate_noise_var:
@@ -840,6 +841,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     tx_bits, rx_data, H_data = data_result['tx_bits'], data_result['rx_payload'], data_result['H_est']
     rx_data_t = torch.from_numpy(rx_data)
     noise_var_est = data_result['noise_var_est']
+    print(f"[dmrs-ce] group={group_idx} cfo={conf.cfo:.3f} noise_var_est={noise_var_est:.4e} dd_window_ns="
+          + ",".join(f"u{u}:{w * 1e9:.0f}" for u, w in sorted(data_result['dd_window_s'].items())), flush=True)
     # Mirrors LmmseEqualize's own override_noise_var switch (lmmse_equalizer.py:83): True means
     # "trust the given (genie theoretical) noise_var", False means "use the receiver's own
     # pilot-residual estimate instead" - evaluate.py's LMMSE already behaves this way under the

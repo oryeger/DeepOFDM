@@ -340,6 +340,10 @@ class MIMOChannel:
                 nv_group = est['noise_var_est'] if estimate_nv else noise_var
                 ici_nv = genie_ici_noise_var(H_group, mod_data)
                 noise_var_est[payload_pos:payload_pos + group_payload_count] = nv_group + ici_nv
+                if group_start == 0:
+                    print(f"[dmrs-ce] cfo={conf.cfo} noise_var={float(nv_group):.4e} dd_window_ns="
+                          + ",".join(f"u{u}:{w * 1e9:.0f}" for u, w in sorted(est.get('dd_window_s', {}).items())),
+                          flush=True)
                 if group_start == 0 and ici_nv > 0:
                     print(f"[genie-ici-nv] dmrs cfo={conf.cfo} base_nv={float(nv_group):.4e} "
                           f"ici_nv={ici_nv:.4e} (ratio {ici_nv / max(float(nv_group), 1e-30):.2f})", flush=True)

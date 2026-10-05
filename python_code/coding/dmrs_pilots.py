@@ -36,7 +36,17 @@ DMRS_POWER_BOOST_DB = 3.0     # extra pilot EPRE (dB) at n_users==1 only, where 
                                # dmrs_known_tx/dmrs_layout) - n_users in (2, 4)
                                # already occupy every comb RE, so no spare budget to
                                # redistribute and no boost
-DMRS_DELAY_TRUNC_MARGIN = 12  # L_taps = ceil(margin * delay_spread / delay_bin_width)
+DMRS_DELAY_TRUNC_MARGIN = 12  # fallback window for non-TDL models: margin * delay_spread (see _dd_fallback_extent)
+
+# 3GPP 38.901 Tables 7.7.2-1..5: last-path delay of TDL-A..E in units of the RMS delay spread.
+# Used only for the fallback delay-domain window (no noise estimate available - see
+# estimate_channel_from_dmrs); the normal path sizes the window from the data.
+TDL_LAST_PATH_NORM_DELAY = {'A': 9.6586, 'B': 4.7834, 'C': 8.6523, 'D': 12.5254, 'E': 20.6519}
+# Sionna's discrete-time channel filter spills ~6 samples on each side of every path
+# (time_lag_discrete_time_channel's l_min=-6 / l_max=...+6), and every channel model aligns the
+# receiver to the strongest tap (TA=argmax), so the window must cover at least this much on
+# both sides of delay 0.
+DD_FILTER_SPILL_SAMPLES = 6
 
 
 def dmrs_layout(n_users: int, num_res: int) -> dict:
@@ -229,6 +239,109 @@ def fold_delay_taps(h_alias: np.ndarray, num_res: int, causal_len: int, anticaus
     return h_out
 
 
+def _dd_fallback_extent() -> float:
+    """Delay extent (s, |delay| from the strongest tap) used when the window can't be sized from
+    the data (a single DMRS occasion -> no noise estimate). TDL-A..E: the model's last-path delay
+    (TDL_LAST_PATH_NORM_DELAY x delay_spread); anything else (QuaDRiGa/Sionna UMa/UMi/RMa, whose
+    conf.delay_spread is only a 300 ns placeholder): DMRS_DELAY_TRUNC_MARGIN x delay_spread.
+    Plus the filter spill either way."""
+    model = str(getattr(conf, 'channel_model', 'C'))
+    spill = DD_FILTER_SPILL_SAMPLES / SAMPLING_RATE
+    if model[:1] in TDL_LAST_PATH_NORM_DELAY and model not in ('UMa', 'UMi', 'RMa'):
+        return TDL_LAST_PATH_NORM_DELAY[model[:1]] * float(conf.delay_spread) + spill
+    return DMRS_DELAY_TRUNC_MARGIN * float(conf.delay_spread) + spill
+
+
+def _genie_pilot_ici_var(known_tx: dict, user: int, num_res: int, h_pwr: float) -> float:
+    """TEMPORARY (genie, same conf.cfo as genie_cfo_comp_vector/genie_ici_noise_var): ICI variance
+    on this user's LS pilot estimates (channel units). Unlike thermal noise it is identical in every
+    DMRS occasion (same pilots, frozen channel), so the across-occasion residual can't see it and
+    occasion averaging doesn't reduce it - but across pilot REs it is effectively white (random
+    QPSK neighbours), so for the delay-domain window it is noise. Exact ICI coefficients for an
+    FFT_size-point OFDM symbol, |c_l|^2 = sin^2(pi*eps) / (N^2 sin^2(pi*(l+eps)/N)), summed over
+    every RE that carries DMRS energy on the DMRS symbols (all users), with mean |H|^2 = h_pwr.
+    Returns 0.0 when cfo == 0."""
+    eps = float(getattr(conf, 'cfo', 0.0))
+    if eps == 0:
+        return 0.0
+    tx_pwr = np.zeros(num_res)
+    for info in known_tx.values():
+        for re_a, re_b, val_a, val_b in info['entries']:
+            tx_pwr[re_a] += abs(val_a) ** 2
+            if re_b is not None:
+                tx_pwr[re_b] += abs(val_b) ** 2
+    Nf = FFT_size
+    l = np.arange(-(num_res - 1), num_res)
+    c2 = (np.sin(np.pi * eps) / (Nf * np.sin(np.pi * (l + eps) / Nf))) ** 2
+    c2[l == 0] = 0.0
+    own = []
+    for re_a, re_b, val_a, val_b in known_tx[user]['entries']:
+        for re_k, v in ((re_a, val_a), (re_b, val_b)):
+            if re_k is not None:
+                interf = np.sum(c2[np.arange(num_res) - re_k + (num_res - 1)] * tx_pwr)   # rx-domain, per |H|^2
+                own.append(interf / abs(v) ** 2)
+    scale = 0.5 if known_tx[user]['occ_active'] else 1.0      # deocc averages two REs
+    return scale * float(np.mean(own)) * h_pwr
+
+
+def _mirror_dd_interpolate(p: np.ndarray, pos: np.ndarray, num_res: int, sigma2_p: float,
+                           delta_f: float, full: bool = False):
+    """Delay-domain denoise + interpolate one user's pilot estimates, all antennas at once.
+
+    p: (M, n_ants) LS pilot estimates at uniformly spaced RE positions pos (spacing S, possibly a
+    fractional start - FD-OCC pair midpoints). sigma2_p: noise variance of each pilot estimate
+    (after occasion averaging/deocc), or None if unknown.
+
+    1) Mirror extension: [p, p[::-1]] (length N=2M) is continuous across both the band edges and
+       the period wrap, so its IFFT is compact - no Gibbs leakage from the jump between the last
+       and first RE that a plain M-point IFFT sees (that jump was the -13.5 dB noise-free floor of
+       the old estimator, worst at the band edges). Delay bins are 1/(N*S*delta_f) wide; a path at
+       delay d (relative to the strongest tap) shows up at bin +d and its mirror image at -d, so
+       the kept window is symmetric |n| <= c and covers paths both after AND before the strongest
+       tap (QuaDRiGa UMa has significant energy >1 us before it).
+    2) Window c from the data: per-bin power averaged over antennas, folded (n, -n), and c chosen
+       to minimise estimated MSE = (signal energy dropped beyond c) + (noise kept inside c), with
+       per-bin noise sigma2_p/N and signal energy estimated as max(power - noise, 0). Lower bound:
+       the filter spill; upper bound: everything. Low SNR -> tight window (denoising), high SNR ->
+       window opens up (accuracy). If sigma2_p is None, fall back to _dd_fallback_extent().
+    3) Evaluate the windowed delay-domain estimate at every RE's (fractional) pilot-grid position
+       x = (re - pos[0]) / S directly (exact for any offset - odd comb, OCC midpoints).
+
+    Returns (H (num_res, n_ants), c_bins, bin_width_s)."""
+    M = p.shape[0]
+    S = float(pos[1] - pos[0]) if M > 1 else 1.0
+    N = 2 * M
+    bin_w = 1.0 / (N * S * delta_f)
+    h = np.fft.ifft(np.concatenate([p, p[::-1]], axis=0), axis=0)          # (N, n_ants)
+    n_signed = np.fft.fftfreq(N) * N                                         # 0..M-1, -M..-1
+
+    c_min = int(np.ceil(DD_FILTER_SPILL_SAMPLES / SAMPLING_RATE / bin_w)) + 1
+    c_max = M - 1
+    if full:
+        c = c_max
+    elif sigma2_p is not None and sigma2_p > 0:
+        pw = np.mean(np.abs(h) ** 2, axis=1)                                 # (N,), antenna-averaged
+        fold = np.empty(M)
+        fold[0] = pw[0]
+        fold[1:] = pw[1:M] + pw[N - np.arange(1, M)]                         # |n| = 1..M-1
+        noise_bin = sigma2_p / N
+        noise_fold = np.full(M, 2.0 * noise_bin)
+        noise_fold[0] = noise_bin
+        excess = np.maximum(fold - noise_fold, 0.0)
+        dropped = np.concatenate([np.cumsum(excess[::-1])[::-1][1:], [0.0]])  # energy beyond c
+        kept_noise = np.cumsum(noise_fold)                                   # noise inside |n|<=c
+        cost = dropped + kept_noise
+        cand = np.arange(c_min, c_max + 1) if c_min <= c_max else np.array([c_max])
+        c = int(cand[np.argmin(cost[cand])])
+    else:
+        c = int(np.clip(np.ceil(_dd_fallback_extent() / bin_w), c_min, c_max))
+
+    keep = np.abs(n_signed) <= c
+    x = (np.arange(num_res) - pos[0]) / S                                    # (num_res,)
+    E = np.exp(-2j * np.pi * np.outer(x, n_signed[keep]) / N)                # (num_res, n_kept)
+    return E @ h[keep], c, bin_w
+
+
 def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: int, num_res: int,
                                 n_users: int, return_untruncated: bool = False,
                                 estimate_noise_var: bool = False):
@@ -242,24 +355,19 @@ def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: in
     of 4"); otherwise (n_users in (1,2)) every comb RE gets its own independent estimate
     (spacing-2 - "every other RE") since there's no second port sharing it to separate out.
 
-    Step 2 (delay domain): IFFT the user's M uniformly-spaced pilot estimates -> an aliased
-    delay-domain estimate; white noise spreads evenly across all M delay bins while true channel
-    energy concentrates within the delay spread, so truncating to L_taps (from conf.delay_spread)
-    and zeroing the rest is a large, SNR-independent noise reduction. L_taps is split evenly
-    between causal and anticausal (wrapped/pre-cursor - see fold_delay_taps), the same ratio the
-    untruncated path uses (there, an even split isn't a policy choice, it's the only correct one).
-    Zero-pad back to num_res (correctly split, not just appended - fold_delay_taps) and FFT ->
-    full-resolution H, including at the original pilot REs (denoised the same as everywhere else,
-    not left as their raw single-shot LS value) and at every off-comb RE (filled in purely by this
-    interpolation - see fold_delay_taps/edge_taper).
+    Step 2 (delay domain, _mirror_dd_interpolate): mirror-extend the user's M pilot estimates to
+    2M (removes the band-edge wrap discontinuity that limited the old plain-IFFT estimator to a
+    ~-13.5 dB noise-free NMSE on TDL-C), IFFT, keep the delay window |n| <= c, and evaluate at
+    every RE's exact (fractional) pilot-grid position. c is chosen per user from the data (MSE-
+    minimising cut on the antenna-averaged power-delay profile against the pilot noise level), so
+    it adapts to the actual channel - TDL-A..E at any delay spread, and QuaDRiGa UMa/UMi/RMa whose
+    conf.delay_spread is only a placeholder and whose per-seed spreads vary by >10x. Only with a
+    single DMRS occasion (no noise estimate) does it fall back to a model-based extent
+    (_dd_fallback_extent). result['dd_window_s'] = {user: window half-width in seconds}.
 
     return_untruncated (diagnostic only): also returns a second (num_res, n_ants, n_users)
-    estimate from the *same* h_alias with no truncation/taper at all (L_taps=M, i.e. plain DFT
-    interpolation of the raw pilot estimates, no denoising assumption) - split exactly at the
-    Nyquist point M//2 (the only correct split when nothing is discarded, unlike L_taps's
-    causal/anticausal ratio above, which is a truncation policy choice). Comparing the two on a
-    noise_var=0 pass isolates exactly what the L_taps truncation choice is doing to the estimate,
-    with noise out of the picture entirely.
+    estimate from the same mirrored delay-domain sequence with nothing discarded (c = M-1) - on a
+    noise_var=0 pass, comparing the two isolates what the window choice is doing.
 
     estimate_noise_var: also returns a receiver-side noise_var estimate (see noise_var_terms
     below) - the DMRS-pilot analog of what LmmseEqualize computes inline from its own LS
@@ -270,70 +378,90 @@ def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: in
     a positional tuple since which optional fields are present depends on which of the two
     independent flags above is set."""
     delta_f = SAMPLING_RATE / FFT_size  # real subcarrier spacing (Hz)
-    delay_bin = 1.0 / (num_res * delta_f)
     rx_np = rx_dmrs.cpu().numpy()  # (num_occasions, n_ants, num_res)
+    num_occ = rx_np.shape[0]
+    # Residual around the mean of num_occ occasions has expectation sigma^2*(num_occ-1)/num_occ -
+    # undo that bias (2 occasions/slot -> x2). With a single occasion the residual is identically
+    # 0: no noise estimate, and the delay-domain window falls back to _dd_fallback_extent().
+    dof_corr = num_occ / (num_occ - 1) if num_occ > 1 else None
     H = np.zeros((num_res, n_ants, n_users), dtype=complex)
     H_untrunc = np.zeros((num_res, n_ants, n_users), dtype=complex) if return_untruncated else None
     # noise_var_terms: per-(user, pilot RE) residual of the raw, undivided per-occasion rx sample
     # around its own across-occasion mean - the same idea LmmseEqualize (lmmse_equalizer.py:74/80)
-    # uses for its noise_var, adapted to this estimator's pilot layout. Averaged over ~num_res/2
-    # pilot REs (all entries, all users) below, not just the DMRS occasions in isolation - pooling
-    # across REs meaningfully reduces the final noise_var_est's variance.
-    noise_var_terms = [] if estimate_noise_var else None
+    # uses for its noise_var, adapted to this estimator's pilot layout. Pooled over all pilot REs
+    # and users for noise_var_est; always computed (cheap) because it also sizes the delay-domain
+    # window below, whether or not the caller asked for noise_var_est.
+    #
+    # Residual on the RAW (undivided, uncombined) rx samples, not on the LS estimates - dividing
+    # by val_a/val_b first would scale the residual by the DMRS reference amplitude (which includes
+    # DMRS_POWER_BOOST_DB and CONSTELLATION_FACTOR[4]). h_true*val is constant across occasions
+    # (block fading + val doesn't vary per occasion), so raw - mean(raw) equals
+    # noise - mean(noise) regardless of amplitude or FD-OCC combining.
+    noise_var_terms = []
+    dd_window_s = {}
     for user, info in known_tx.items():
-        pair_est = []
+        pair_est, pair_pos, inv_val_pwr = [], [], []
         for re_a, re_b, val_a, val_b in info['entries']:
             if info['occ_active']:
                 if re_b is not None:
                     est = 0.5 * (rx_np[:, :, re_a] / val_a + rx_np[:, :, re_b] / val_b)
+                    pair_pos.append(0.5 * (re_a + re_b))       # deocc estimate sits at the pair midpoint
+                    inv_val_pwr.append(0.25 * (1 / abs(val_a) ** 2 + 1 / abs(val_b) ** 2))
                 else:
                     est = rx_np[:, :, re_a] / val_a
+                    pair_pos.append(float(re_a))
+                    inv_val_pwr.append(1 / abs(val_a) ** 2)
                 pair_est.append(est.mean(axis=0))
             else:
-                est_a = rx_np[:, :, re_a] / val_a
-                pair_est.append(est_a.mean(axis=0))
+                pair_est.append((rx_np[:, :, re_a] / val_a).mean(axis=0))
+                pair_pos.append(float(re_a))
+                inv_val_pwr.append(1 / abs(val_a) ** 2)
                 if re_b is not None:
-                    est_b = rx_np[:, :, re_b] / val_b
-                    pair_est.append(est_b.mean(axis=0))
-            if estimate_noise_var:
-                # Residual on the RAW (undivided, uncombined) rx samples, not on est/est_a/est_b
-                # above - dividing by val_a/val_b first would scale the residual by the DMRS
-                # reference amplitude (which includes DMRS_POWER_BOOST_DB and
-                # CONSTELLATION_FACTOR[4]), silently deflating the noise_var estimate by that
-                # factor squared. h_true*val is constant across occasions either way (block
-                # fading + val doesn't vary per occasion), so raw - mean(raw) equals
-                # noise - mean(noise) exactly regardless of amplitude or FD-OCC combining, with
-                # no rescaling needed.
+                    pair_est.append((rx_np[:, :, re_b] / val_b).mean(axis=0))
+                    pair_pos.append(float(re_b))
+                    inv_val_pwr.append(1 / abs(val_b) ** 2)
+            if dof_corr is not None:
                 for re_i in (re_a, re_b):
                     if re_i is not None:
                         raw = rx_np[:, :, re_i]
                         noise_var_terms.append(np.mean(np.abs(raw - raw.mean(axis=0, keepdims=True)) ** 2))
         pair_est = np.stack(pair_est, axis=0)              # (M, n_ants)
-        M = pair_est.shape[0]
+        pair_pos = np.asarray(pair_pos)
+        # Mirror/DFT interpolation needs uniform spacing; a trailing unpaired RE (odd comb count)
+        # breaks it - drop such irregular trailing points from the fit (their REs still get
+        # interpolated like every other RE).
+        if pair_pos.size > 2:
+            step = pair_pos[1] - pair_pos[0]
+            regular = np.concatenate([[True], np.isclose(np.diff(pair_pos), step)])
+            n_reg = int(np.argmin(regular)) if not regular.all() else regular.size
+            pair_est, pair_pos = pair_est[:n_reg], pair_pos[:n_reg]
+            inv_val_pwr = inv_val_pwr[:n_reg]
 
-        h_alias = np.fft.ifft(pair_est, axis=0)             # (M, n_ants), aliased delay-domain estimate
+        # Per-pilot-estimate error variance (sizes the window): thermal = rx noise variance /
+        # |val|^2 per occasion (deocc halves it), averaged over num_occ occasions; plus the pilot
+        # ICI, which is identical in every occasion (invisible to the residual, not reduced by
+        # averaging) but white across pilots - without it the window opens up to "fit" the ICI
+        # (measured: ~1 dB worse than the old estimator at cfo=0.2, SNR>=20 dB).
+        if dof_corr is not None and noise_var_terms:
+            nv_rx = float(np.mean(noise_var_terms)) * dof_corr
+            sigma2_p = nv_rx * float(np.mean(inv_val_pwr)) / num_occ
+            sigma2_p += _genie_pilot_ici_var(known_tx, user, num_res, float(np.mean(np.abs(pair_est) ** 2)))
+        else:
+            sigma2_p = None
 
-        L_taps = int(np.clip(np.ceil(DMRS_DELAY_TRUNC_MARGIN * conf.delay_spread / delay_bin), 1, M))
-        anticausal_trunc = L_taps // 2
-        causal_trunc = L_taps - anticausal_trunc
-        h_trunc = fold_delay_taps(h_alias, num_res, causal_trunc, anticausal_trunc, taper=True)
-        H[:, :, user] = np.fft.fft(h_trunc, axis=0)          # (num_res, n_ants), full-resolution
+        H[:, :, user], c_bins, bin_w = _mirror_dd_interpolate(pair_est, pair_pos, num_res, sigma2_p, delta_f)
+        dd_window_s[user] = c_bins * bin_w
 
         if return_untruncated:
-            anticausal_full = M // 2
-            causal_full = M - anticausal_full
-            h_full = fold_delay_taps(h_alias, num_res, causal_full, anticausal_full, taper=False)
-            H_untrunc[:, :, user] = np.fft.fft(h_full, axis=0)
+            H_untrunc[:, :, user], _, _ = _mirror_dd_interpolate(pair_est, pair_pos, num_res, None, delta_f,
+                                                                  full=True)
 
-    result = {'H': torch.from_numpy(H)}
+    result = {'H': torch.from_numpy(H), 'dd_window_s': dd_window_s}
     if return_untruncated:
         result['H_untrunc'] = torch.from_numpy(H_untrunc)
     if estimate_noise_var:
-        # Residual around the mean of M occasions has expectation sigma^2*(M-1)/M - undo that bias
-        # (M=2 per slot -> x2). With M=1 the residual is identically 0 and nothing can be estimated.
-        num_occ = rx_np.shape[0]
-        dof_corr = num_occ / (num_occ - 1) if num_occ > 1 else 1.0
-        result['noise_var_est'] = float(np.mean(noise_var_terms)) * dof_corr if noise_var_terms else 0.0
+        result['noise_var_est'] = (float(np.mean(noise_var_terms)) * dof_corr
+                                   if (noise_var_terms and dof_corr is not None) else 0.0)
     return result
 
 

@@ -329,7 +329,11 @@ def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: in
     if return_untruncated:
         result['H_untrunc'] = torch.from_numpy(H_untrunc)
     if estimate_noise_var:
-        result['noise_var_est'] = float(np.mean(noise_var_terms)) if noise_var_terms else 0.0
+        # Residual around the mean of M occasions has expectation sigma^2*(M-1)/M - undo that bias
+        # (M=2 per slot -> x2). With M=1 the residual is identically 0 and nothing can be estimated.
+        num_occ = rx_np.shape[0]
+        dof_corr = num_occ / (num_occ - 1) if num_occ > 1 else 1.0
+        result['noise_var_est'] = float(np.mean(noise_var_terms)) * dof_corr if noise_var_terms else 0.0
     return result
 
 

@@ -107,7 +107,20 @@ def _sinr_multiplier(postEqSINR, user):
     return postEqSINR[:, user].numpy().reshape(-1, 1, 1)
 
 
-def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, pilot_data_ratio):
+# Max-log LLR calibration for the demappers in channel/modulator.py. Symbols live on commpy's
+# odd-integer grid (QPSK +-1, 16QAM +-1,+-3, 64QAM +-1..+-7, 256QAM +-1..+-15), and every
+# per-axis soft metric D there has unit slope at its decision boundary (e.g. 16QAM: y, 2-|y|).
+# The max-log LLR on that grid, between neighbouring points 2 apart, is
+#   [(y-a0)^2 - (y-a1)^2] / N = 4*D / N,   N = complex post-equalization noise variance,
+# and postEqSINR = bias/(1-bias) = 1/N (grid units, single user), so LLR = 4 * D * postEqSINR.
+# Exact for QPSK, 16QAM LSB, and all three 64QAM metrics (piecewise max-log); for 16QAM MSB and
+# 256QAM the metrics are linearized, so 4x is exact near the boundary and slightly
+# underconfident far from it. Passed explicitly (default 1.0 keeps the legacy CE path unchanged).
+LMMSE_MAXLOG_LLR_SCALE = 4.0
+
+
+def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, detected_word_lmmse_for_aug, pilot_data_ratio,
+               llr_scale: float = 1.0):
     llr_out = np.zeros(detected_word_lmmse_for_aug.shape[0], dtype=np.float32)
     if num_bits == 1:
         for i in range(equalized.shape[1]):
@@ -126,7 +139,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 num_bits_int = num_bits
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits_int):((user + 1) * num_bits_int), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * _sinr_multiplier(postEqSINR, user)
+                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * llr_scale * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 4:
         for user in range(conf.n_users):
@@ -141,13 +154,13 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
                 num_bits_int = num_bits
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits_int):((user + 1) * num_bits_int), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * _sinr_multiplier(postEqSINR, user)
+                int(llr_out.shape[0] / num_bits_int), num_bits_int, 1) * llr_scale * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 6:
         for user in range(conf.n_users):
             detected_word_lmmse_for_aug[:, user, re], llr_out = QAM64Modulator.demodulate(equalized[:, user].numpy())
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
-                int(llr_out.shape[0] / num_bits), num_bits, 1) * _sinr_multiplier(postEqSINR, user)
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * llr_scale * _sinr_multiplier(postEqSINR, user)
 
     elif num_bits == 8:
 
@@ -157,7 +170,7 @@ def LmmseDemod(equalized, postEqSINR, num_bits, re, llrs_mat_lmmse_for_aug, dete
 
             llrs_mat_lmmse_for_aug[:, (user * num_bits):((user + 1) * num_bits), re, :] = llr_out.reshape(
 
-                int(llr_out.shape[0] / num_bits), num_bits, 1) * _sinr_multiplier(postEqSINR, user)
+                int(llr_out.shape[0] / num_bits), num_bits, 1) * llr_scale * _sinr_multiplier(postEqSINR, user)
     else:
             print('Unknown modulator')
 

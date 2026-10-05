@@ -180,7 +180,7 @@ from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
 from python_code.detectors.deepsic.deepsic_trainer import DeepSICTrainer
 from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
-from python_code.detectors.lmmse.lmmse_equalizer import LmmseDemod
+from python_code.detectors.lmmse.lmmse_equalizer import LMMSE_MAXLOG_LLR_SCALE, LmmseDemod
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.evaluate import (AUGMENT_SHORT_MAP, calc_mi_from_ldpc, check_weights_augment_match,
                                    crc_fail_mask, resolve_auto_escnn_weights_tag, warn_weights_clip_mismatch)
@@ -570,11 +570,16 @@ def _build_dmrs_bce_training_data(rx_dmrs: torch.Tensor, known_tx: dict, layout:
                 tx_labels[b0, user, re_b] = 1.0 if val_b.real > 0 else 0.0
                 tx_labels[b1, user, re_b] = 1.0 if val_b.imag > 0 else 0.0
 
+        # Max-log calibration for this user's DMRS QPSK points (+-a per axis, a = |val|/sqrt(2),
+        # includes the DMRS amplitude/boost): LLR = 4*a*y*postEqSINR - same derivation as
+        # LMMSE_MAXLOG_LLR_SCALE (which is the a=1 case of the commpy grid).
+        dmrs_axis_amp = float(abs(info['entries'][0][2])) / np.sqrt(2.0)
+        dmrs_llr_scale = LMMSE_MAXLOG_LLR_SCALE * dmrs_axis_amp
         for re, iso in iso_by_re.items():
             rx_c = iso.unsqueeze(-1)  # (num_occ, n_ants, 1), fed as re=0 below
             equalized, postEqSINR = lmmse_equalize_with_H(H[re, :, user:user + 1], rx_c, noise_var, 0)
-            llr_real = equalized[:, 0].real * postEqSINR[0]
-            llr_imag = equalized[:, 0].imag * postEqSINR[0]
+            llr_real = equalized[:, 0].real * postEqSINR[0] * dmrs_llr_scale
+            llr_imag = equalized[:, 0].imag * postEqSINR[0] * dmrs_llr_scale
             probs_prior[:, b0, user, re] = torch.sigmoid(llr_real)
             probs_prior[:, b1, user, re] = torch.sigmoid(llr_imag)
 
@@ -733,7 +738,7 @@ def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data,
     for re in range(num_res):
         equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re)
         LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
-                   detected_word_lmmse_calib, pilot_data_ratio)
+                   detected_word_lmmse_calib, pilot_data_ratio, llr_scale=LMMSE_MAXLOG_LLR_SCALE)
     rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
     rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
     rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
@@ -873,7 +878,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     equalized_lmmse = np.zeros((num_symbols, n_users, num_res), dtype=np.complex64)
     for re in range(num_res):
         equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, lmmse_noise_var, re)
-        LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio)
+        LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio,
+                   llr_scale=LMMSE_MAXLOG_LLR_SCALE)
         h_abs_per_re[re] = H_data[re].abs().cpu().numpy()
         h_angle_per_re[re] = H_data[re].angle().cpu().numpy()
         sinr_per_re[re] = postEqSINR.cpu().numpy()

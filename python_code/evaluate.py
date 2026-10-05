@@ -45,7 +45,7 @@ from python_code.detectors.sphere.sphere_64qam_0235 import Sphere64qam0235
 from python_code.detectors.sphere.sphere_64QAM_0134 import Sphere64qam0134
 from python_code.detectors.sphere.sphere_64QAM_1245 import Sphere64qam1245
 from python_code.detectors.sphere.sphere_256qam_fourbits import Sphere256qamFourbits
-from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate
+from python_code.detectors.lmmse.lmmse_equalizer import LmmseEqualize, LmmseDemod, ChannelEstimate, LMMSE_MAXLOG_LLR_SCALE
 
 from datetime import datetime
 from scipy.io import savemat
@@ -1217,10 +1217,13 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 # LmmseDemod's own _sinr_multiplier does; a no-op slice in the legacy 1D case.
                 postEqSINR_pilot = postEqSINR[pilot_first_half:pilot_chunk] if postEqSINR.dim() > 1 else postEqSINR
                 postEqSINR_data = postEqSINR[pilot_chunk:] if postEqSINR.dim() > 1 else postEqSINR
+                # Max-log LLR calibration (see LMMSE_MAXLOG_LLR_SCALE) - DMRS CE path only; the
+                # legacy CE path keeps its original scaling.
+                lmmse_llr_scale = LMMSE_MAXLOG_LLR_SCALE if chanestmode == 'dmrs' else 1.0
                 LmmseDemod(equalized[pilot_first_half:pilot_chunk], postEqSINR_pilot, num_bits_pilot, re, llrs_mat_lmmse_for_aug[pilot_first_half:pilot_chunk, :, :, :],
-                           detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1)
+                           detected_word_lmmse_for_aug[pilot_first_half_bits:pilot_size, :, :], 1, llr_scale=lmmse_llr_scale)
                 LmmseDemod(equalized[pilot_chunk:], postEqSINR_data, num_bits_data, re, llrs_mat_lmmse_for_aug[pilot_chunk:, :, :, :],
-                           detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio)
+                           detected_word_lmmse_for_aug[pilot_size:, :, :], pilot_data_ratio, llr_scale=lmmse_llr_scale)
 
                 # Accumulate per-user post-MRC SNR for this RE:
                 #   signal power = sum_ant |H[ant, user]|^2 ,  noise power = noise_var (per antenna)

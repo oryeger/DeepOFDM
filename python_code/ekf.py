@@ -173,7 +173,7 @@ from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.dmrs_pilots import (CONSTELLATION_FACTOR, build_dmrs_tx_symbols, dmrs_known_tx,
                                              dmrs_layout, dmrs_reference_values, estimate_channel_from_dmrs,
-                                             genie_cfo_comp_vector, interleave_group_symbols,
+                                             genie_cfo_comp_vector, genie_ici_noise_var, interleave_group_symbols,
                                              lmmse_equalize_with_H)
 from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
@@ -725,6 +725,7 @@ def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data,
     rx_calib, H_calib = calib_result['rx_payload'], calib_result['H_est']
     lmmse_noise_var_calib = (noise_var if getattr(conf, 'override_noise_var', True)
                               else calib_result['noise_var_est'])
+    lmmse_noise_var_calib = lmmse_noise_var_calib + genie_ici_noise_var(H_calib, mod_data)  # TEMPORARY, 0 when cfo == 0
     num_calib_symbols = rx_calib.shape[0]
     rx_calib_t = torch.from_numpy(rx_calib)
     detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
@@ -839,6 +840,13 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     # pilot-residual estimate instead" - evaluate.py's LMMSE already behaves this way under the
     # same config, so ekf.py's should too (see module-level noise_var docstring note this fixes).
     lmmse_noise_var = noise_var if getattr(conf, 'override_noise_var', True) else noise_var_est
+    # TEMPORARY: add genie ICI variance so LMMSE's LLRs account for the residual ICI
+    # genie_cfo_comp_vector leaves in - see genie_ici_noise_var. 0.0 when cfo == 0.
+    ici_nv = genie_ici_noise_var(H_data, mod_data)
+    if ici_nv > 0:
+        print(f"[genie-ici-nv] group={group_idx} cfo={conf.cfo:.3f} base_nv={lmmse_noise_var:.4e} "
+              f"ici_nv={ici_nv:.4e} (ratio {ici_nv / max(lmmse_noise_var, 1e-30):.2f})", flush=True)
+        lmmse_noise_var = lmmse_noise_var + ici_nv
 
     num_symbols = rx_data.shape[0]
     pilot_data_ratio = 1.0  # mod_pilot padding unsupported with DMRS - see main()'s guard

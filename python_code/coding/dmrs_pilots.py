@@ -175,6 +175,25 @@ def genie_cfo_comp_vector(num_slots: int):
     return np.tile(np.array(comp), num_slots)
 
 
+def genie_ici_noise_var(H, mod_data: int) -> float:
+    """TEMPORARY (always on): genie-aided ICI variance to add on top of the
+    thermal noise_var fed to LMMSE, so its postEqSINR/LLRs account for the residual ICI that
+    genie_cfo_comp_vector leaves in by design. Uses the true conf.cfo (genie) - meant only to
+    confirm the LMMSE BLER/MI turnaround at high SNR is LLR overconfidence from unmodeled ICI;
+    to be replaced by a receiver-side (non-genie) estimate.
+
+    Fully loaded OFDM symbol, CFO eps (in scs): desired-subcarrier gain sinc(eps), ICI power
+    (1 - sinc^2(eps)) * Es * |h|^2. H here is the DMRS estimate, which already absorbs the
+    sinc(eps) gain, so |h|^2 = |H|^2 / sinc^2(eps). Per receive antenna, interference sums over
+    users; averaged over REs and antennas. Returns 0.0 when cfo == 0."""
+    if conf.cfo == 0:
+        return 0.0
+    H_np = H.cpu().numpy() if torch.is_tensor(H) else np.asarray(H)  # (num_res, n_ants, n_users)
+    s2 = float(np.sinc(conf.cfo)) ** 2                                # np.sinc(x) = sin(pi x)/(pi x)
+    h_pwr = float(np.mean(np.sum(np.abs(H_np) ** 2, axis=-1)))       # sum over users, mean over RE/ant
+    return (1.0 - s2) / s2 * CONSTELLATION_FACTOR[mod_data] * h_pwr
+
+
 def edge_taper(length: int) -> np.ndarray:
     """Length-`length` array of 1s except the last quarter (min 1 tap), which raised-cosine
     tapers down to 0 - used to fight Gibbs ringing at the *discarded* edge of a kept delay-domain

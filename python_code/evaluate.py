@@ -30,7 +30,7 @@ from python_code.utils.probs_utils import skip_indices
 
 from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO, DMRS_NUM_PAYLOAD_SYMB,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
-from python_code.coding.dmrs_pilots import lmmse_equalize_with_H
+from python_code.coding.dmrs_pilots import lmmse_equalize_with_H, genie_ici_noise_var
 
 import pandas as pd
 
@@ -1174,6 +1174,27 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             pilot_first_half = (pilot_chunk // 2) if pvo_skip else 0          # in OFDM symbols
             pilot_first_half_bits = pilot_first_half * num_bits_pilot         # in bits
 
+            # TEMPORARY genie ICI variance, legacy CE path. Only with override_noise_var=True (genie
+            # sigma^2, blind to ICI). With override_noise_var=False, LmmseEqualize's LS residual is
+            # taken over random-data pilot symbols, so it already contains the ICI - adding it
+            # again would double-count. (The dmrs path adds it in mimo_channel_dataset.py.)
+            legacy_ext_nv = noise_var
+            if chanestmode != 'dmrs' and conf.cfo != 0:
+                if conf.override_noise_var:
+                    H_all_ici = torch.stack([ChannelEstimate(rx_ce, s_orig, rx_ce.shape[1], re_i)
+                                             for re_i in range(conf.num_res)], dim=0)
+                    ici_nv_legacy = genie_ici_noise_var(H_all_ici, mod_data)
+                    # Explicit genie sigma^2 as base: noise_var itself gets overwritten by
+                    # LmmseEqualize's return below, so reusing it would re-add ICI on block 2+.
+                    base_nv = 10 ** (-0.1 * snr_cur) * constellation_factor
+                    legacy_ext_nv = base_nv + ici_nv_legacy
+                    print(f"[genie-ici-nv] legacy SNR={snr_cur} cfo={conf.cfo} base_nv={base_nv:.4e} "
+                          f"ici_nv={ici_nv_legacy:.4e} (ratio {ici_nv_legacy / max(base_nv, 1e-30):.2f})",
+                          flush=True)
+                else:
+                    print(f"[genie-ici-nv] legacy SNR={snr_cur}: override_noise_var=False -> LS-residual "
+                          f"noise_var already includes ICI, nothing added", flush=True)
+
             # for re in range(conf.num_res):
             for re in range(conf.num_res):
                 if chanestmode == 'dmrs':
@@ -1188,7 +1209,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                 else:
                     H = torch.zeros((conf.n_ants, conf.n_users), dtype=rx_ce.dtype, device=rx_ce.device)
                     # Regular CE
-                    equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, noise_var, pilot_chunk, re, H)
+                    equalized, postEqSINR, noise_var = LmmseEqualize(rx_ce, rx_c, s_orig, legacy_ext_nv, pilot_chunk, re, H)
                 post_eq_sinr_sum += float(postEqSINR.mean().item())
                 post_eq_sinr_count += 1
                 # postEqSINR is per-user (legacy LmmseEqualize) or per-symbol (chanestmode='dmrs')

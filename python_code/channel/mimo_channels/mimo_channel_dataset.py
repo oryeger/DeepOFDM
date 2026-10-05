@@ -13,7 +13,8 @@ import tensorflow as tf
 
 from python_code.coding.dmrs_pilots import (build_dmrs_tx_symbols, dmrs_known_tx, dmrs_layout,
                                              dmrs_reference_values, estimate_channel_from_dmrs,
-                                             genie_cfo_comp_vector, interleave_group_symbols)
+                                             genie_cfo_comp_vector, genie_ici_noise_var,
+                                             interleave_group_symbols)
 from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.crc_wrapper import CRC5GCodec
 from python_code.coding.pilot_coding import encode_pilots
@@ -334,11 +335,15 @@ class MIMOChannel:
                 H_group = est['H'].numpy()
                 group_payload_count = (group_end - group_start) * DMRS_NUM_PAYLOAD_SYMB
                 H_est[payload_pos:payload_pos + group_payload_count] = H_group[None, :, :, :]
-                if estimate_nv:
-                    noise_var_est[payload_pos:payload_pos + group_payload_count] = est['noise_var_est']
+                # TEMPORARY: + genie ICI variance (see dmrs_pilots.genie_ici_noise_var). Needed in
+                # both branches: the DMRS across-occasion residual is blind to ICI, same as genie sigma^2.
+                nv_group = est['noise_var_est'] if estimate_nv else noise_var
+                ici_nv = genie_ici_noise_var(H_group, mod_data)
+                noise_var_est[payload_pos:payload_pos + group_payload_count] = nv_group + ici_nv
+                if group_start == 0 and ici_nv > 0:
+                    print(f"[genie-ici-nv] dmrs cfo={conf.cfo} base_nv={float(nv_group):.4e} "
+                          f"ici_nv={ici_nv:.4e} (ratio {ici_nv / max(float(nv_group), 1e-30):.2f})", flush=True)
                 payload_pos += group_payload_count
-            if not estimate_nv:
-                noise_var_est[:] = noise_var
 
             rx = rx[payload_rows]
             s_orig = s_orig[payload_rows]

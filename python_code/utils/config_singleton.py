@@ -22,6 +22,10 @@ class Config:
         for k, v in config.items():
             setattr(self, k, v)
 
+        # PyYAML (YAML 1.1) loads exponent literals without a dot, e.g. "5e-3", as str.
+        if isinstance(getattr(self, 'learning_rate', None), str):
+            self.learning_rate = float(self.learning_rate)
+
         # The make_64QAM_16QAM_percentage=50 three-way split branch (in both
         # mimo_channel_dataset.py and evaluate.py) only fires when mod_pilot==64.
         # Force it on so the flag isn't silently ignored when mod_pilot is left at -1.

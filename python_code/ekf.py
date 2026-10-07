@@ -1118,7 +1118,11 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                           use_bp=(weights_track_mode in _EKFBP_GATES), crc_check_fn=_crc_check_fn,
                                           bp_gate=_EKFBP_GATES.get(weights_track_mode, 'none'))
     elif weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht'):
-        pass  # decision-directed (+ BP fallback for ekfht/sgdht): updated after this group is scored and decoded - see below
+        # Decision-directed (+ BP fallback for ekfht/sgdht): updated after this group is scored and
+        # decoded - see below. EKF modes: the predict runs HERE, before scoring, so detection uses the
+        # prior theta_{t|t-1} (predict -> detect -> update); the updates below then skip their own predict.
+        if weights_track_mode in ('ekfcrc', 'ekfht'):
+            escnn_trainer.ekf_predict_only()
     else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
         # raises on an empty param list) - same "run the loaded weights statically" fallback
@@ -1278,7 +1282,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             _ekfcrc_update(escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
                            escnn_decoded_slots, escnn_fail_slots, lmmse_decoded_slots, lmmse_fail_slots,
                            num_bits_pilot, n_users, num_res, ldpc_n, group_idx,
-                           hybrid=(weights_track_mode == 'ekfht'))
+                           hybrid=(weights_track_mode == 'ekfht'),
+                           do_predict=False)   # predict already ran before scoring (ekf_predict_only)
 
         if weights_track_mode in ('ekfht', 'sgdht'):
             _rd_tag = weights_track_mode

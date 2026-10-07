@@ -481,6 +481,19 @@ class ESCNNTrainer(Trainer):
                     tracker.rebind(net)
         return self._ekf_trackers
 
+    def ekf_predict_only(self):
+        """EKF time step alone, at the START of a group (ekf.py's ekfcrc/ekfht): predict every
+        (user, iteration) tracker - theta <- alpha*theta + (1-alpha)*theta_pretrained, P <- alpha^2 P + Q -
+        and write the predicted theta into the networks, so the group's detection runs with the prior
+        theta_{t|t-1} (proper predict -> detect -> update order). The updates that follow are then
+        called with do_predict=False. No-op when escnn_load_freeze leaves nothing trainable."""
+        if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
+            return
+        for tracker_row in self._get_ekf_trackers():
+            for tracker in tracker_row:
+                tracker.predict()
+                tracker._write_back()
+
     def ekf_predict_update(self, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int,
                             probs_in: torch.Tensor = None, payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
                             tx_ref: torch.Tensor = None, use_bp: bool = False, crc_check_fn=None,

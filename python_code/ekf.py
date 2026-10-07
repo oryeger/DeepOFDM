@@ -74,6 +74,10 @@ here - see config.yaml's weights_track_mode comment):
       (bp_iters) on those where both decodes fail - one EKF, one predict per group, one update per
       slot from whichever source it has. Then slots where both decodes fail are re-detected with the just-updated weights and decoded again (one detection <-> adaptation
       iteration); a pass counts as a success and adds a label-only update (see run_group).
+  'sgdht' - the SGD counterpart of 'ekfht', same information and same re-decode: BCE on the
+      re-encoded labels of CRC-passing slots, sgdsbp's loss (tsyn with tw, BP syndrome, bp_iters) on
+      slots where both decodes fail, persistent Adam, conf.epochs, no val split (see _sgdht_update).
+      n_users=1 only.
   'notrack' - no adaptation at all: runs the loaded checkpoint statically,
       exactly as any other mode would if escnn_load_freeze were 'all' (see
       load_pretrained_weights). It overrides escnn_load_freeze to 'all'
@@ -220,7 +224,7 @@ _EKFI_STEP_CODES = {'ekfi': 0, 'ekfi1': 1, 'ekfi2': 2, 'ekfi3': 3, 'ekfi4': 4, '
 # every slot), 'ekfbps' update only when the BP posterior's hard decision satisfies every parity check,
 # 'ekfbpc' update only when the Sionna decode of the prior-weight LLRs passes CRC. Failed slots: predict only.
 _EKFBP_GATES = {'ekfbp': 'none', 'ekfbps': 'syndrome', 'ekfbpc': 'crc'}
-_BP_MODES = tuple(_EKFBP_GATES) + ('ekfibp', 'sgdsbp', 'ekfht')   # modes that run the detached BP (bp_iters applies)
+_BP_MODES = tuple(_EKFBP_GATES) + ('ekfibp', 'sgdsbp', 'ekfht', 'sgdht')   # modes that run the detached BP (bp_iters applies)
 
 def _fmt_count(n: int) -> str:
     """Compact tag=value form for a large integer count: whole thousands print as e.g. '20k'/'5k'
@@ -280,15 +284,19 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
         _bpi = getattr(conf, 'bp_iters', None)
         title_string += '_bpi=' + str(10 if _bpi is None else int(_bpi))
     title_string += '_lr=' + f"{getattr(conf, 'learning_rate', 5.0e-3):.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-    if track_mode in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei'):
+    if track_mode in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht'):
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
         _bs = int(getattr(conf, 'batch_size', -1))
         if _bs > 0:  # absent = full batch (-1), so older names stay valid
             title_string += '_bs=' + str(_bs)
         loss_mode = getattr(conf, 'training_loss', 'bce')
-        title_string += '_loss=' + loss_mode
-        if loss_mode == 'tsyn':
-            title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
+        if track_mode == 'sgdht':
+            # BCE on CRC-pass slots, tsyn (+BP) on both-fail slots - tw applies to the tsyn part.
+            title_string += '_loss=h_tw=' + str(getattr(conf, 'tw', 0.5))
+        else:
+            title_string += '_loss=' + loss_mode
+            if loss_mode == 'tsyn':
+                title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
         # Persistent Adam, betas (0.0, 0.99) - see ESCNNTrainer._deep_learning_setup. po=2 so these
         # names can't be confused with the 2026-09-29 po=1 runs (persistent, torch-default betas)
         # or the older untagged runs (fresh Adam per group).
@@ -816,6 +824,80 @@ def _ekfcrc_update(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, rx_real_t: t
                                                  do_predict=do_predict)
 
 
+def _sgdht_update(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, rx_real_t: torch.Tensor,
+                  probs_for_aug: torch.Tensor, tx_bits: np.ndarray,
+                  escnn_decoded_slots: list, escnn_fail_slots: list,
+                  lmmse_decoded_slots: list, lmmse_fail_slots: list,
+                  num_bits_pilot: int, n_users: int, num_res: int, ldpc_n: int, group_idx: int,
+                  labels_only: bool = False, tag: str = 'sgdht'):
+    """weights_track_mode='sgdht': the SGD counterpart of ekfht, fed exactly the same information.
+    Slots where ESCNN's or LMMSE's decode passes CRC: BCE on the re-encoded codeword (same labels as
+    ekfcrc/ekfht). Slots where both fail: sgdsbp's loss - tsyn (conf.tw) with the BP-based syndrome
+    component (synd_use_bp, conf.bp_iters). Both go through _online_training with the run's
+    persistent Adam, conf.epochs, no train/val split. labels_only=True (the re-decode pass) runs only
+    the BCE part, on the slots whose re-decode passed. SISO only: _online_training trains every
+    user's network on the same slots, so per-(slot, user) CRC masks aren't expressible here."""
+    if n_users != 1:
+        raise NotImplementedError("sgdht supports n_users=1 only (per-user CRC masks are not "
+                                  "expressible through _online_training).")
+    if not any(p.requires_grad for nets in escnn_trainer.detector for net in nets for p in net.parameters()):
+        escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing trainable - "
+                                       "skipping the weight update (running loaded weights statically).", tag='sgd')
+        return
+    num_slots = len(escnn_decoded_slots)
+    rows_per_slot = ldpc_n // num_res
+    labels = np.zeros(tx_bits.shape, dtype=np.float32)
+    ok = np.zeros(num_slots, dtype=bool)
+    n_escnn = n_lmmse = n_lmmse_only = 0
+    label_err = []
+    for s in range(num_slots):
+        e_ok = not bool(np.asarray(escnn_fail_slots[s]).reshape(-1)[0])
+        l_ok = not bool(np.asarray(lmmse_fail_slots[s]).reshape(-1)[0])
+        n_escnn += e_ok
+        n_lmmse += l_ok
+        n_lmmse_only += (l_ok and not e_ok)
+        if not (e_ok or l_ok):
+            continue
+        ok[s] = True
+        dec = np.asarray(escnn_decoded_slots[s] if e_ok else lmmse_decoded_slots[s])
+        cw = np.rint(np.asarray(codec.encode(dec))).astype(np.float32)
+        rows = slice(s * rows_per_slot, (s + 1) * rows_per_slot)
+        labels[rows, 0, :] = cw[0].reshape(rows_per_slot, num_res)
+        label_err.append(float((labels[rows, 0, :] != tx_bits[rows, 0, :]).mean()))
+    ok_slots = [s for s in range(num_slots) if ok[s]]
+    fail_slots = [] if labels_only else [s for s in range(num_slots) if not ok[s]]
+    print(f"[{tag}] group={group_idx} crc_ok={len(ok_slots)}/{num_slots} (escnn={n_escnn} lmmse={n_lmmse} "
+          f"lmmse_only={n_lmmse_only}) " + ("" if labels_only else f"bp_slots={len(fail_slots)} ")
+          + (f"label_err_max={max(label_err):.4f}" if label_err else "label_err_max=n/a"), flush=True)
+
+    sps = _DMRS_NUM_PAYLOAD_SYMB
+
+    def _rows(slots, per):
+        return torch.as_tensor(np.concatenate([np.arange(s * per, (s + 1) * per) for s in slots]))
+
+    def _train(slots, tx_np):
+        sym, bit = _rows(slots, sps), _rows(slots, rows_per_slot)
+        pa = probs_for_aug[sym] if probs_for_aug.numel() else probs_for_aug
+        escnn_trainer._online_training(torch.from_numpy(tx_np[bit.numpy()]), rx_real_t[sym], num_bits_pilot,
+                                        n_users, conf.iterations, conf.epochs, False, pa,
+                                        payload_symbols_per_slot=sps)
+
+    saved_loss, saved_bp = getattr(conf, 'training_loss', 'bce'), getattr(escnn_trainer, 'synd_use_bp', False)
+    try:
+        if ok_slots:
+            conf.set_value('training_loss', 'bce')
+            escnn_trainer.synd_use_bp = False
+            _train(ok_slots, labels)
+        if fail_slots:
+            # Blind loss: tx_bits is passed only for _train_model's collapse diagnostics, never as supervision.
+            conf.set_value('training_loss', 'tsyn')
+            escnn_trainer.synd_use_bp = True
+            _train(fail_slots, tx_bits.astype(np.float32))
+    finally:
+        conf.set_value('training_loss', saved_loss)
+        escnn_trainer.synd_use_bp = saved_bp
+
+
 def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, rng: np.random.Generator,
               qm: int, num_bits_pilot: int, mod_data: int, n_users: int, n_ants: int, num_res: int,
               ldpc_k: int, ldpc_n: int, noise_var: float, h: np.ndarray, group_size_slots: int,
@@ -1035,8 +1117,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                           tx_ref=torch.from_numpy(tx_bits.astype(np.float32)),
                                           use_bp=(weights_track_mode in _EKFBP_GATES), crc_check_fn=_crc_check_fn,
                                           bp_gate=_EKFBP_GATES.get(weights_track_mode, 'none'))
-    elif weights_track_mode in ('ekfcrc', 'ekfht'):
-        pass  # decision-directed (+ BP fallback for ekfht): updated after this group is scored and decoded - see _ekfcrc_update below
+    elif weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht'):
+        pass  # decision-directed (+ BP fallback for ekfht/sgdht): updated after this group is scored and decoded - see below
     else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
         # raises on an empty param list) - same "run the loaded weights statically" fallback
@@ -1186,15 +1268,21 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     bler_escnn_user = (bler_escnn_fail / group_size_slots).tolist()
     bler_lmmse_user = (bler_lmmse_fail / group_size_slots).tolist()
 
-    if weights_track_mode in ('ekfcrc', 'ekfht'):
+    if weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht'):
         # Causal: this group was scored above with the prior weights; the update only affects later groups.
-        _ekfcrc_update(escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
-                       escnn_decoded_slots, escnn_fail_slots, lmmse_decoded_slots, lmmse_fail_slots,
-                       num_bits_pilot, n_users, num_res, ldpc_n, group_idx,
-                       hybrid=(weights_track_mode == 'ekfht'))
+        if weights_track_mode == 'sgdht':
+            _sgdht_update(escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
+                          escnn_decoded_slots, escnn_fail_slots, lmmse_decoded_slots, lmmse_fail_slots,
+                          num_bits_pilot, n_users, num_res, ldpc_n, group_idx)
+        else:
+            _ekfcrc_update(escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
+                           escnn_decoded_slots, escnn_fail_slots, lmmse_decoded_slots, lmmse_fail_slots,
+                           num_bits_pilot, n_users, num_res, ldpc_n, group_idx,
+                           hybrid=(weights_track_mode == 'ekfht'))
 
-        if weights_track_mode == 'ekfht':
-            # Re-decode (always on for ekfht): one detection <-> adaptation iteration on the slots/users where BOTH
+        if weights_track_mode in ('ekfht', 'sgdht'):
+            _rd_tag = weights_track_mode
+            # Re-decode (always on for ekfht and sgdht): one detection <-> adaptation iteration on the slots/users where BOTH
             # decoders failed (the receiver has no correct block for them). The hybrid update above
             # already applied BP's syndrome step on exactly those slots; re-run ESCNN with the updated
             # weights on the same received slot and decode again. The re-run output becomes the
@@ -1222,7 +1310,7 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                         if both_fail[slot, user] and not fail_rd[user]:
                             rd_pass[slot, user] = True
                             bler_escnn_fail[user] -= 1
-                print(f"[ekfht-rd] group={group_idx} rerun={int(both_fail.sum())} "
+                print(f"[{_rd_tag}-rd] group={group_idx} rerun={int(both_fail.sum())} "
                       f"passed={int(rd_pass.sum())}", flush=True)
                 # BER/BLER from the final streams (BER counts the same bits as the per-user loop above).
                 err_user = ((escnn_stream > 0).astype(int) != tx_stream.astype(int)).sum(axis=1)
@@ -1230,11 +1318,14 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                 ber_escnn_num, ber_escnn_den = int(err_user.sum()), int(tx_stream.size)
                 bler_escnn_user = (bler_escnn_fail / group_size_slots).tolist()
                 if rd_pass.any():
-                    _ekfcrc_update(escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
-                                   rd_decoded, [~rd_pass[s] for s in range(group_size_slots)],
-                                   rd_decoded, [np.ones(n_users, dtype=bool)] * group_size_slots,
-                                   num_bits_pilot, n_users, num_res, ldpc_n, group_idx,
-                                   hybrid=False, do_predict=False, tag='ekfht-rd-label')
+                    _rd_args = (escnn_trainer, codec, rx_real_t, probs_for_aug, tx_bits,
+                                rd_decoded, [~rd_pass[s] for s in range(group_size_slots)],
+                                rd_decoded, [np.ones(n_users, dtype=bool)] * group_size_slots,
+                                num_bits_pilot, n_users, num_res, ldpc_n, group_idx)
+                    if weights_track_mode == 'sgdht':
+                        _sgdht_update(*_rd_args, labels_only=True, tag='sgdht-rd-label')
+                    else:
+                        _ekfcrc_update(*_rd_args, hybrid=False, do_predict=False, tag='ekfht-rd-label')
 
     # MI: genie-aided (ground-truth tx bits available since every slot is a known pilot),
     # from the same LDPC-decoder-input LLR/tx streams BLER used.
@@ -1347,7 +1438,7 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'notrack') + tuple(
+    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht', 'notrack') + tuple(
         m for m in _EKFI_STEP_CODES if m != 'ekfi')  # DEBUG-LADDER: R1..R6, R4s, R4m
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
@@ -1398,7 +1489,7 @@ def main():
     best_weights_path = load_pretrained_weights(escnn_trainer)
     # One Adam per network for this whole run (= one SNR) instead of a fresh one per group -
     # see ESCNNTrainer._deep_learning_setup. Only the sgd_* modes ever reach _train_model here.
-    escnn_trainer.persist_optimizer = getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei')
+    escnn_trainer.persist_optimizer = getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht')
     # 'sgdsbp': L_synd uses ekfbp's BP-based measurement - see ESCNNTrainer._syndrome_component_bp.
     escnn_trainer.synd_use_bp = getattr(conf, 'weights_track_mode', 'ekf') == 'sgdsbp'
     deepsic_trainer, deeprx_trainer = load_frozen_augment_weights(
@@ -1466,6 +1557,10 @@ def main():
         # No commas (see above).
         calib_note = (", training directly on scored slots (CRC pass on ESCNN or LMMSE: ekfi measurement "
                       "on the re-encoded bits; CRC fail on both: ekfbp's BP syndrome measurement)")
+    elif weights_track_mode == 'sgdht':
+        # No commas (see above).
+        calib_note = (", training directly on scored slots (CRC pass on ESCNN or LMMSE: BCE on the re-encoded "
+                      "bits; CRC fail on both: sgdsbp's BP syndrome loss; then re-decode)")
     elif weights_track_mode == 'sgdbce':
         calib_note = ", training directly on the group's own DMRS pilots"
     elif weights_track_mode in ('sgdsyn', 'sgdsbp'):

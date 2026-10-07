@@ -146,7 +146,8 @@ class ESCNNTrainer(Trainer):
         # respectively (see ekf.py's main()), so training_loss alone can't tell sgdbce apart
         # from sgdbcei (both 'bce') - hence reading weights_track_mode directly here too.
         _ekf_style = (payload_symbols_per_slot != NUM_SYMB_PER_SLOT)
-        _no_val_split = _ekf_style and (_slot_align or getattr(conf, 'weights_track_mode', 'ekf') == 'sgdbce')
+        # sgdht's BCE calls also train on the group's own scored slots (CRC-verified labels), so no split.
+        _no_val_split = _ekf_style and (_slot_align or getattr(conf, 'weights_track_mode', 'ekf') in ('sgdbce', 'sgdht'))
 
         # Restrict to primary detector's validation portion only
         _primary_val_only = False if _ekf_style else getattr(conf, 'escnn_use_primary_val_only', False)

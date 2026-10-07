@@ -143,8 +143,14 @@ def main():
             snrs = sorted(d)
             lab = mode
             if met == "BLER":
-                x = crossing(snrs, [d[s][0] for s in snrs])
-                lab += f"  (10% @ {x:.1f} dB)" if x is not None else "  (10% not reached)"
+                vals = [d[s][0] for s in snrs]
+                x = crossing(snrs, vals)
+                if x is not None:
+                    lab += f"  (10% @ {x:.1f} dB)"
+                elif vals and vals[0] < 0.1:   # already below 10% at its first available SNR
+                    lab += f"  (10% @ <= {snrs[0]} dB)"
+                else:
+                    lab += "  (10% not reached)"
             seeds = sorted({d[s][2] for s in snrs})
             if len(snrs) < len(grid):
                 lab += f"  [{len(snrs)}/{len(grid)} SNRs]"

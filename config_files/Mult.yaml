@@ -85,7 +85,7 @@ pretrain_loss: 'bce'  # 'bce' (BCEWithLogitsLoss) | 'gfmi' (blind EXIT-MI loss, 
 beta_balance: 0  # marginal-entropy balance weight: loss -= beta*H_b(q_bar). Used by gfmi/tent/tsyn. 0=disabled
 tw: 0.5  # tsyn only: tent weight, L = tw*L_tent + (1-tw)*L_synd. tw=1 reproduces tent exactly
 tsyn_fallback_iters: 3 # tsyn only: number of erasure-peeling rounds for punctured bits in fallback mode. 0 = restricted mode (no fallback), 1 = today's single-pass behavior, >1 = iterate
-bp_iters: 10 # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp/ekfht only: sum-product BP iterations used to estimate the punctured (and per-row extrinsic) values
+bp_iters: 10 # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp/ekfht/sgdht only: sum-product BP iterations used to estimate the punctured (and per-row extrinsic) values
 encode_pilots: True  # CRC+LDPC-encode the pilot region (slot-wise, same layout as data). REQUIRED for tsyn: without it the pilots carry no code structure and the syndrome term is disabled. Needs make_64QAM_16QAM_percentage: 0
 save_llrs: False  # Save all LLRs per SNR point to HDF5 (float16 + gzip)
 separate_pilots: True
@@ -111,7 +111,7 @@ escnn_ekf_sigma_r: 0.5  # Measurement noise std: R = sigma_r^2 * I (trust in the
 escnn_ekf_jacobian_chunk_size: 16  # jacrev batches this many syndrome-check rows through the backward pass at once; lower if update() runs out of (GPU) memory, raise for speed if it doesn't
 debug_zero_llr_res: []
 slots_per_group: -1  # Data slots per Kalman epoch/channel realization.
-weights_track_mode: 'ekf' # 'ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'notrack'
+weights_track_mode: 'ekf' # 'ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht', 'notrack'
 calib_slots_per_group: 1  # Calibration slots per group (LMMSE CE, and sgd training data).
 
 

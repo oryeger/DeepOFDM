@@ -153,7 +153,7 @@ def mat_target(tag, k, diffs_k, short, aug_type):
 
 def _trk_group(k):
     """Presentation rank of a config's tracking mode: notrack, ekf, ekfi (incl. the ekfi1..ekfi6
-    debug ladder), sgdbcei, ekfbp (incl. ekfbps/ekfbpc/ekfcrc/ekfht), sgdsbp, then everything else
+    debug ladder), sgdbcei, ekfbp (incl. ekfbps/ekfbpc/ekfcrc/ekfht), sgdsbp (incl. sgdht), then everything else
     (other modes, e.g. ekfibp, and configs with no t=/trk= token)."""
     mode = next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
     if mode is None:
@@ -162,7 +162,7 @@ def _trk_group(k):
         return 2
     if mode in ("ekfbp", "ekfbps", "ekfbpc", "ekfcrc", "ekfht"):
         return 4
-    return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5}.get(mode, 6)
+    return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5, "sgdht": 5}.get(mode, 6)
 
 def sort_key(diffs):
     """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5."""

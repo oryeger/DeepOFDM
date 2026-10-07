@@ -1542,10 +1542,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     extra_note = f" (+{'/'.join(extra_state)})" if extra_state else ""
                     print(f"[ESCNN] saved weights{extra_note}, tag={weights_tag} -> {weights_path}", flush=True)
 
-                if conf.escnn_weights_only:
-                    # Training (and saving) is all that was asked for - skip inference/BER/plots/CSV entirely.
-                    return []
-
                 # Original behavior: inference on all data
                 detected_word_list, llrs_mat_list = escnn_trainer._forward(rx_data, num_bits_pilot, n_users, iterations,
                                                                            probs_for_aug[pilot_chunk:])

@@ -207,17 +207,10 @@ class DeepRxTrainer(Trainer):
         """
         tx_all = []
         rx_all = []
-        rx_split = torch.split(rx, NUM_SYMB_PER_SLOT, dim=0)
-        rx_stacked = torch.stack(rx_split, dim=0)
-        rx_permuted = rx_stacked.permute(0, 2, 3, 1)
+        # No per-slot stacking here: pilot length need not be a multiple of NUM_SYMB_PER_SLOT
         for user in range(n_users):
-            # rx_all.append(rx_permuted)
             rx_all.append(rx.unsqueeze(-1))
             cur_tx = tx[:, user, :]
-            tx_split = torch.split(cur_tx, NUM_SYMB_PER_SLOT, dim=0)
-            tx_stacked = torch.stack(tx_split, dim=0)
-            tx_permuted = tx_stacked.permute(0, 2, 1)
-            # tx_all.append(tx_permuted)
             tx_all.append(cur_tx)
         return tx_all, rx_all
 

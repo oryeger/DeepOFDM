@@ -56,7 +56,7 @@ tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(1)
 
-bp_iters_vals=(1 5 10)   # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp only: sum-product BP iterations, e.g. (1 3 10 30)
+bp_iters_vals=(1 5 10)   # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp/ekfht only: sum-product BP iterations, e.g. (1 3 10 30)
 
 escnn_ekf_alpha_vals=(0.999)
 escnn_ekf_sigma_r_vals=(1.0)

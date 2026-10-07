@@ -696,7 +696,9 @@ class ESCNNTrainer(Trainer):
                                        iterations: int, probs_in: torch.Tensor = None,
                                        payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT,
                                        ekfi_step: int = 0, update_mask=None, log_suffix: str = "",
-                                       crc_check_fn=None, bp_gate: str = 'none'):
+                                       crc_check_fn=None, bp_gate: str = 'none', fail_step: int = None,
+                                       fail_log_suffix: str = "", tx_diag: torch.Tensor = None,
+                                       do_predict: bool = True):
         """Supervised counterpart of ekf_predict_update (ekf.py's weights_track_mode='ekfi'): the
         same EkfParamTracker predict/update, but the measurement is the known transmitted bits of a
         separate calibration region instead of the soft syndrome - the single-step CM-EKF of
@@ -738,6 +740,15 @@ class ESCNNTrainer(Trainer):
         the prior-weight LLRs fails CRC (crc_check_fn). log_suffix is appended to
         each [ekfi] line.
 
+        fail_step (optional, ekf.py's 'ekfht'): instead of skipping the slots/users update_mask marks
+        False, update them with ladder step fail_step's measurement (ekfht: 50 = the BP syndrome
+        measurement, which never reads tx) - so one predict, then one update per slot from whichever
+        source that slot has. fail_log_suffix replaces log_suffix on those slots. tx_diag (optional,
+        same layout as tx): the true bits, used only for the log diagnostics (cos_true, tx_wrong,
+        bp_*_wrong) in place of tx - needed when tx holds dummy labels on the fail_step slots.
+        do_predict=False skips this call's predict() - for a second update pass on the same group/epoch
+        (ekf.py's ekfht label update after re-decoding), so no extra Q / ar1 pull is applied.
+
         Diagnostics when log_train_every_epochs > 0: cos_true per update - cosine between the applied
         step and the step R0's measurement (true-bit agreement over every bit of the same calib
         slot) would take from the same prior, i.e. the same reference ekf's own cos_true uses; and,
@@ -753,9 +764,13 @@ class ESCNNTrainer(Trainer):
         # DEBUG-LADDER: steps >= 2 need the same SyndromeLoss helper ekf uses (same code, same
         # clean/dead classification, same peeling rounds).
         step = int(ekfi_step)
-        step_label = {41: '4s', 42: '4m', 50: 'BP'}.get(step, str(step))
+        fail_step = None if fail_step is None else int(fail_step)
+        if fail_step is not None and fail_step not in (0, 1, 5, 50):
+            raise ValueError(f"fail_step={fail_step} - only steps whose measurement never reads tx "
+                             f"(50 = BP syndrome, 5 = peeled syndrome) or plain label steps (0, 1) are allowed.")
+        setup_steps = {step} if fail_step is None else {step, fail_step}   # steps whose setup must exist
         helper, tx_keep, punc_in_clean, bp_punc_edge = None, None, None, None
-        if step >= 2:
+        if max(setup_steps) >= 2:
             helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
             if helper is None:
                 raise ValueError(f"ekfi step R{step} needs the LDPC syndrome helper (conf.mcs > -1).")
@@ -769,7 +784,7 @@ class ESCNNTrainer(Trainer):
             _in_clean_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_clean.device)
             _in_clean_p[helper.edge_bit_clean] = True
             punc_in_clean = _in_clean_p[helper.punctured_idx]   # (P,) bool
-            if step == 50:
+            if 50 in setup_steps:
                 _is_p = torch.zeros(helper.n_ldpc, dtype=torch.bool, device=helper.edge_bit_all.device)
                 _is_p[helper.punctured_idx] = True
                 bp_punc_edge = _is_p[helper.edge_bit_all]          # (E,) bool
@@ -777,8 +792,8 @@ class ESCNNTrainer(Trainer):
                 self._log_ladder_row_coverage(helper)
                 self._ladder_cov_logged = True
         # Same +-30 as SyndromeLoss.LLR_CLAMP (not imported here: syndrome_loss imports Sionna lazily).
-        llr_clamp = (helper.LLR_CLAMP if helper is not None else 30.0) if step >= 1 else None
-        bp_gate = self._bp_gate_mode(bp_gate, step == 50, crc_check_fn)
+        llr_clamp = (helper.LLR_CLAMP if helper is not None else 30.0) if max(setup_steps) >= 1 else None
+        bp_gate = self._bp_gate_mode(bp_gate, step == 50, crc_check_fn)   # gate: primary step only
 
         trackers = self._get_ekf_trackers()
         rx_real = rx_real.to(DEVICE).unsqueeze(-1)
@@ -802,13 +817,22 @@ class ESCNNTrainer(Trainer):
                     rx_prob = torch.cat((rx_real, probs_vec), dim=1)
                 # +-1 per bit, (symbols, num_bits, num_res)
                 sign = (2.0 * tx[:, user, :].reshape(-1, num_bits, num_res) - 1.0).to(DEVICE, dtype=rx_prob.dtype)
+                # Diagnostics-only sign (true bits when tx_diag is given, else the labels themselves).
+                sign_d = sign if tx_diag is None else (
+                    2.0 * tx_diag[:, user, :].reshape(-1, num_bits, num_res) - 1.0).to(DEVICE, dtype=rx_prob.dtype)
 
                 tracker = trackers[user][i]
-                tracker.predict()
+                if do_predict:
+                    tracker.predict()
                 for s in range(num_slots):
                     sl = slice(s * payload_symbols_per_slot, (s + 1) * payload_symbols_per_slot)
-                    rx_slot, sign_slot = rx_prob[sl], sign[sl]
-                    if update_mask is not None and not bool(update_mask[s][user]):
+                    rx_slot, sign_slot, sign_dslot = rx_prob[sl], sign[sl], sign_d[sl]
+                    masked = update_mask is not None and not bool(update_mask[s][user])
+                    # ekfht: masked slots (no CRC pass -> no labels) fall back to fail_step's measurement.
+                    slot_step = fail_step if (masked and fail_step is not None) else step
+                    sfx = fail_log_suffix if (masked and fail_step is not None) else log_suffix
+                    slot_label = {41: '4s', 42: '4m', 50: 'BP'}.get(slot_step, str(slot_step))
+                    if masked and fail_step is None:
                         # e.g. ekfcrc: this slot's decode failed CRC - no labels, keep the predicted state.
                         tracker._write_back()
                         if log_stats:
@@ -820,17 +844,17 @@ class ESCNNTrainer(Trainer):
                     # DEBUG-LADDER RBP: detached BP on the network's own LLRs (prior weights), giving
                     # per-edge punctured values tanh(L_{v->m}/2), constant w.r.t. theta.
                     bp_tpe, bp_diag, bp_unsat, gate_txt = None, "", None, ""
-                    if step == 50:
+                    if slot_step == 50:
                         with torch.no_grad():
                             _, _llr_bp = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
                             _Lbp = _llr_bp.squeeze(-1).reshape(-1)[:helper.n]
                             _v2c, _post = self._ladder_bp(helper, _Lbp)
                             bp_tpe = torch.tanh(_v2c.clamp(-30.0, 30.0) / 2.0)
-                            if bp_gate != 'none':
+                            if bp_gate != 'none' and slot_step == step:
                                 bp_unsat, gate_txt = self._gate_check(bp_gate, helper, _post, _Lbp, crc_check_fn)
                             if log_stats:
                                 # Truth on every mother-code column (peeling the true bits to a fixpoint).
-                                _lt = 30.0 * sign_slot.reshape(1, -1)[:, :helper.n]
+                                _lt = 30.0 * sign_dslot.reshape(1, -1)[:, :helper.n]
                                 _tt = torch.tanh(helper.map_to_mother(_lt).clamp(-30.0, 30.0) / 2.0)
                                 _flag = helper._fallback_rounds_logged
                                 helper._fallback_rounds_logged = True       # keep ekf's own log line intact
@@ -846,7 +870,7 @@ class ESCNNTrainer(Trainer):
                                            f" bp_punc_known={_nk}")
 
                     t_punc_true, nondead = None, None
-                    if step in (3, 4, 41, 42):
+                    if slot_step in (3, 4, 41, 42):
                         with torch.no_grad():
                             llr_true = llr_clamp * sign_slot.reshape(1, -1)[:, :helper.n]
                             t_true = torch.tanh(helper.map_to_mother(llr_true).clamp(-llr_clamp, llr_clamp) / 2.0)
@@ -857,7 +881,8 @@ class ESCNNTrainer(Trainer):
                             nondead = p_true[0].abs() > 0.5   # resolved checks: p = +1; dead: 0
 
                     def measurement_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot,
-                                       _tp=t_punc_true, _nd=nondead, _tpe=bp_tpe):
+                                       _tp=t_punc_true, _nd=nondead, _tpe=bp_tpe, _st=slot_step):
+                        step = _st   # this slot's step (ekfht: labels on CRC-pass slots, fail_step otherwise)
                         _, llrs = functional_call(_net, param_dict, (_rx,))
                         L = llrs.squeeze(-1).reshape(-1)               # L > 0 <=> bit 1
                         sgn = _sign.reshape(-1)
@@ -899,7 +924,7 @@ class ESCNNTrainer(Trainer):
                     # bits, no clamp) - the same reference ekf's cos_true uses. Never applied.
                     reference_fn = None
                     if log_stats:
-                        def reference_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_slot):
+                        def reference_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_dslot):
                             _, llrs = functional_call(_net, param_dict, (_rx,))
                             return (_sign.reshape(-1) * torch.tanh(0.5 * llrs.squeeze(-1).reshape(-1)))
 
@@ -913,7 +938,7 @@ class ESCNNTrainer(Trainer):
                             # Same prior weights the update linearizes at (tracker.theta after predict).
                             _, _llr0 = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
                             _L0 = _llr0.squeeze(-1).reshape(-1)
-                            _sg = sign_slot.reshape(-1)
+                            _sg = sign_dslot.reshape(-1)
                             diag_txt = f" tx_wrong={((_L0 > 0) != (_sg > 0)).float().mean().item():.4f}"
                             if helper is not None:
                                 _L0n = _L0[:helper.n].clamp(-30.0, 30.0).reshape(1, -1)
@@ -936,7 +961,7 @@ class ESCNNTrainer(Trainer):
                             tracker._write_back()
                             if log_stats:
                                 print(f"[gate] user={user} it={i} calib slot={s + 1}/{num_slots} "
-                                      f"update skipped ({bp_gate} gate){diag_txt}{log_suffix}", flush=True)
+                                      f"update skipped ({bp_gate} gate){diag_txt}{sfx}", flush=True)
                             continue
                     stats = tracker.update(measurement_fn, reference_fn=reference_fn)
                     if log_stats and not stats.get('skipped', True):
@@ -946,7 +971,7 @@ class ESCNNTrainer(Trainer):
                         print(f"[ekfi] user={user} it={i} calib slot={s + 1}/{num_slots} "
                               f"bits={stats['num_checks']} frac_correct={stats['mean_hard_sat']:.3f} "
                               f"mean_agree={stats['mean_p']:.3f} dtheta_rms={stats['dtheta_rms']:.3e}"
-                              f"{cos_txt}{diag_txt}" + (f" step=R{step_label}" if step else "") + log_suffix,
+                              f"{cos_txt}{diag_txt}" + (f" step=R{slot_label}" if slot_step else "") + sfx,
                               flush=True)
 
                 with torch.no_grad():

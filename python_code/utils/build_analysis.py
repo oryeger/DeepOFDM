@@ -153,14 +153,14 @@ def mat_target(tag, k, diffs_k, short, aug_type):
 
 def _trk_group(k):
     """Presentation rank of a config's tracking mode: notrack, ekf, ekfi (incl. the ekfi1..ekfi6
-    debug ladder), sgdbcei, ekfbp (incl. ekfbps/ekfbpc), sgdsbp, then everything else
+    debug ladder), sgdbcei, ekfbp (incl. ekfbps/ekfbpc/ekfcrc/ekfht), sgdsbp, then everything else
     (other modes, e.g. ekfibp, and configs with no t=/trk= token)."""
     mode = next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
     if mode is None:
         return 6
     if re.fullmatch(r"ekfi\d*", mode):
         return 2
-    if mode in ("ekfbp", "ekfbps", "ekfbpc"):
+    if mode in ("ekfbp", "ekfbps", "ekfbpc", "ekfcrc", "ekfht"):
         return 4
     return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5}.get(mode, 6)
 
@@ -222,16 +222,37 @@ def purge_redundant_tw_variants(tag):
         print(f"Purged {len(hits)} redundant tw=1.0 file(s) for tag '{tag}' (frz=a / tl=bce)")
 
 # ---------------------------------------------------------------- building
+def _code_rate(k):
+    """Value of the R=<code rate> token (e.g. '0.48'), or None if the key has none."""
+    return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name == "R"), None)
+
 def build(tag):
+    """One build per code rate: a batch mixing several R= values gets a separate
+    ANALYSIS/<tag>_R=<rate>/ dir + <tag>_R=<rate>.html per rate; a single-rate batch
+    keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
     purge_redundant_tw_variants(tag)
     cfgs = unique_configs(tag)
     if not cfgs:
         print(f"No CSVs found for tag '{tag}'"); return 1
-    keys = sorted(cfgs)
+    by_rate = {}
+    for k in cfgs:
+        by_rate.setdefault(_code_rate(k), []).append(k)
+    if len(by_rate) == 1:
+        return _build_one(tag, tag, list(cfgs))
+    print(f"Tag '{tag}' mixes {len(by_rate)} code rates -> one build per rate: "
+          + ", ".join(f"R={r}" for r in sorted(by_rate, key=str)))
+    rc = 0
+    for rate in sorted(by_rate, key=str):
+        rc |= _build_one(tag, f"{tag}_R={rate}", by_rate[rate])
+    return rc
+
+def _build_one(tag, name, keys):
+    """Build the analysis page for `keys` (configs of `tag`) into ANALYSIS/<name>/<name>.html."""
+    keys = sorted(keys)
     diffs = differing_tokens(keys)
     keys.sort(key=lambda k: (_trk_group(k), sort_key(diffs[k])))
 
-    out_dir = _rotate_out_dir(tag)
+    out_dir = _rotate_out_dir(name)
     os.makedirs(out_dir, exist_ok=True)
 
     # third plot panel is GFMI when nll=gf, plain BER otherwise
@@ -264,7 +285,7 @@ def build(tag):
   th { background: #eee; font-size: 13px; } td.snr { font-size: 14px; font-weight: bold; width: 3em; background: #f7f7f7; }
   td img { width: 100%%; max-width: 560px; }
 </style></head><body>
-<h1>%s &mdash; Part 1: BLER / MI / %s curves</h1>""" % (tag, tag, third_panel)]
+<h1>%s &mdash; Part 1: BLER / MI / %s curves</h1>""" % (name, name, third_panel)]
 
     failed, copied = [], 0
     seen_mat_targets = {}
@@ -277,7 +298,7 @@ def build(tag):
         ue_indices = []
         try:
             aug_type = pmc.detect_aug_type(k) or "LMMSE"
-            mat_dir, mat_name, trk_mode = mat_target(tag, k, diffs[k], short, aug_type)
+            mat_dir, mat_name, trk_mode = mat_target(name, k, diffs[k], short, aug_type)
             # aug_type alongside trk_mode: the trk-comparison plot also wants
             # the un-augmented baseline (bler_no_aug/mi_no_aug, already saved
             # for every config) drawn as a labeled 5th curve, and needs to
@@ -324,7 +345,7 @@ def build(tag):
         for u in sorted(ue_indices):
             html.append(f"<img class='curve' src='curve_{short}_ue{u}.png'>")
 
-    html.append(f"<h1>{tag} &mdash; Part 2: LLR histograms &amp; training loss "
+    html.append(f"<h1>{name} &mdash; Part 2: LLR histograms &amp; training loss "
                 f"({' | '.join(d.upper() for d in dets)})</h1>")
 
     def jpg_snrs(k):
@@ -338,7 +359,7 @@ def build(tag):
                 if m:
                     snrs.add(int(m.group(1)))
             # already-copied short-named jpgs also count (source may be purged)
-            for p in glob.glob(os.path.join(ANALYSIS, tag, f"{det}_{SAFE('_'.join(toks))}_SNR*.jpg")):
+            for p in glob.glob(os.path.join(out_dir, f"{det}_{SAFE('_'.join(toks))}_SNR*.jpg")):
                 m = re.search(r"_SNR(-?\d+)\.jpg$", os.path.basename(p))
                 if m:
                     snrs.add(int(m.group(1)))
@@ -373,7 +394,7 @@ def build(tag):
         html.append("</table>")
 
     html.append("</body></html>")
-    out_html = os.path.join(out_dir, f"{tag}.html")
+    out_html = os.path.join(out_dir, f"{name}.html")
     with open(out_html, "w", encoding="utf-8") as f:
         f.write("\n".join(html))
 

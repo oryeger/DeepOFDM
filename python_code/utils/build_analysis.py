@@ -7,21 +7,26 @@ Usage:
 
 What it does, given experiment tag <tag>:
   1. Scans C:\\Projects\\Scratchpad for result CSVs of that tag and finds the
-     unique configurations (all name fields except timestamp, seed and SNR).
+     unique configurations (all name fields except timestamp and SNR - each seed is its own
+     configuration, keyed '<config>_s=<seed>'; w=/r= hashes are left out of the labels when
+     they only shadow the seed).
   2. Creates C:\\Projects\\Scratchpad\\Analysis\\<tag>\\.
   3. Runs plot_multiple_csvs.plot_csvs() per configuration and moves each
      figure there as curve_<config>.png.
   4. Copies the per-SNR histogram/loss jpgs (lmmse/escnn/...) there under
      short names (long originals exceed Windows MAX_PATH at this depth).
-  5. Writes <tag>.html: Part 1 = curves, Part 2 = histogram tables
-     (rows = SNR, columns = detectors), each plot preceded by its parameters.
+  5. Runs compare_track_modes.make_figure() once per unique configuration that was run with
+     several tracking modes (t=<mode>; configs are grouped by every token except the
+     tracking-mode family CMP_FAMILY), overlaying all of its modes on one BLER/MI/BER figure.
+  6. Writes <tag>.html: Part 0 = tracking-mode comparisons, Part 1 = curves, Part 2 = histogram
+     tables (rows = SNR, columns = detectors), each plot preceded by its parameters.
 Rerunning never overwrites a previous build: the newest build always lands at
 C:\\Projects\\Scratchpad\\Analysis\\<tag>\\ (no suffix). If that already exists, it - and any
 older <tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2, <tag>_2 -> <tag>_3,
 etc., highest index first so renames never collide), so old builds stick around (just
 renumbered) until you delete them yourself.
 """
-import glob, os, re, shutil, sys
+import collections, glob, os, re, shutil, sys
 
 SCRATCH   = r"C:\Projects\Scratchpad"
 UTILS     = r"C:\Projects\DeepOFDM\python_code\utils"
@@ -42,18 +47,24 @@ def base_csvs(tag):
 
 NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)\.csv$")
 
-def parse(n):
+def parse_seeded(n):
+    """-> (config key with its seed, '<config>_s=<seed>', snr), or None."""
     m = NAME_RE.match(n)
     if not m:
         return None
     ts, key, seed, snr = m.groups()
-    return key, int(snr)
+    return f"{key}_s={seed}", int(snr)
+
+def _split_seed(k):
+    """'<config>_s=<seed>' -> (config, seed)."""
+    config, seed = k.rsplit("_s=", 1)
+    return config, int(seed)
 
 def unique_configs(tag):
-    """-> {config_key: sorted list of SNRs}"""
+    """-> {'<config>_s=<seed>': sorted list of SNRs} - seeds are kept apart, not averaged."""
     cfgs = {}
     for n in base_csvs(tag):
-        p = parse(n)
+        p = parse_seeded(n)
         if p:
             cfgs.setdefault(p[0], set()).add(p[1])
     return {k: sorted(v) for k, v in cfgs.items()}
@@ -92,6 +103,19 @@ def differing_tokens(keys):
         return {keys[0]: ["config"]}
     return {k: [tok for name, tok in parsed[k] if name in diff_names] for k in keys}
 
+# Per-run hash tokens (w= saved-weights tag, r= loaded-weights tag): random, so they usually just
+# shadow the seed. Hidden from labels whenever they don't distinguish anything else.
+HASH_TOKENS = ("w", "r")
+
+def drop_redundant_hashes(diffs):
+    """Remove HASH_TOKENS from each config's differing-token list when the remaining tokens
+    still tell every config apart (e.g. w= differs only because each seed saved its own weights)."""
+    for hname in HASH_TOKENS:
+        trimmed = {k: [t for t in toks if not t.startswith(hname + "=")] for k, toks in diffs.items()}
+        if trimmed != diffs and len({tuple(t) for t in trimmed.values()}) == len(diffs)                 and all(trimmed.values()):
+            diffs = trimmed
+    return diffs
+
 SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
 
 # Token names that are intrinsic to the tracking mode itself (ekf.py only
@@ -100,6 +124,9 @@ SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
 # get_escnn_title_string, ~line 272-282.
 # "t" is the tracking-mode token since 2026-10-04 (older names use "trk"); both are accepted.
 TRK_FAMILY = {"trk", "t", "csg", "lr", "ep", "bs", "loss", "tw", "po"}
+# Grouping for the Part 0 tracking-mode comparisons additionally ignores bpi (ekf.py emits it only
+# for the BP modes ekfbp/ekfht/sgdsbp/...). Kept out of TRK_FAMILY so mat_target's buckets don't move.
+CMP_FAMILY = TRK_FAMILY | {"bpi"}
 
 def mat_target(tag, k, diffs_k, short, aug_type):
     """Where plot_csvs() should save this config's .mat file(s).
@@ -165,13 +192,16 @@ def _trk_group(k):
     return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5, "sgdht": 5}.get(mode, 6)
 
 def sort_key(diffs):
-    """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5."""
+    """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5 and seeds (s=) sort
+    numerically."""
     TW_ORDER = {"0.0": 0, "1.0": 1, "0.5": 2}
     out = []
     for t in diffs:
         m = re.match(r"tw=(.+)$", t)
         if m:
             out.append(("tw", TW_ORDER.get(m.group(1), 9), m.group(1)))
+        elif re.fullmatch(r"s=\d+", t):
+            out.append(("s=", int(t[2:])))
         else:
             out.append((t,))
     return out
@@ -226,30 +256,103 @@ def _code_rate(k):
     """Value of the R=<code rate> token (e.g. '0.48'), or None if the key has none."""
     return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name == "R"), None)
 
+def _primary(k):
+    """Primary receiver (which_augment) of a config: 'LMMSE'/'SPHERE'/'DEEPSIC'/'DEEPRX', or
+    'NOAUG' when the key carries no recognised aug token (e.g. NO_AUGMENT)."""
+    sys.path.insert(0, UTILS)
+    import plot_multiple_csvs as pmc
+    return pmc.detect_aug_type(k) or "NOAUG"
+
 def build(tag):
-    """One build per code rate: a batch mixing several R= values gets a separate
-    ANALYSIS/<tag>_R=<rate>/ dir + <tag>_R=<rate>.html per rate; a single-rate batch
-    keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
+    """One build per (code rate, primary receiver): a batch mixing several R= values and/or
+    several primary receivers gets a separate ANALYSIS/<tag>_R=<rate>_<PRIMARY>/ dir + html per
+    combination (only the axes that actually vary go into the suffix); a batch with a single
+    rate and primary keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
     purge_redundant_tw_variants(tag)
     cfgs = unique_configs(tag)
     if not cfgs:
         print(f"No CSVs found for tag '{tag}'"); return 1
-    by_rate = {}
+    groups = {}
     for k in cfgs:
-        by_rate.setdefault(_code_rate(k), []).append(k)
-    if len(by_rate) == 1:
+        groups.setdefault((_code_rate(k), _primary(k)), []).append(k)
+    multi_rate = len({r for r, _ in groups}) > 1
+    multi_prim = len({a for _, a in groups}) > 1
+    if len(groups) == 1:
         return _build_one(tag, tag, list(cfgs))
-    print(f"Tag '{tag}' mixes {len(by_rate)} code rates -> one build per rate: "
-          + ", ".join(f"R={r}" for r in sorted(by_rate, key=str)))
+    def suffix(rate, prim):
+        return "".join(([f"_R={rate}"] if multi_rate else []) + ([f"_{prim}"] if multi_prim else []))
+    order = sorted(groups, key=lambda g: (str(g[0]), g[1]))
+    print(f"Tag '{tag}' mixes {len(groups)} code-rate/primary combinations -> one build each: "
+          + ", ".join(suffix(*g).lstrip("_") for g in order))
     rc = 0
-    for rate in sorted(by_rate, key=str):
-        rc |= _build_one(tag, f"{tag}_R={rate}", by_rate[rate])
+    for g in order:
+        rc |= _build_one(tag, f"{tag}{suffix(*g)}", groups[g])
     return rc
+
+def _mode(k):
+    """Tracking mode (value of the t=/trk= token) of a config, or None."""
+    return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
+
+def compare_sections(tag, keys, out_dir):
+    """Part 0: one compare_track_modes figure per unique configuration (all tokens except the
+    CMP_FAMILY ones) that was run with at least two tracking modes, all its modes overlaid.
+    Legend label = the mode, plus its other trk-family tokens (lr=, csg=, ...) when the same mode
+    appears more than once in a group. Groups with more modes than the palette are split into
+    several figures. Returns the html snippets."""
+    import compare_track_modes as ctm
+    groups = {}
+    for k in keys:
+        if _mode(k) is None:
+            continue
+        gkey = "_".join(tok for name, tok in _split_key_tokens(k) if name not in CMP_FAMILY)
+        groups.setdefault(gkey, []).append(k)
+    groups = {g: ks for g, ks in groups.items() if len(ks) > 1}
+    if not groups:
+        print("No configuration was run with more than one tracking mode - no comparison plots")
+        return []
+    store = {}
+    for p in glob.glob(os.path.join(SCRATCH, f"*_{tag}_s=*_SNR=*.csv")):
+        ctm._record(store, os.path.basename(p), lambda p=p: LONG(p))
+    gdiffs = drop_redundant_hashes(differing_tokens(sorted(groups)))
+    html, failed = [], []
+    for gi, gkey in enumerate(sorted(groups, key=lambda g: sort_key(gdiffs[g]))):
+        ks = groups[gkey]
+        modes = collections.Counter(_mode(k) for k in ks)
+        chosen = {}
+        for k in ks:
+            lab = _mode(k)
+            if modes[lab] > 1:
+                extra = [tok for name, tok in _split_key_tokens(k) if name in CMP_FAMILY - {"t", "trk"}]
+                lab = " ".join([lab] + extra)
+            chosen[lab] = k
+        order = sorted(chosen, key=lambda l: (_trk_group(chosen[l]), l))
+        label = " | ".join(gdiffs[gkey])
+        if gdiffs[gkey] == ["config"]:   # single configuration on this page - name its main axes instead
+            label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
+                               if name in ("sp", "cfo", "cfod", "R", "aug"))
+        html.append(f"<h3>{label}</h3><p class='params'>{gkey}</p>")
+        n = len(ctm.COLORS)
+        for ci in range(0, len(order), n):
+            part = order[ci:ci + n]
+            fname = f"compare_{gi}" + (f"_{ci // n}" if len(order) > n else "") + ".png"
+            print("=" * 70); print(f"[compare {label}]  {' '.join(part)}")
+            try:
+                seed = _split_seed(ks[0])[1]   # s= isn't in CMP_FAMILY, so one seed per group
+                fig = ctm.make_figure(store, {l: _split_seed(chosen[l])[0] for l in part}, part, label,
+                                      os.path.join(out_dir, fname), seeds=[seed])
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+                html.append(f"<img class='curve' src='{fname}'>")
+            except Exception as e:
+                print(f"  [FAIL] {e}"); failed.append((label, str(e)))
+                html.append(f"<p class='params'>comparison plot failed: {e}</p>")
+    print(f"Comparison plots: {len(groups)} configuration(s), failed: {len(failed)}")
+    return html
 
 def _build_one(tag, name, keys):
     """Build the analysis page for `keys` (configs of `tag`) into ANALYSIS/<name>/<name>.html."""
     keys = sorted(keys)
-    diffs = differing_tokens(keys)
+    diffs = drop_redundant_hashes(differing_tokens(keys))
     keys.sort(key=lambda k: (_trk_group(k), sort_key(diffs[k])))
 
     out_dir = _rotate_out_dir(name)
@@ -284,15 +387,19 @@ def _build_one(tag, name, keys):
   th, td { border: 1px solid #999; padding: 3px; text-align: center; vertical-align: top; }
   th { background: #eee; font-size: 13px; } td.snr { font-size: 14px; font-weight: bold; width: 3em; background: #f7f7f7; }
   td img { width: 100%%; max-width: 560px; }
-</style></head><body>
-<h1>%s &mdash; Part 1: BLER / MI / %s curves</h1>""" % (name, name, third_panel)]
+</style></head><body>""" % name]
+    cmp_html = compare_sections(tag, keys, out_dir)
+    if cmp_html:
+        html.append(f"<h1>{name} &mdash; Part 0: tracking-mode comparisons (ESCNN, all modes per configuration)</h1>")
+        html += cmp_html
+    html.append(f"<h1>{name} &mdash; Part 1: BLER / MI / {third_panel} curves</h1>")
 
     failed, copied = [], 0
     seen_mat_targets = {}
     for k in keys:
         short = SAFE("_".join(diffs[k]))
         label = " | ".join(display_tokens(k, diffs[k]))
-        pattern = f"*_{k}_s=*_SNR=*.csv"
+        pattern = f"*_{k}_SNR=*.csv"
         print("=" * 70); print(f"[{label}]  {pattern}")
         has_ue_curve = False
         ue_indices = []
@@ -312,7 +419,8 @@ def _build_one(tag, name, keys):
                           f"-- they share a trk mode but differ in csg/lr/ep/bs/loss/tw/po, which the bare "
                           f"'{mat_name}.mat' filename can't distinguish.")
                 seen_mat_targets[mat_key] = label
-            pmc.plot_csvs(pattern, mat_out_dir=mat_dir, mat_name=mat_name, mat_extra=mat_extra)
+            pmc.plot_csvs(pattern, mat_out_dir=mat_dir, mat_name=mat_name, mat_extra=mat_extra,
+                          seed_list=[_split_seed(k)[1]])
             if mat_dir is not None:
                 print(f"  mat -> {os.path.join(mat_dir, mat_name + '.mat')}  (trk_mode={trk_mode})")
             src = os.path.join(SCRATCH, "plot_output.png")
@@ -353,7 +461,7 @@ def _build_one(tag, name, keys):
         toks = diffs[k]
         snrs = set()
         for det in dets:
-            pat = os.path.join(SCRATCH, f"{det}_2*_{k}_s=*_SNR=*.jpg")
+            pat = os.path.join(SCRATCH, f"{det}_2*_{k}_SNR=*.jpg")
             for p in glob.glob(pat):
                 m = re.search(r"_SNR=(-?\d+)\.jpg$", os.path.basename(p))
                 if m:
@@ -382,7 +490,7 @@ def _build_one(tag, name, keys):
                 sname = f"{det}_{short}_SNR{snr}.jpg"
                 dst = os.path.join(out_dir, sname)
                 if not os.path.exists(dst):
-                    pat = os.path.join(SCRATCH, f"{det}_2*_{k}_s=*_SNR={snr}.jpg")
+                    pat = os.path.join(SCRATCH, f"{det}_2*_{k}_SNR={snr}.jpg")
                     hits = glob.glob(pat)
                     if hits:
                         shutil.copy2(LONG(hits[0]), LONG(dst)); copied += 1

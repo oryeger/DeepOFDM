@@ -121,6 +121,21 @@ def _col_mean(series):
     return float(np.mean(vals))
 
 
+BLER_YMIN = 1e-2  # BLER log axis always extends down to at least this value (lower if the data goes lower)
+
+
+def _apply_bler_floor(ax, plot_type):
+    """BLER only: extend the log y-axis down to at least BLER_YMIN so the 10^-2 decade is always
+    shown, instead of autoscaling to the lowest nonzero point (e.g. 5e-2). Never raises the
+    bottom if the data already goes lower; top is left as autoscaled so BLER=1 markers aren't
+    clipped. BLER=0 points remain undrawable on a log axis; the curve still ends where the last
+    nonzero point is."""
+    if plot_type != "BLER":
+        return
+    bottom, _ = ax.get_ylim()
+    ax.set_ylim(bottom=min(bottom, BLER_YMIN))
+
+
 def _get_first_present(df, candidates):
     """Return the first column name that exists in df.columns, else None."""
     for c in candidates:
@@ -491,7 +506,8 @@ def _has_nonzero_nll(filenames):
     return False
 
 
-def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_name=None, mat_extra=None):
+def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_name=None, mat_extra=None,
+              seed_list=None):
     """
     Plot BER/BLER/MI from CSV files in CSV_DIR.
 
@@ -508,8 +524,12 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
             (e.g. {"trk_mode": "sgdbcei"}) so a consumer (MATLAB) can read a
             clean label back out instead of re-parsing it from the filename,
             which build_analysis.py's SAFE() strips underscores from.
+        seed_list: Optional seeds to average over, overriding the module-level `seeds` whitelist
+            (build_analysis passes the one seed it is plotting, so a seed missing from `seeds`
+            doesn't come out as an empty figure).
     """
     plot_all_escnn = plot_all_iters
+    seeds = globals()["seeds"] if seed_list is None else list(seed_list)
 
     if filter_pattern is not None:
         all_files = sorted(glob.glob(os.path.join(CSV_DIR, filter_pattern)))
@@ -769,8 +789,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                     col = f"total_ber_sphere_user{u}"
                     if col in df.columns:
                         seed_snr_dict[seed][snr][f"ber_sphere_user{u}"] = _col_mean(df[col])
-                    col = f"total_ber_deepsic_user{u}_1"
-                    if col in df.columns:
+                    col = _get_first_present(df, [f"total_ber_deepsic_user{u}_1", f"total_ber_deepsic_user{u}"])
+                    if col is not None:
                         seed_snr_dict[seed][snr][f"ber_deepsic_user{u}_1"] = _col_mean(df[col])
 
                 # ---- MI parsing ----
@@ -797,10 +817,15 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                     if "total_ber_deeprx" in df.columns:
                         seed_snr_dict[seed][snr]["mi_deeprx"] = _col_mean(df["total_ber_deeprx"])
 
-                    for k in [1, 2, 3]:
-                        colname = f"total_ber_deepsic_{k}"
-                        if colname in df.columns:
-                            seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _col_mean(df[colname])
+                    if "total_ber_deepsic" in df.columns:
+                        # ekf.py naming: no iteration suffix (same fallback as the BER/BLER parser)
+                        for k in [1, 2, 3]:
+                            seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _col_mean(df["total_ber_deepsic"])
+                    else:
+                        for k in [1, 2, 3]:
+                            colname = f"total_ber_deepsic_{k}"
+                            if colname in df.columns:
+                                seed_snr_dict[seed][snr][f"mi_deepsic_{k}"] = _col_mean(df[colname])
 
                     mi_joint_col = _get_first_present(df, ["total_ber_jointllr_1", "total_ber_jointllr"])
                     if mi_joint_col is not None:
@@ -819,8 +844,8 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                         col = f"total_ber_sphere_user{u}"
                         if col in df.columns:
                             seed_snr_dict[seed][snr][f"mi_sphere_user{u}"] = _col_mean(df[col])
-                        col = f"total_ber_deepsic_user{u}_1"
-                        if col in df.columns:
+                        col = _get_first_present(df, [f"total_ber_deepsic_user{u}_1", f"total_ber_deepsic_user{u}"])
+                        if col is not None:
                             seed_snr_dict[seed][snr][f"mi_deepsic_user{u}_1"] = _col_mean(df[col])
 
         snrs = _build_snr_grid(observed_snrs)
@@ -1229,6 +1254,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                 ax.set_ylim(0.0, 1.0)
             else:
                 ax.set_yscale("log")
+                _apply_bler_floor(ax, plot_type)
             ax.grid(True)
             _grouped_legend(ax)
 
@@ -1239,6 +1265,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                     ax_ue.set_ylim(0.0, 1.0)
                 else:
                     ax_ue.set_yscale("log")
+                    _apply_bler_floor(ax_ue, plot_type)
                 ax_ue.grid(True)
                 _grouped_legend(ax_ue)
 
@@ -1249,6 +1276,7 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
                     ax_u.set_ylim(0.0, 1.0)
                 else:
                     ax_u.set_yscale("log")
+                    _apply_bler_floor(ax_u, plot_type)
                 ax_u.grid(True)
                 _grouped_legend(ax_u)
 

@@ -345,7 +345,7 @@ def plot_loss_and_LLRs(train_loss_vect, val_loss_vect, llrs_mat, snr_cur, detect
         per_user_width = llrs_mat.shape[1] // n_users
         for u in range(n_users):
             ax = fig.add_subplot(gs[1 + u // llr_cols, u % llr_cols])
-            user_llrs = llrs_mat[:, u * per_user_width:(u + 1) * per_user_width, :, :]
+            user_llrs = llrs_mat[:, u * per_user_width:(u + 1) * per_user_width, ...]  # 4-D (ESCNN) or 3-D (DeepSIC)
             ax.hist(user_llrs.cpu().flatten(), bins=30, color='blue', edgecolor='black', alpha=0.7)
             ax.set_title(f'UE{u}', fontsize=7)
             ax.set_xlabel(llr_xlabel, fontsize=6)
@@ -514,6 +514,17 @@ def resolve_effective_cfo(cfo_value, num_bits_data, verbose=False):
     return resolved
 
 
+def _near_miss_report(rejected, n=5):
+    """Closest rejected checkpoints (fewest failing checks) and what each one differs in."""
+    if not rejected:
+        return "No .pt files in the weights dir at all."
+    lines = [f"Closest of {len(rejected)} checkpoint file(s) (field=value in the file):"]
+    for _, failed, name in sorted(rejected, key=lambda r: r[0])[:n]:
+        diff = ", ".join(f"{f}={v}" if v is not None else f for f, v in failed)
+        lines.append(f"  differs in [{diff}]: {name}")
+    return "\n".join(lines)
+
+
 def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
@@ -598,50 +609,39 @@ def resolve_auto_escnn_weights_tag():
     cur_clip = float(conf.clip_percentage_in_tx)
 
     matches = []
+    # first failing check per rejected file, for the error message's near-miss report
+    rejected = []
+
+    def _num(pattern, name, cast=int):
+        m = re.search(pattern, name)
+        if not m:
+            return None
+        try:
+            return cast(m.group(1))
+        except ValueError:
+            return None
+
     for path in all_pt_files:
         name = os.path.basename(path)
-        if not chan_ok(name):
-            continue
-        n_users_m = re.search(r'#UEs=(\d+)', name)
-        num_res_m = re.search(r'#REs?=(\d+)', name)
-        seed_m = re.search(r'_s=(\d+)_SNR=', name)
-        n_ants_m = re.search(r'_#ant?=(\d+)', name)
-        if not (n_users_m and num_res_m and seed_m and n_ants_m):
-            continue
-        if int(n_users_m.group(1)) != conf.n_users:
-            continue
-        if int(num_res_m.group(1)) != conf.num_res:
-            continue
-        if int(n_ants_m.group(1)) != conf.n_ants:
-            continue
-        if int(seed_m.group(1)) != conf.channel_seed:
-            continue
-        if not augment_re.search(name):
-            continue
-        if not mod_re.search(name):
-            continue
-        iqg_m = re.search(r'_iqg=([^_]+)', name)
-        iqp_m = re.search(r'_iqp=([^_]+)', name)
-        if not (iqg_m and iqp_m):
-            continue
-        if float(iqg_m.group(1)) != cur_iqmm_gain:
-            continue
-        if float(iqp_m.group(1)) != cur_iqmm_phase:
-            continue
-        cfo_m = re.search(r'_cfo=([^_]+)_', name)
-        if not cfo_m:
-            continue
-        try:
-            file_cfo = float(cfo_m.group(1))
-        except ValueError:
-            continue
-        if file_cfo != cur_effective_cfo:
-            continue
         file_clip = _find_clip_in_filename(name)
-        if file_clip is None or file_clip != cur_clip:
-            continue
         tag_m = re.search(r'_([0-9a-fA-F]{6})\.pt$', name)
-        if not tag_m:
+        checks = [
+            ('channel', chan_ok(name), name.split('_', 1)[0]),
+            ('seed', _num(r'_s=(\d+)_SNR=', name) == conf.channel_seed, _num(r'_s=(\d+)_SNR=', name)),
+            ('n_users', _num(r'#UEs=(\d+)', name) == conf.n_users, _num(r'#UEs=(\d+)', name)),
+            ('n_ants', _num(r'_#ant?=(\d+)', name) == conf.n_ants, _num(r'_#ant?=(\d+)', name)),
+            ('num_res', _num(r'#REs?=(\d+)', name) == conf.num_res, _num(r'#REs?=(\d+)', name)),
+            ('augment', bool(augment_re.search(name)), None),
+            ('modulation', bool(mod_re.search(name)), None),
+            ('iqmm_gain', _num(r'_iqg=([^_]+)', name, float) == cur_iqmm_gain, _num(r'_iqg=([^_]+)', name, float)),
+            ('iqmm_phase', _num(r'_iqp=([^_]+)', name, float) == cur_iqmm_phase, _num(r'_iqp=([^_]+)', name, float)),
+            ('cfo', _num(r'_cfo=([^_]+)_', name, float) == cur_effective_cfo, _num(r'_cfo=([^_]+)_', name, float)),
+            ('clip', file_clip is not None and file_clip == cur_clip, file_clip),
+            ('tag', bool(tag_m), None),
+        ]
+        failed = [(field, val) for field, ok, val in checks if not ok]
+        if failed:
+            rejected.append((len(failed), failed, name))
             continue
         matches.append((path, tag_m.group(1)))
 
@@ -653,7 +653,7 @@ def resolve_auto_escnn_weights_tag():
             f"num_res={conf.num_res}, modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, "
             f"iqmm_phase={cur_iqmm_phase}, cfo={cur_effective_cfo}, clip={cur_clip:g}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
-            f"load_escnn_weights_tag to an explicit tag.")
+            f"load_escnn_weights_tag to an explicit tag.\n" + _near_miss_report(rejected))
 
     # Multiple SNRs of the same trained checkpoint share one tag across several files, so
     # dedupe to distinct tags (keeping each tag's most recent mtime) before ranking/printing.
@@ -1663,7 +1663,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     modulator_text = 'Sphere, Radius=' + str(conf.sphere_radius)
 
                 # calculate accuracy
-                target = tx_data_for_ber[:, :rx.shape[1], re]
+                target = tx_data_for_ber[:, :n_users, re]
                 for iteration in range(iterations):
                     if pilot_data_ratio <= 1:
                         detected_word_cur_re = detected_word_list[iteration][:, :, re, :]

@@ -255,9 +255,13 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     _cfod_val = getattr(conf, 'cfo_drift', 0.0)
     _cfod_str = '0' if _cfod_val == 0 else f'{_cfod_val:.2f}'
     title_string = (f"{chan_text}_sp={conf.speed}_{mod_text}_RE={conf.num_res}_UEs={n_users}"
-                     f"_an={conf.n_ants}_cfo={_cfo_str}_cfod={_cfod_str}"
-                     f"_iqg={getattr(conf, 'iqmm_gain', 0)}_iqp={getattr(conf, 'iqmm_phase', 0)}"
-                     f"_Clp={conf.clip_percentage_in_tx}")
+                     f"_an={conf.n_ants}_cfo={_cfo_str}_cfod={_cfod_str}")
+    # iqg/iqp only when IQ mismatch is on (dropped 2026-10-13 to keep names under Linux's 255-char
+    # limit - see _check_output_name_lengths; older names always carry _iqg=0_iqp=0)
+    _iqg, _iqp = getattr(conf, 'iqmm_gain', 0), getattr(conf, 'iqmm_phase', 0)
+    if _iqg != 0 or _iqp != 0:
+        title_string += f"_iqg={_iqg}_iqp={_iqp}"
+    title_string += f"_Clp={conf.clip_percentage_in_tx}"
     title_string += '_C=' + corr_map.get(getattr(conf, 'spatial_correlation', 'none'), 'No')
     if conf.mcs > -1:
         title_string += f'_R={code_rate:.2f}'
@@ -297,16 +301,54 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
             title_string += '_loss=' + loss_mode
             if loss_mode == 'tsyn':
                 title_string += '_tw=' + str(getattr(conf, 'tw', 0.5))
-        # Persistent Adam, betas (0.0, 0.99) - see ESCNNTrainer._deep_learning_setup. po=2 so these
-        # names can't be confused with the 2026-09-29 po=1 runs (persistent, torch-default betas)
-        # or the older untagged runs (fresh Adam per group).
-        title_string += '_po=2'
+        # Persistent Adam, betas (0.0, 0.99) - see ESCNNTrainer._deep_learning_setup. These names
+        # used to carry '_po=2' (vs the 2026-09-29 po=1 runs and older untagged fresh-Adam runs);
+        # dropped 2026-10-13 for name length. Newer names are still distinguishable from all of
+        # those by their missing _iqg=0_iqp=0 (see above).
     title_string += '_ps=' + _fmt_count(int(getattr(conf, 'pilot_size', -1)))
     zllr = getattr(conf, 'debug_zero_llr_res', [])
     if zllr:
         title_string += '_zllr=' + '-'.join(str(r) for r in zllr)
     title_string += '_' + conf.cur_str
     return title_string.replace(" ", "_")
+
+
+def _build_ekf_title_string(n_users: int, mod_data: int, code_rate, timestamp: str) -> str:
+    """Full output basename (no extension): <timestamp>_<suffix>_s=<seed>_SNR=<snr>."""
+    if mod_data == 2:
+        mod_text = 'BPSK'
+    elif mod_data == 4:
+        mod_text = 'QPSK'
+    else:
+        mod_text = str(mod_data) + 'Q'
+    if conf.channel_model[0] == 'N':
+        chan_text = 'Flat'
+    elif conf.channel_model[0] in ('A', 'B', 'C'):
+        # 'T' + model letter (e.g. 'TA', 'TC') - delay spread dropped, kept only to distinguish
+        # TDL from the 'Flat'/env-name cases below, not to encode every channel parameter.
+        chan_text = 'T' + conf.channel_model
+    else:
+        chan_text = conf.channel_model
+    title_string = _build_ekf_filename_suffix(chan_text, mod_text, n_users, code_rate)
+    title_string += '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
+    return timestamp + title_string
+
+
+# Suffixes main() appends to the title string; the longest one bounds the filename length.
+_OUTPUT_SUFFIXES = (".csv", "_bler.csv", "_mi.csv", "_diag.h5")
+_MAX_FILENAME_BYTES = 255   # Linux NAME_MAX (ext4 etc.) - a longer name fails to open for writing
+
+
+def _check_output_name_lengths(n_users: int, mod_data: int, code_rate):
+    """Fail at startup (not after the whole run) if any output file name would exceed
+    NAME_MAX - that used to silently lose the _bler/_mi CSVs of the longest-named runs (sgdsbp
+    with aug=aDEEPSIC), since the BER CSV is written first and the job died on the next one."""
+    name = _build_ekf_title_string(n_users, mod_data, code_rate, datetime.now().strftime("%Y%m%d_%H%M_"))
+    longest = name + max(_OUTPUT_SUFFIXES, key=len)
+    n = len(longest.encode('utf-8'))
+    if n > _MAX_FILENAME_BYTES:
+        raise ValueError(f"Output file name would be {n} chars (> {_MAX_FILENAME_BYTES}): {longest}\n"
+                         f"Shorten _build_ekf_filename_suffix (or cur_str) before running.")
 
 
 def modulate_bits(tx_bits: np.ndarray, mod_order: int, n_users: int, num_res: int) -> np.ndarray:
@@ -398,6 +440,12 @@ def load_frozen_augment_weights(best_weights_path: str, which_augment: str, num_
     deepsic_trainer = deeprx_trainer = None
     if which_augment == 'AUGMENT_DEEPSIC':
         deepsic_trainer = DeepSICTrainer(num_bits_pilot, n_users, n_ants)
+        ckpt_iters = len(combined[key][0][0])
+        if ckpt_iters != conf.iterations:
+            raise ValueError(
+                f"Checkpoint {best_weights_path} has DeepSIC trained with {ckpt_iters} iteration(s) "
+                f"but conf.iterations={conf.iterations} - use a checkpoint from an evaluate.py run "
+                f"with iterations={conf.iterations}, or set iterations={ckpt_iters}.")
         deepsic_trainer._initialize_detector(num_bits_pilot, n_users, n_ants)
         deepsic_trainer.load_state_dict_from(combined[key])
         deepsic_trainer.freeze()
@@ -1461,6 +1509,7 @@ def main():
     qm, code_rate = get_mcs(conf.mcs)
     qm = int(qm)
     mod_data = int(2 ** qm)
+    _check_output_name_lengths(n_users, mod_data, code_rate)
     # Unified codeword sizing: every region (scored data, and - 'sgd' only - the separate calib
     # region) now has the same 2-DMRS + _DMRS_NUM_PAYLOAD_SYMB-payload per-slot structure, so one
     # (ldpc_n, ldpc_k) covers both - no second codec needed.
@@ -1619,23 +1668,7 @@ def main():
               f"noise_var_est={stats['noise_var_est']:.4e} "
               f"lmmse_noise_var={stats['lmmse_noise_var']:.4e}", flush=True)
 
-    if mod_data == 2:
-        mod_text = 'BPSK'
-    elif mod_data == 4:
-        mod_text = 'QPSK'
-    else:
-        mod_text = str(mod_data) + 'Q'
-    if conf.channel_model[0] == 'N':
-        chan_text = 'Flat'
-    elif conf.channel_model[0] in ('A', 'B', 'C'):
-        # 'T' + model letter (e.g. 'TA', 'TC') - delay spread dropped, kept only to distinguish
-        # TDL from the 'Flat'/env-name cases below, not to encode every channel parameter.
-        chan_text = 'T' + conf.channel_model
-    else:
-        chan_text = conf.channel_model
-    title_string = _build_ekf_filename_suffix(chan_text, mod_text, n_users, code_rate)
-    title_string += '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
-    title_string = datetime.now().strftime("%Y%m%d_%H%M_") + title_string
+    title_string = _build_ekf_title_string(n_users, mod_data, code_rate, datetime.now().strftime("%Y%m%d_%H%M_"))
     output_dir = os.path.abspath(os.path.join(os.getcwd(), '..', 'Scratchpad'))
     os.makedirs(_long_path(output_dir), exist_ok=True)
 

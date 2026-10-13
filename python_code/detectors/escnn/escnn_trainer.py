@@ -27,6 +27,12 @@ Softmax = torch.nn.Softmax(dim=1)
 # (beta1, beta2) for ekf.py's persistent per-network Adam (see _deep_learning_setup).
 _PERSIST_ADAM_BETAS = (0.0, 0.99)
 
+# ESCNN always runs a single iteration, regardless of conf.iterations (which still applies to
+# DeepSIC etc.). Every method that takes an `iterations` arg overrides it with this; _forward
+# then pads its output lists back to the requested length (repeating the single result) so
+# callers that index llrs_mat_list[0..conf.iterations-1] / [-1] keep working unchanged.
+ESCNN_ITERATIONS = 1
+
 
 class ESCNNTrainer(Trainer):
 
@@ -69,7 +75,7 @@ class ESCNNTrainer(Trainer):
 
     def _initialize_detector(self, num_bits, n_users, n_ants):
 
-        self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(conf.iterations)] for _ in
+        self.detector = [[ESCNNDetector(num_bits, n_users).to(DEVICE) for _ in range(ESCNN_ITERATIONS)] for _ in
                          range(n_users)]  # 2D list for Storing the ESCNN Networks
 
     def _train_model(self, single_model: nn.Module, tx: torch.Tensor, rx_prob: torch.Tensor, num_bits:int, epochs: int, first_half_flag: bool, stage: str, network_id: str = "",
@@ -417,6 +423,7 @@ class ESCNNTrainer(Trainer):
         its docstring) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
         callers override them explicitly.
         """
+        iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
 
         if conf.which_augment == 'NO_AUGMENT':
             initial_probs = self._initialize_probs(tx, num_bits, n_users)
@@ -515,6 +522,7 @@ class ESCNNTrainer(Trainer):
         <=> bit 1. When given and logging is on, each update also computes the step those true bits
         would have produced (ekfi's agreement measurement, same prior) and logs cos_true, its
         cosine similarity with the applied syndrome step. Never applied; doubles the per-slot cost."""
+        iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
         helper = self._get_syndrome_helper(tag='ekf', payload_symbols_per_slot=payload_symbols_per_slot)
         if helper is None:
             self._tsyn_warn_once('ekf_mcs', "EKF tracking needs conf.mcs > -1 (LDPC); skipping EKF update.", tag='ekf')
@@ -767,6 +775,7 @@ class ESCNNTrainer(Trainer):
         step and the step R0's measurement (true-bit agreement over every bit of the same calib
         slot) would take from the same prior, i.e. the same reference ekf's own cos_true uses; and,
         once per run for steps >= 2, how many clean / non-dead rows each transmitted column is in."""
+        iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
         if not any(p.requires_grad for nets in self.detector for net in nets for p in net.parameters()):
             self._tsyn_warn_once('ekfi_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                   "skipping EKF update (running loaded weights statically).", tag='ekf')
@@ -1107,6 +1116,7 @@ class ESCNNTrainer(Trainer):
         Mirrors ekf_predict_update()'s rx_prob construction and per-slot forward pass exactly, but
         read-only: no Jacobian, no predict/update, nothing written back - just measures how well
         the loaded (frozen) weights' own LLRs already satisfy the syndrome, slot by slot."""
+        iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
         with torch.no_grad():
             rx_real = rx_real.to(DEVICE).unsqueeze(-1)
             if getattr(conf, 'which_augment', 'NO_AUGMENT') == 'NO_AUGMENT' or probs_in is None:
@@ -1368,6 +1378,8 @@ class ESCNNTrainer(Trainer):
 
     def _forward(self, rx: torch.Tensor, num_bits: int, n_users: int, iterations: int, probs_in: torch.Tensor) -> tuple[List, List]:
         # detect and decode
+        requested_iterations = iterations
+        iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
         detected_word_list = [None] * iterations
         llrs_mat_list = [None] * iterations
         if conf.which_augment == 'NO_AUGMENT':
@@ -1379,6 +1391,10 @@ class ESCNNTrainer(Trainer):
         for i in range(iterations):
             probs_vec, llrs_mat_list[i] = self._calculate_posteriors(self.detector, i + 1, rx.to(device=DEVICE).unsqueeze(-1), probs_vec, num_bits, n_users, nns)
             detected_word_list[i] = self._compute_output(probs_vec)
+        # Pad to the caller's requested length so per-iteration indexing elsewhere still works
+        if requested_iterations > iterations:
+            detected_word_list += [detected_word_list[-1]] * (requested_iterations - iterations)
+            llrs_mat_list += [llrs_mat_list[-1]] * (requested_iterations - iterations)
         # plt.imshow(self.detector[0][0].fc1.weight[0, :, 0, :].cpu().detach(), cmap='gray')
         # pass
 

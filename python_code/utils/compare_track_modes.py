@@ -151,7 +151,10 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
     """Draw the BLER/MI/BER comparison of `modes` (legend labels, in order; chosen[label] is the
     config key each one plots) from a load() store, save it to `out` and return the figure.
     Labels found in MODE_SLOT keep their fixed color. With table=True the per-SNR table is also
-    written as CSV next to the figure. snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive)."""
+    written as CSV next to the figure. snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive).
+    chosen[label] may also be a tuple of config keys, pooled together (e.g. one per seed when each
+    seed's run carries its own w=/r= hash)."""
+    cfgs = lambda v: (v,) if isinstance(v, str) else tuple(v)
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
@@ -159,16 +162,16 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
         for met, kind, _, agg in METRICS:
             per_snr = collections.defaultdict(list)
             for (c, k, seed, snr), (ts, e, l, _) in store.items():
-                if c == config and k == kind and (seeds is None or seed in seeds)                         and (snr_range is None or snr_range[0] <= snr <= snr_range[1]):
+                if c in cfgs(config) and k == kind and (seeds is None or seed in seeds)                         and (snr_range is None or snr_range[0] <= snr <= snr_range[1]):
                     per_snr[snr].append((e, l))
             for snr, v in per_snr.items():
                 ev, lv = np.mean([x[0].mean() for x in v]), np.mean([x[1].mean() for x in v])
                 data[mode][met][snr] = (ev, lv, len(v))
     # code rate from the R=<r> token (same for all modes after --filter, else taken from the first)
-    rate = next((float(t[2:]) for t in chosen[modes[0]].split("_") if t.startswith("R=")), None)
+    rate = next((float(t[2:]) for t in cfgs(chosen[modes[0]])[0].split("_") if t.startswith("R=")), None)
 
     # reference name from the first mode's CSVs (falls back to LMMSE per file - see _record)
-    ref_names = {v[3] for (c, *_), v in store.items() if c == chosen[modes[0]]}
+    ref_names = {v[3] for (c, *_), v in store.items() if c in cfgs(chosen[modes[0]])}
     ref_name = ref_names.pop() if len(ref_names) == 1 else "LMMSE"
 
     grid = sorted({s for m in data.values() for d in m.values() for s in d})
@@ -217,7 +220,7 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
     fig.savefig(LONG(out), dpi=130)
     print("saved", out)
     for mode, config in chosen.items():
-        print(f"  {mode:8s} <- {config}")
+        print(f"  {mode:8s} <- {' + '.join(cfgs(config))}")
 
     rows = []
     for s in grid:

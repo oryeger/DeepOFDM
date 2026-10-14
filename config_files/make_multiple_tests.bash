@@ -80,6 +80,7 @@ weights_track_mode_vals=(
 #  'ekfi4m'
 #   'sgdsyn'
 #   'sgdbce'
+#   'ekfp'
 #  'ekfbps'
 #  'ekfbpc'
   'ekfi'

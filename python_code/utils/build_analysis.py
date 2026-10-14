@@ -293,60 +293,105 @@ def _mode(k):
     """Tracking mode (value of the t=/trk= token) of a config, or None."""
     return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
 
-def compare_sections(tag, keys, out_dir):
-    """Part 0: one compare_track_modes figure per unique configuration (all tokens except the
-    CMP_FAMILY ones) that was run with at least two tracking modes, all its modes overlaid.
-    Legend label = the mode, plus its other trk-family tokens (lr=, csg=, ...) when the same mode
-    appears more than once in a group. Groups with more modes than the palette are split into
-    several figures. Returns the html snippets."""
-    import compare_track_modes as ctm
+def _cmp_entries(keys, drop):
+    """Group `keys` for the Part 0 comparisons: group key = every token except the CMP_FAMILY ones
+    and the token names in `drop`. Keeps groups run with >= 2 tracking modes. -> {gkey: {legend
+    label: [keys]}}; label = the mode, plus its other trk-family tokens (lr=, csg=, ...) when the
+    same mode appears with several of them in a group."""
     groups = {}
     for k in keys:
         if _mode(k) is None:
             continue
-        gkey = "_".join(tok for name, tok in _split_key_tokens(k) if name not in CMP_FAMILY)
+        gkey = "_".join(tok for name, tok in _split_key_tokens(k) if name not in CMP_FAMILY | drop)
         groups.setdefault(gkey, []).append(k)
-    groups = {g: ks for g, ks in groups.items() if len(ks) > 1}
-    if not groups:
+    out = {}
+    for gkey, ks in groups.items():
+        variants = collections.defaultdict(set)   # mode -> its distinct trk-family token tuples
+        extra = {}
+        for k in ks:
+            extra[k] = tuple(tok for name, tok in _split_key_tokens(k) if name in CMP_FAMILY - {"t", "trk"})
+            variants[_mode(k)].add(extra[k])
+        labeled = collections.defaultdict(list)
+        for k in ks:
+            lab = _mode(k)
+            if len(variants[lab]) > 1:
+                lab = " ".join((lab,) + extra[k])
+            labeled[lab].append(k)
+        if len(labeled) > 1:
+            out[gkey] = dict(labeled)
+    return out
+
+def compare_sections(tag, keys, out_dir):
+    """Part 0: compare_track_modes figures per unique configuration (all tokens except the
+    CMP_FAMILY ones) that was run with at least two tracking modes, all its modes overlaid.
+    When a configuration was run with several seeds, an all-seeds-averaged figure comes first
+    (per SNR, mean over the seeds that have that point; w=/r= hashes are ignored for this grouping
+    since they usually differ per seed), followed by one figure per seed.
+    Groups with more modes than the palette are split into several figures. Returns the html snippets."""
+    import compare_track_modes as ctm
+    import matplotlib.pyplot as plt
+    per_seed = _cmp_entries(keys, set())
+    pooled = {g: labs for g, labs in _cmp_entries(keys, {"s"} | set(HASH_TOKENS)).items()
+              if len({_split_seed(k)[1] for ks in labs.values() for k in ks}) > 1}
+    if not per_seed and not pooled:
         print("No configuration was run with more than one tracking mode - no comparison plots")
         return []
     store = {}
     for p in glob.glob(os.path.join(SCRATCH, f"*_{tag}_s=*_SNR=*.csv")):
         ctm._record(store, os.path.basename(p), lambda p=p: LONG(p))
-    gdiffs = drop_redundant_hashes(differing_tokens(sorted(groups)))
-    html, failed = [], []
-    for gi, gkey in enumerate(sorted(groups, key=lambda g: sort_key(gdiffs[g]))):
-        ks = groups[gkey]
-        modes = collections.Counter(_mode(k) for k in ks)
-        chosen = {}
-        for k in ks:
-            lab = _mode(k)
-            if modes[lab] > 1:
-                extra = [tok for name, tok in _split_key_tokens(k) if name in CMP_FAMILY - {"t", "trk"}]
-                lab = " ".join([lab] + extra)
-            chosen[lab] = k
-        order = sorted(chosen, key=lambda l: (_trk_group(chosen[l]), l))
+
+    # Pooled groups: a (label, seed) pair must map to a single run - otherwise the dropped w=/r=
+    # hashes were telling genuinely different runs apart, and averaging them would mix them.
+    for gkey in list(pooled):
+        for lab, ks in pooled[gkey].items():
+            seeds = [_split_seed(k)[1] for k in ks]
+            if len(seeds) != len(set(seeds)):
+                print(f"  [WARN] no seed-average for [{gkey}]: mode '{lab}' has several runs per seed "
+                      f"(they differ in w=/r=, which is not just the seed here)")
+                del pooled[gkey]
+                break
+
+    # sections: (title, gkey, {label: [keys]}, filename prefix); pooled first, then each seed
+    sections = []
+    pdiffs = drop_redundant_hashes(differing_tokens(sorted(pooled))) if pooled else {}
+    for gi, gkey in enumerate(sorted(pooled, key=lambda g: sort_key(pdiffs[g]))):
+        nseeds = len({_split_seed(k)[1] for ks in pooled[gkey].values() for k in ks})
+        label = " | ".join(pdiffs[gkey])
+        if pdiffs[gkey] == ["config"]:
+            label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
+                               if name in ("sp", "cfo", "cfod", "R", "aug"))
+        sections.append((f"{label} &mdash; average of {nseeds} seeds", gkey, pooled[gkey], f"compare_avg_{gi}"))
+    gdiffs = drop_redundant_hashes(differing_tokens(sorted(per_seed))) if per_seed else {}
+    for gi, gkey in enumerate(sorted(per_seed, key=lambda g: sort_key(gdiffs[g]))):
         label = " | ".join(gdiffs[gkey])
         if gdiffs[gkey] == ["config"]:   # single configuration on this page - name its main axes instead
             label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
                                if name in ("sp", "cfo", "cfod", "R", "aug"))
-        html.append(f"<h3>{label}</h3><p class='params'>{gkey}</p>")
+        sections.append((label, gkey, per_seed[gkey], f"compare_{gi}"))
+
+    html, failed = [], []
+    for label, gkey, labeled, prefix in sections:
+        order = sorted(labeled, key=lambda l: (_trk_group(labeled[l][0]), l))
+        seeds = sorted({_split_seed(k)[1] for ks in labeled.values() for k in ks})
+        html.append(f"<h3>{label}</h3><p class='params'>{gkey}"
+                    + (f"<br>seeds: {', '.join(map(str, seeds))}" if len(seeds) > 1 else "") + "</p>")
         n = len(ctm.COLORS)
         for ci in range(0, len(order), n):
             part = order[ci:ci + n]
-            fname = f"compare_{gi}" + (f"_{ci // n}" if len(order) > n else "") + ".png"
+            fname = prefix + (f"_{ci // n}" if len(order) > n else "") + ".png"
             print("=" * 70); print(f"[compare {label}]  {' '.join(part)}")
             try:
-                seed = _split_seed(ks[0])[1]   # s= isn't in CMP_FAMILY, so one seed per group
-                fig = ctm.make_figure(store, {l: _split_seed(chosen[l])[0] for l in part}, part, label,
-                                      os.path.join(out_dir, fname), seeds=[seed])
-                import matplotlib.pyplot as plt
+                # store keys hold the config without its s= token; pass every run behind each label
+                chosen = {l: tuple(sorted({_split_seed(k)[0] for k in labeled[l]})) for l in part}
+                fig = ctm.make_figure(store, chosen, part, label.replace("&mdash;", "-"),
+                                      os.path.join(out_dir, fname), seeds=seeds)
                 plt.close(fig)
                 html.append(f"<img class='curve' src='{fname}'>")
             except Exception as e:
                 print(f"  [FAIL] {e}"); failed.append((label, str(e)))
                 html.append(f"<p class='params'>comparison plot failed: {e}</p>")
-    print(f"Comparison plots: {len(groups)} configuration(s), failed: {len(failed)}")
+    print(f"Comparison plots: {len(pooled)} seed-averaged + {len(per_seed)} per-seed configuration(s), "
+          f"failed: {len(failed)}")
     return html
 
 def _build_one(tag, name, keys):

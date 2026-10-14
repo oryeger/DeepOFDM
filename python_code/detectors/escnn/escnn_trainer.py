@@ -721,7 +721,7 @@ class ESCNNTrainer(Trainer):
                                        ekfi_step: int = 0, update_mask=None, log_suffix: str = "",
                                        crc_check_fn=None, bp_gate: str = 'none', fail_step: int = None,
                                        fail_log_suffix: str = "", tx_diag: torch.Tensor = None,
-                                       do_predict: bool = True):
+                                       do_predict: bool = True, real_bit_idx=None):
         """Supervised counterpart of ekf_predict_update (ekf.py's weights_track_mode='ekfi'): the
         same EkfParamTracker predict/update, but the measurement is the known transmitted bits of a
         separate calibration region instead of the soft syndrome - the single-step CM-EKF of
@@ -772,6 +772,14 @@ class ESCNNTrainer(Trainer):
         do_predict=False skips this call's predict() - for a second update pass on the same group/epoch
         (ekf.py's ekfht label update after re-decoding), so no extra Q / ar1 pull is applied.
 
+        real_bit_idx (optional, sequence of bit-channel indices within num_bits): restrict the label
+        measurement (and the tx_wrong / cos_true diagnostics) to those bit channels - every other
+        channel contributes no measurement row. ekf.py's 'ekfp' passes relevant_indices(qm, qm/2)
+        here: its labels are the group's own DMRS pilots, which are always QPSK, so only the MSB of
+        each rail ([0, qm//2]) carries a real label at qm > 2 (same restriction sgdbce applies to
+        its BCE via _online_training's real_bit_idx). Label steps only (ekfi_step 0/1, no
+        fail_step); None = every channel.
+
         Diagnostics when log_train_every_epochs > 0: cos_true per update - cosine between the applied
         step and the step R0's measurement (true-bit agreement over every bit of the same calib
         slot) would take from the same prior, i.e. the same reference ekf's own cos_true uses; and,
@@ -792,6 +800,13 @@ class ESCNNTrainer(Trainer):
         if fail_step is not None and fail_step not in (0, 1, 5, 50):
             raise ValueError(f"fail_step={fail_step} - only steps whose measurement never reads tx "
                              f"(50 = BP syndrome, 5 = peeled syndrome) or plain label steps (0, 1) are allowed.")
+        if real_bit_idx is not None:
+            if step not in (0, 1) or fail_step is not None:
+                raise ValueError(f"real_bit_idx is only supported for the label steps R0/R1 without fail_step "
+                                 f"(got ekfi_step={step}, fail_step={fail_step}).")
+            real_bit_idx = torch.as_tensor(list(real_bit_idx), dtype=torch.long, device=DEVICE)
+            if real_bit_idx.numel() == num_bits:
+                real_bit_idx = None   # every channel selected - same as no restriction
         setup_steps = {step} if fail_step is None else {step, fail_step}   # steps whose setup must exist
         helper, tx_keep, punc_in_clean, bp_punc_edge = None, None, None, None
         if max(setup_steps) >= 2:
@@ -844,6 +859,9 @@ class ESCNNTrainer(Trainer):
                 # Diagnostics-only sign (true bits when tx_diag is given, else the labels themselves).
                 sign_d = sign if tx_diag is None else (
                     2.0 * tx_diag[:, user, :].reshape(-1, num_bits, num_res) - 1.0).to(DEVICE, dtype=rx_prob.dtype)
+                if real_bit_idx is not None:
+                    # ekfp: only the labeled (QPSK-pilot) bit channels - see real_bit_idx in the docstring.
+                    sign, sign_d = sign[:, real_bit_idx], sign_d[:, real_bit_idx]
 
                 tracker = trackers[user][i]
                 if do_predict:
@@ -908,6 +926,8 @@ class ESCNNTrainer(Trainer):
                                        _tp=t_punc_true, _nd=nondead, _tpe=bp_tpe, _st=slot_step):
                         step = _st   # this slot's step (ekfht: labels on CRC-pass slots, fail_step otherwise)
                         _, llrs = functional_call(_net, param_dict, (_rx,))
+                        if real_bit_idx is not None:                          # ekfp: labeled channels only
+                            llrs = llrs[:, real_bit_idx]
                         L = llrs.squeeze(-1).reshape(-1)               # L > 0 <=> bit 1
                         sgn = _sign.reshape(-1)
                         if step == 0:                                    # R0
@@ -950,6 +970,8 @@ class ESCNNTrainer(Trainer):
                     if log_stats:
                         def reference_fn(param_dict, _net=net, _rx=rx_slot, _sign=sign_dslot):
                             _, llrs = functional_call(_net, param_dict, (_rx,))
+                            if real_bit_idx is not None:
+                                llrs = llrs[:, real_bit_idx]
                             return (_sign.reshape(-1) * torch.tanh(0.5 * llrs.squeeze(-1).reshape(-1)))
 
                     # DEBUG-LADDER diagnostic, prior weights: sign errors of the network's own LLRs on
@@ -961,6 +983,8 @@ class ESCNNTrainer(Trainer):
                         with torch.no_grad():
                             # Same prior weights the update linearizes at (tracker.theta after predict).
                             _, _llr0 = functional_call(net, tracker._split(tracker.theta), (rx_slot,))
+                            if real_bit_idx is not None:
+                                _llr0 = _llr0[:, real_bit_idx]
                             _L0 = _llr0.squeeze(-1).reshape(-1)
                             _sg = sign_dslot.reshape(-1)
                             diag_txt = f" tx_wrong={((_L0 > 0) != (_sg > 0)).float().mean().item():.4f}"

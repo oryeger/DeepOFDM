@@ -67,6 +67,15 @@ here - see config.yaml's weights_track_mode comment):
       measurement (single-step supervised CM-EKF, as in Gusakov et al., IEEE TSP 2026) - see
       ESCNNTrainer.ekf_predict_update_supervised. Uses the same escnn_ekf_* settings as 'ekf'.
       No validation split (nothing to validate/early-stop).
+  'ekfp' - the EKF counterpart of 'sgdbce' ('p' = pilots): the same labels as sgdbce - the group's
+      own embedded DMRS pilots, built by _build_dmrs_bce_training_data - but instead of epochs of BCE
+      it gets one EKF predict per group and one supervised update per slot (that slot's DMRS
+      occasions), via ESCNNTrainer.ekf_predict_update_supervised with ekfi's R0 agreement
+      measurement. DMRS is always QPSK, so at qm > 2 the measurement is restricted to the 2 labeled
+      bit channels (real_bit_idx = relevant_indices(qm, qm/2)) - the other bits get no measurement row.
+      Runs before the group is scored (the pilots are known before detection), like sgdbce. Uses
+      the escnn_ekf_* settings; no validation split. The practical, pilot-supervised baseline of
+      Gusakov et al. (IEEE TSP 2026) in this receiver's 5G-NR DMRS setting.
   'ekfcrc' - decision-directed ekfi on the scored slots, after scoring (causal): every (slot, user)
       whose Sionna decode of ESCNN's OR LMMSE's LLRs passes CRC is re-encoded and used as ekfi's
       labels; no update when both fail. See _ekfcrc_update.
@@ -135,6 +144,8 @@ Relevant config keys (see config.yaml for the full list/defaults):
     weights_track_mode            - 'ekf' (default, unsupervised syndrome EKF), 'sgdsyn'
                                     (blind tsyn, trains on the group's own scored data),
                                     'sgdbce' (practical BCE on the group's own DMRS pilots),
+                                    'ekfp' (EKF counterpart of sgdbce: supervised EKF on those
+                                    same DMRS pilots),
                                     'sgdbcei' (BCE on a separate calib region), 'ekfi' (EKF
                                     measuring that same calib region's known bits), or 'notrack'
                                     (no adaptation - forces escnn_load_freeze='all') - see
@@ -781,12 +792,15 @@ def _llr_diag_line(snr, group_idx: int, slot: int, user: int, llr_scored: np.nda
 
 
 def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc,
-                               ldpc_k, ldpc_n, n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio):
+                               ldpc_k, ldpc_n, n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio,
+                               which_augment='AUGMENT_LMMSE', deepsic_trainer=None, deeprx_trainer=None):
     """Generate, transmit and LMMSE-demodulate a separate calib_slots-sized region, built the same
     DMRS+payload way as the scored data, for the supervised modes ('sgdbcei', 'ekfi') - never
     scored, only trained on. Returns (tx_calib_t, rx_calib_real_t, probs_for_aug_calib): the known
-    bits (symbols*num_bits_pilot, n_users, num_res), the real/imag-interleaved rx, and the LMMSE
-    prior ESCNN is augmented with."""
+    bits (symbols*num_bits_pilot, n_users, num_res), the real/imag-interleaved rx, and the prior
+    ESCNN is augmented with - built from the same detector as run_group's scored-region
+    probs_for_aug (which_augment: LMMSE / Sphere / DeepSIC iteration [0] / DeepRx), so the network
+    is trained on the same kind of input it is scored on (it used to always be LMMSE's)."""
     calib_content = _generate_region_content(rng, calib_slots, n_users, num_res, qm,
                                                mod_data, layout, codec, crc, ldpc_k, ldpc_n)
     calib_result = _transmit_and_estimate(calib_content, n_ants, num_res, n_users, h, noise_var,
@@ -808,7 +822,27 @@ def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data,
     rx_calib_real[:, 0::2, :] = rx_calib.real.astype(np.float32)
     rx_calib_real[:, 1::2, :] = rx_calib.imag.astype(np.float32)
     rx_calib_real_t = torch.from_numpy(rx_calib_real)
-    probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
+    # Prior: same per-which_augment selection as run_group's probs_for_aug (see there).
+    if which_augment == 'AUGMENT_LMMSE':
+        probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_lmmse_calib, dtype=torch.float32))
+    elif which_augment == 'AUGMENT_SPHERE':
+        llrs_mat_sphere_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
+        for re in range(num_res):
+            sphere_llr, _ = SphereDecoder(H_calib[re].cpu().numpy(), rx_calib_t[:, :, re].cpu().numpy(),
+                                          lmmse_noise_var_calib, conf.sphere_radius)
+            for user in range(n_users):
+                llrs_mat_sphere_calib[:, user * num_bits_pilot:(user + 1) * num_bits_pilot, re, :] =                     -sphere_llr[:, user].reshape(num_calib_symbols, num_bits_pilot, 1)
+        probs_for_aug_calib = torch.sigmoid(torch.tensor(llrs_mat_sphere_calib, dtype=torch.float32))
+    elif which_augment == 'AUGMENT_DEEPSIC':
+        _, llrs_deepsic_calib = deepsic_trainer._forward(rx_calib_real_t, num_bits_pilot, n_users,
+                                                         conf.iterations, torch.empty(0))
+        probs_for_aug_calib = torch.sigmoid(llrs_deepsic_calib[0]).cpu().unsqueeze(-1)
+    elif which_augment == 'AUGMENT_DEEPRX':
+        _, llrs_deeprx_calib = deeprx_trainer._forward(rx_calib_real_t, num_bits_pilot, n_users,
+                                                       conf.iterations, torch.empty(0))
+        probs_for_aug_calib = torch.sigmoid(llrs_deeprx_calib).cpu()
+    else:
+        probs_for_aug_calib = torch.tensor([], dtype=torch.float32)
     tx_calib_t = torch.from_numpy(calib_tx_bits.astype(np.float32))
     return tx_calib_t, rx_calib_real_t, probs_for_aug_calib
 
@@ -1208,6 +1242,20 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                             conf.iterations, conf.epochs, False, probs_dmrs,
                                             payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
                                             real_bit_idx=dmrs_real_bit_idx)
+        elif weights_track_mode == 'ekfp':
+            # EKF counterpart of sgdbce: the same DMRS labels/input/prior (same builder), but one EKF
+            # predict for the group + one supervised update per slot, each measuring that slot's own
+            # DMRS occasions (rx_dmrs rows are slot-major, len(_DMRS_SYMBOL_LOCAL_IDX) per slot - see
+            # _transmit_and_estimate). DMRS is QPSK, so the measurement only covers the 2 labeled bit
+            # channels (real_bit_idx); at qm=2 that is every channel. Runs before scoring, like sgdbce.
+            tx_dmrs_t, rx_dmrs_real_t, probs_dmrs, dmrs_real_bit_idx = _build_dmrs_bce_training_data(
+                data_result['rx_dmrs'], data_content['known_tx'], layout, H_data,
+                n_ants, num_res, n_users, qm, lmmse_noise_var)
+            escnn_trainer.ekf_predict_update_supervised(rx_dmrs_real_t, tx_dmrs_t, num_bits_pilot, n_users,
+                                                         conf.iterations, probs_dmrs,
+                                                         payload_symbols_per_slot=len(_DMRS_SYMBOL_LOCAL_IDX),
+                                                         ekfi_step=0, log_suffix=" src=DMRS",
+                                                         real_bit_idx=dmrs_real_bit_idx)
         elif weights_track_mode.startswith('ekfi'):  # DEBUG-LADDER: 'ekfi' (R0) and 'ekfi1'..'ekfi6' (R1..R6)
             # Same separate calib region as sgdbcei (drawn from rng at the same point, so both
             # modes see identical channels/data), but one EKF predict + one update per calib slot
@@ -1216,7 +1264,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             # to validate or early-stop, so all calib symbols are measurements.
             tx_calib_t, rx_calib_real_t, probs_for_aug_calib = _build_calib_training_data(
                 rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc, ldpc_k, ldpc_n,
-                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio)
+                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio,
+                which_augment=which_augment, deepsic_trainer=deepsic_trainer, deeprx_trainer=deeprx_trainer)
             # DEBUG-LADDER (remove after the ekfi -> ekf debug): ekfi<k> = step R<k>. R0-R5 change only
             # the measurement on the calib slots (see ekf_predict_update_supervised). R6 still draws
             # the calib region above (same rng consumption as R0-R5) but discards it and runs ekf's
@@ -1238,7 +1287,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
             # data above - never scored, only trained on (see module docstring).
             tx_calib_t, rx_calib_real_t, probs_for_aug_calib = _build_calib_training_data(
                 rng, calib_slots, n_users, num_res, qm, mod_data, layout, codec, crc, ldpc_k, ldpc_n,
-                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio)
+                n_ants, h, noise_var, num_bits_pilot, pilot_data_ratio,
+                which_augment=which_augment, deepsic_trainer=deepsic_trainer, deeprx_trainer=deeprx_trainer)
             # payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB here only turns off the
             # primary-detector cut (see escnn_trainer._train_model's docstring) - the normal
             # train/val split still applies since this is a real supervised fit with genuine
@@ -1492,7 +1542,7 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht', 'notrack') + tuple(
+    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'ekfp', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht', 'notrack') + tuple(
         m for m in _EKFI_STEP_CODES if m != 'ekfi')  # DEBUG-LADDER: R1..R6, R4s, R4m
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
@@ -1618,6 +1668,9 @@ def main():
                       "bits; CRC fail on both: sgdsbp's BP syndrome loss; then re-decode)")
     elif weights_track_mode == 'sgdbce':
         calib_note = ", training directly on the group's own DMRS pilots"
+    elif weights_track_mode == 'ekfp':
+        # No commas (plot_drift_log.py's HEADER_RE reads "training directly on ..." up to the next comma).
+        calib_note = ", training directly on the group's own DMRS pilots (supervised EKF on the QPSK pilot bits)"
     elif weights_track_mode in ('sgdsyn', 'sgdsbp'):
         calib_note = ", training directly on scored data slots"
     else:

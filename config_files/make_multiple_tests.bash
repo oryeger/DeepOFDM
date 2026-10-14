@@ -9,18 +9,21 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=ibpit  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=idsseed  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
-seeds=(123)
+#seeds=(123 17 41 58)
+#seeds=(123 17 41 58 1505 1807 1011 1809 3008 1806) 
+#seeds=(1505 3008) 
+seeds=(1807 1011)
 #snrs=($(seq -5 40))
-snrs=($(seq 0 40))
+snrs=($(seq 0 1 30))
 #snrs=(27)
-#snrs=(25)
-cfos=(0.1 0.2)
-cfo_drift_vals=(0)
-speed_vals=(2.5)
+#snrs=(36)
+cfos=(0)
+cfo_drift_vals=(4.5)
+speed_vals=(0)
 
 # Speed in m/s
 # speed_vals=(0 10 20 30 40)
@@ -56,10 +59,10 @@ tw_vals=(0.0)
 
 tsyn_fallback_iters_vals=(1)
 
-bp_iters_vals=(1 5 10)   # ekfbp/ekfbps/ekfbpc/ekfibp/sgdsbp/ekfht/sgdht only: sum-product BP iterations, e.g. (1 3 10 30)
+bp_iters_vals=(10)   # ekfbp/ekfbps/ekfbpc/ekfibp only: sum-product BP iterations, e.g. (1 3 10 30)
 
 escnn_ekf_alpha_vals=(0.999)
-escnn_ekf_sigma_r_vals=(1.0)
+escnn_ekf_r_scale_vals=(1.0)   # kappa in R = kappa*diag(max(1-h^2, r_floor)); 1.0 = pure CM-EKF/BONG. r_floor fixed at 0.4 in the base yaml
 escnn_ekf_sigma_q_vals=(0.01)
 
 
@@ -67,7 +70,7 @@ channel_drift_base_index_vals=(0)
 
 # ekf.py only
 weights_track_mode_vals=(
-#  'ekfi'
+#   'ekf'
 #  'ekfi1'
 #  'ekfi2'
 #  'ekfi3'
@@ -75,12 +78,18 @@ weights_track_mode_vals=(
 #  'ekfi5'
 #  'ekfi4s'
 #  'ekfi4m'
-#  'sgdsyn'
-#  'sgdbce'
-#  'sgdbcei'
-#   'ekfibp'
-   'ekfibp'
-#  'notrack'
+#   'sgdsyn'
+#   'sgdbce'
+#  'ekfbps'
+#  'ekfbpc'
+  'ekfi'
+  'ekfbp'
+  'ekfcrc'
+  'ekfht'
+  'sgdbcei'
+  'sgdsbp'
+  'sgdht'
+  'notrack'
 )
 calib_slots_per_group_vals=(1)
 
@@ -96,7 +105,7 @@ spatial_correlation_vals=('low')
 batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_LMMSE'
+  'AUGMENT_DEEPSIC'
 )
 
 channel_model_vals=('C')
@@ -104,12 +113,12 @@ kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
 pilot_size_vals=(5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(39)
+mcs_vals=(10)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(1)
-n_ants_vals=(1)
+n_users_vals=(2)
+n_ants_vals=(4)
 num_res_vals=(96)
 make_64QAM_16QAM_percentage_vals=(0)
 
@@ -277,8 +286,8 @@ for seed in "${seeds[@]}"; do
                                                             for tsyn_fallback_iters in "${tsyn_fallback_iters_vals[@]}"; do
                                                               tftag="tf${tsyn_fallback_iters}"
 
-                                                              for escnn_ekf_sigma_r in "${escnn_ekf_sigma_r_vals[@]}"; do
-                                                                srtag="sr${escnn_ekf_sigma_r//./p}"
+                                                              for escnn_ekf_r_scale in "${escnn_ekf_r_scale_vals[@]}"; do
+                                                                rstag="rs${escnn_ekf_r_scale//./p}"
 
                                                                 for escnn_ekf_alpha in "${escnn_ekf_alpha_vals[@]}"; do
                                                                   alphatag="a${escnn_ekf_alpha//./p}"
@@ -303,7 +312,7 @@ for seed in "${seeds[@]}"; do
 
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${srtag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_${bpitag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${rstag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_${bpitag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
                                                                           -e "s/^channel_seed:.*/channel_seed: $seed/" \
@@ -340,7 +349,7 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^beta_balance:.*/beta_balance: $beta_balance/" \
                                                                           -e "s/^tw:.*/tw: $tw/" \
                                                                           -e "s/^tsyn_fallback_iters:.*/tsyn_fallback_iters: $tsyn_fallback_iters/" \
-                                                                          -e "s/^escnn_ekf_sigma_r:.*/escnn_ekf_sigma_r: $escnn_ekf_sigma_r/" \
+                                                                          -e "s/^escnn_ekf_r_scale:.*/escnn_ekf_r_scale: $escnn_ekf_r_scale/" \
                                                                           -e "s/^escnn_ekf_alpha:.*/escnn_ekf_alpha: $escnn_ekf_alpha/" \
                                                                           -e "s/^escnn_ekf_sigma_q:.*/escnn_ekf_sigma_q: $escnn_ekf_sigma_q/" \
                                                                           -e "s/^channel_drift_base_index:.*/channel_drift_base_index: $channel_drift_base_index/" \
@@ -361,7 +370,7 @@ for seed in "${seeds[@]}"; do
                                                                   done  # channel_drift_base_index
                                                                   done  # escnn_ekf_sigma_q
                                                                 done  # escnn_ekf_alpha
-                                                              done  # escnn_ekf_sigma_r
+                                                              done  # escnn_ekf_r_scale
                                                             done  # tsyn_fallback_iters
                                                           done  # tw
                                                         done  # beta_balance
@@ -428,6 +437,7 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 
 

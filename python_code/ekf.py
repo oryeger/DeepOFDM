@@ -278,7 +278,8 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_a=' + str(getattr(conf, 'escnn_ekf_alpha', 0.99))
     title_string += '_sp0=' + str(getattr(conf, 'escnn_ekf_sigma_p0', 0.1))
     title_string += '_sq=' + str(getattr(conf, 'escnn_ekf_sigma_q', 0.01))
-    title_string += '_sr=' + str(getattr(conf, 'escnn_ekf_sigma_r', 0.5))
+    # Bernoulli (CM-EKF) R = r_scale * diag(max(1-h^2, r_floor)) - replaced '_sr=' (constant R) on 2026-10-13.
+    title_string += '_rb=' + str(getattr(conf, 'escnn_ekf_r_floor', 0.4)) + 'x' + str(getattr(conf, 'escnn_ekf_r_scale', 1.0))
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_t=' + track_mode  # tracking mode (was '_trk=' before 2026-10-04)

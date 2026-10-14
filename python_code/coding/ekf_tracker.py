@@ -3,7 +3,7 @@ soft-syndrome (LDPC parity check) measurement - unsupervised, no ground-truth bi
 See ekf_syndrome.tex for the state-space model this implements:
 
     theta_i = f(theta_{i-1}) + w_i,     Q = sigma_q^2 I
-    y_i     = h_i(theta_i) + v_i,       R = sigma_r^2 I,   y_i = 1 (all checks satisfied)
+    y_i     = h_i(theta_i) + v_i,       R = r_scale * diag(max(1 - h_i^2, r_floor)),   y_i = 1 (all checks satisfied)
 
 f is either a random walk (f(theta) = theta) or an AR(1) pull toward the pretrained checkpoint
 (f(theta) = alpha*theta + (1-alpha)*theta_pretrained). Both are affine, so F = alpha*I is a
@@ -29,14 +29,25 @@ _DENSE_STATE_WARN_DIM = 4000
 
 class EkfParamTracker:
     def __init__(self, net: nn.Module, dynamics: str = 'ar1', alpha: float = 0.99,
-                 sigma_p0: float = 0.1, sigma_q: float = 0.01, sigma_r: float = 0.5,
-                 jacobian_chunk_size: int = 16):
+                 sigma_p0: float = 0.1, sigma_q: float = 0.01, r_floor: float = 0.4,
+                 r_scale: float = 1.0, jacobian_chunk_size: int = 16):
         if dynamics not in ('random_walk', 'ar1'):
             raise ValueError(f"EkfParamTracker: dynamics must be 'random_walk' or 'ar1', got {dynamics!r}")
         self.dynamics = dynamics
         self.alpha = float(alpha) if dynamics == 'ar1' else 1.0
         self.sigma_q2 = float(sigma_q) ** 2
-        self.sigma_r2 = float(sigma_r) ** 2
+        # Measurement noise: conditional-moments (Bernoulli) covariance, for every measurement type.
+        # Each measurement row is the soft value h in [-1, 1] of a parity event - a syndrome check
+        # p_m = prod tanh(L/2), or a bit agreement (2b-1)tanh(L/2), which is a degree-one check -
+        # i.e. a Bernoulli event with mean (1+h)/2, whose variance in h-units is 1 - h^2. Hence
+        # R = r_scale * diag(max(1 - h^2, r_floor)) at the linearization point: the covariance of
+        # BONG-LIN / CM-EKF (Jones et al. 2024, Sec. 4.4; Gusakov et al. TSP 2026, eq. 26). A label
+        # update is then a natural-gradient step on the BCE (not a Gauss-Newton step on a squared /
+        # Brier loss, as with a constant R), and a syndrome update a step on -sum_m log((1+h_m)/2).
+        # r_floor guards against R -> 0 for confident outputs (0.4 = TSP's 0.1 clip in probability
+        # units, since 1 - h^2 = 4p(1-p) for a bit); r_scale (kappa) tempers the updates (1 = pure).
+        self.r_floor = float(r_floor)
+        self.r_scale = float(r_scale)
         # jacrev vmaps this many measurement-vector rows through the backward pass at once;
         # None = all M rows at once (fastest, but memory ~ M * activation size - OOMs on
         # large M/d combinations). Lower this if update() runs out of memory.
@@ -115,7 +126,7 @@ class EkfParamTracker:
             return None
         dy = torch.ones_like(p_hat) - p_hat
         S = H @ self.P @ H.T
-        S.diagonal().add_(self.sigma_r2)
+        S.diagonal().add_(self.r_scale * (1.0 - p_hat.detach() ** 2).clamp(min=self.r_floor))
         HP = H @ self.P                       # (M, d)
         Kt = torch.linalg.solve(S, HP)        # (M, d) = S^-1 H P
         K = Kt.T                              # (d, M)

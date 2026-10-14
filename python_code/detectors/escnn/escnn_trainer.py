@@ -477,10 +477,11 @@ class ESCNNTrainer(Trainer):
         alpha = getattr(conf, 'escnn_ekf_alpha', 0.99)
         sigma_p0 = getattr(conf, 'escnn_ekf_sigma_p0', 0.1)
         sigma_q = getattr(conf, 'escnn_ekf_sigma_q', 0.01)
-        sigma_r = getattr(conf, 'escnn_ekf_sigma_r', 0.5)
+        r_floor = getattr(conf, 'escnn_ekf_r_floor', 0.4)
+        r_scale = getattr(conf, 'escnn_ekf_r_scale', 1.0)
         chunk_size = getattr(conf, 'escnn_ekf_jacobian_chunk_size', 16)
         if not hasattr(self, '_ekf_trackers'):
-            self._ekf_trackers = [[EkfParamTracker(net, dynamics, alpha, sigma_p0, sigma_q, sigma_r, chunk_size)
+            self._ekf_trackers = [[EkfParamTracker(net, dynamics, alpha, sigma_p0, sigma_q, r_floor, r_scale, chunk_size)
                                     for net in nets] for nets in self.detector]
         else:
             for nets, tracker_row in zip(self.detector, self._ekf_trackers):

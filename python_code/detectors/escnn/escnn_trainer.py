@@ -396,12 +396,14 @@ class ESCNNTrainer(Trainer):
 
     def _train_models(self, model: List[List[ESCNNDetector]], i: int, tx_all: List[torch.Tensor],
                       rx_prob_all: List[torch.Tensor], num_bits: int, n_users: int, epochs: int, first_half_flag: bool, stage: str,
-                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
+                      payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None, users=None):
         """Returns (train_loss_vect_users, val_loss_vect_users): one loss-per-epoch
-        list per UE (each UE has its own network, so its own loss history)."""
-        train_loss_vect_users = [None] * n_users
-        val_loss_vect_users = [None] * n_users
-        for user in range(n_users):
+        list per UE (each UE has its own network, so its own loss history).
+        users: optional subset of UE indices to train; the others are left untouched (empty
+        loss lists). None = every UE."""
+        train_loss_vect_users = [[] for _ in range(n_users)]
+        val_loss_vect_users = [[] for _ in range(n_users)]
+        for user in (range(n_users) if users is None else users):
             net_id = f"u={user} it={i}"
             train_loss_vect , val_loss_vect = self._train_model(model[user][i], tx_all[user], rx_prob_all[user].to(DEVICE), num_bits, epochs, first_half_flag, stage, network_id=net_id,
                                                                   payload_symbols_per_slot=payload_symbols_per_slot,
@@ -414,14 +416,15 @@ class ESCNNTrainer(Trainer):
 
 
     def _online_training(self, tx: torch.Tensor, rx_real: torch.Tensor, num_bits: int, n_users: int, iterations: int, epochs: int, first_half_flag: bool, probs_in: torch.Tensor, stage: str = "base",
-                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None):
+                          payload_symbols_per_slot: int = NUM_SYMB_PER_SLOT, real_bit_idx=None, users=None):
         """
         Main training function for ESCNN trainer. Initializes the probabilities, then propagates them through the
         network, training sequentially each network and not by end-to-end manner (each one individually).
 
         payload_symbols_per_slot/real_bit_idx are passed straight through to _train_model (see
         its docstring) - defaults reproduce evaluate.py's existing behavior untouched; ekf.py's
-        callers override them explicitly.
+        callers override them explicitly. users: optional subset of UE indices whose networks are
+        trained (see _train_models) - ekf.py's sgdht trains each UE on its own CRC-pass/fail slots.
         """
         iterations = ESCNN_ITERATIONS  # ESCNN ignores conf.iterations (see ESCNN_ITERATIONS)
 
@@ -438,7 +441,7 @@ class ESCNNTrainer(Trainer):
         # ---- END TEMP DEBUG ----
         train_loss_vect , val_loss_vect = self._train_models(self.detector, 0, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
                                                               payload_symbols_per_slot=payload_symbols_per_slot,
-                                                              real_bit_idx=real_bit_idx)
+                                                              real_bit_idx=real_bit_idx, users=users)
         # ---- TEMP DEBUG: overlapping per-UE loss curves investigation (remove once done) ----
         _final_losses = [round(v[-1], 8) if v else None for v in train_loss_vect]
         _vect_identical = [train_loss_vect[u] == train_loss_vect[0] for u in range(1, n_users)]
@@ -458,7 +461,7 @@ class ESCNNTrainer(Trainer):
             tx_all, rx_prob_all = self._prepare_data_for_training(tx, rx_real.to(device=DEVICE), probs_vec, n_users)
             train_loss_cur , val_loss_cur =  self._train_models(self.detector, i, tx_all, rx_prob_all, num_bits, n_users, epochs, first_half_flag, stage,
                                                                  payload_symbols_per_slot=payload_symbols_per_slot,
-                                                                 real_bit_idx=real_bit_idx)
+                                                                 real_bit_idx=real_bit_idx, users=users)
             if SHOW_ALL_ITERATIONS:
                 for user in range(n_users):
                     train_loss_vect[user] = train_loss_vect[user] + train_loss_cur[user]

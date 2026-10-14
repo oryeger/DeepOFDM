@@ -324,9 +324,10 @@ def _cmp_entries(keys, drop):
 def compare_sections(tag, keys, out_dir):
     """Part 0: compare_track_modes figures per unique configuration (all tokens except the
     CMP_FAMILY ones) that was run with at least two tracking modes, all its modes overlaid.
-    When a configuration was run with several seeds, an all-seeds-averaged figure comes first
-    (per SNR, mean over the seeds that have that point; w=/r= hashes are ignored for this grouping
-    since they usually differ per seed), followed by one figure per seed.
+    When a configuration was run with several seeds, two seed-averaged figures come first - seeds
+    incomplete for some mode dropped from every mode, then modes incomplete for some seed left out
+    (see compare_track_modes.make_figure's `incomplete`); w=/r= hashes are ignored for this grouping
+    since they usually differ per seed - followed by one figure per seed.
     Groups with more modes than the palette are split into several figures. Returns the html snippets."""
     import compare_track_modes as ctm
     import matplotlib.pyplot as plt
@@ -360,17 +361,20 @@ def compare_sections(tag, keys, out_dir):
         if pdiffs[gkey] == ["config"]:
             label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
                                if name in ("sp", "cfo", "cfod", "R", "aug"))
-        sections.append((f"{label} &mdash; average of {nseeds} seeds", gkey, pooled[gkey], f"compare_avg_{gi}"))
+        sections.append((f"{label} &mdash; average of {nseeds} seeds, incomplete seeds dropped from every mode",
+                         gkey, pooled[gkey], f"compare_avg_{gi}", "seeds"))
+        sections.append((f"{label} &mdash; average of {nseeds} seeds, only modes complete for every seed",
+                         gkey, pooled[gkey], f"compare_avgm_{gi}", "modes"))
     gdiffs = drop_redundant_hashes(differing_tokens(sorted(per_seed))) if per_seed else {}
     for gi, gkey in enumerate(sorted(per_seed, key=lambda g: sort_key(gdiffs[g]))):
         label = " | ".join(gdiffs[gkey])
         if gdiffs[gkey] == ["config"]:   # single configuration on this page - name its main axes instead
             label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
                                if name in ("sp", "cfo", "cfod", "R", "aug"))
-        sections.append((label, gkey, per_seed[gkey], f"compare_{gi}"))
+        sections.append((label, gkey, per_seed[gkey], f"compare_{gi}", "seeds"))
 
     html, failed = [], []
-    for label, gkey, labeled, prefix in sections:
+    for label, gkey, labeled, prefix, incomplete in sections:
         order = sorted(labeled, key=lambda l: (_trk_group(labeled[l][0]), l))
         seeds = sorted({_split_seed(k)[1] for ks in labeled.values() for k in ks})
         html.append(f"<h3>{label}</h3><p class='params'>{gkey}"
@@ -384,7 +388,7 @@ def compare_sections(tag, keys, out_dir):
                 # store keys hold the config without its s= token; pass every run behind each label
                 chosen = {l: tuple(sorted({_split_seed(k)[0] for k in labeled[l]})) for l in part}
                 fig = ctm.make_figure(store, chosen, part, label.replace("&mdash;", "-"),
-                                      os.path.join(out_dir, fname), seeds=seeds)
+                                      os.path.join(out_dir, fname), seeds=seeds, incomplete=incomplete)
                 plt.close(fig)
                 html.append(f"<img class='curve' src='{fname}'>")
             except Exception as e:

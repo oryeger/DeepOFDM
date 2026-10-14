@@ -86,7 +86,7 @@ here - see config.yaml's weights_track_mode comment):
   'sgdht' - the SGD counterpart of 'ekfht', same information and same re-decode: BCE on the
       re-encoded labels of CRC-passing slots, sgdsbp's loss (tsyn with tw, BP syndrome, bp_iters) on
       slots where both decodes fail, persistent Adam, conf.epochs, no val split (see _sgdht_update).
-      n_users=1 only.
+      Per (slot, user) with several users, like ekfht.
   'notrack' - no adaptation at all: runs the loaded checkpoint statically,
       exactly as any other mode would if escnn_load_freeze were 'all' (see
       load_pretrained_weights). It overrides escnn_load_freeze to 'all'
@@ -918,39 +918,41 @@ def _sgdht_update(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, rx_real_t: to
     ekfcrc/ekfht). Slots where both fail: sgdsbp's loss - tsyn (conf.tw) with the BP-based syndrome
     component (synd_use_bp, conf.bp_iters). Both go through _online_training with the run's
     persistent Adam, conf.epochs, no train/val split. labels_only=True (the re-decode pass) runs only
-    the BCE part, on the slots whose re-decode passed. SISO only: _online_training trains every
-    user's network on the same slots, so per-(slot, user) CRC masks aren't expressible here."""
-    if n_users != 1:
-        raise NotImplementedError("sgdht supports n_users=1 only (per-user CRC masks are not "
-                                  "expressible through _online_training).")
+    the BCE part, on the slots whose re-decode passed.
+    Multi-user: the CRC outcome is per (slot, user), as in _ekfcrc_update - each UE has its own
+    network (ESCNN_ITERATIONS=1, so the networks don't feed each other during training), so UE u's
+    network gets BCE on the slots where u's block passed and the BP syndrome loss on the slots
+    where u's block failed on both decoders (_online_training's users=[u])."""
     if not any(p.requires_grad for nets in escnn_trainer.detector for net in nets for p in net.parameters()):
         escnn_trainer._tsyn_warn_once('sgd_all_frozen', "escnn_load_freeze leaves nothing trainable - "
                                        "skipping the weight update (running loaded weights statically).", tag='sgd')
         return
     num_slots = len(escnn_decoded_slots)
     rows_per_slot = ldpc_n // num_res
-    labels = np.zeros(tx_bits.shape, dtype=np.float32)
-    ok = np.zeros(num_slots, dtype=bool)
-    n_escnn = n_lmmse = n_lmmse_only = 0
+    labels = np.zeros(tx_bits.shape, dtype=np.float32)       # (symbols*qm, n_users, num_res)
+    ok = np.zeros((num_slots, n_users), dtype=bool)
+    ok_escnn = np.zeros((num_slots, n_users), dtype=bool)
+    ok_lmmse = np.zeros((num_slots, n_users), dtype=bool)
     label_err = []
     for s in range(num_slots):
-        e_ok = not bool(np.asarray(escnn_fail_slots[s]).reshape(-1)[0])
-        l_ok = not bool(np.asarray(lmmse_fail_slots[s]).reshape(-1)[0])
-        n_escnn += e_ok
-        n_lmmse += l_ok
-        n_lmmse_only += (l_ok and not e_ok)
-        if not (e_ok or l_ok):
+        ok_escnn[s] = ~np.asarray(escnn_fail_slots[s]).reshape(-1).astype(bool)
+        ok_lmmse[s] = ~np.asarray(lmmse_fail_slots[s]).reshape(-1).astype(bool)
+        ok[s] = ok_escnn[s] | ok_lmmse[s]
+        if not ok[s].any():
             continue
-        ok[s] = True
-        dec = np.asarray(escnn_decoded_slots[s] if e_ok else lmmse_decoded_slots[s])
+        # Per user: ESCNN's decode when it passed, else LMMSE's. (n_users, k+crc) each.
+        dec = np.where(ok_escnn[s][:, None], np.asarray(escnn_decoded_slots[s]),
+                       np.asarray(lmmse_decoded_slots[s]))
         cw = np.rint(np.asarray(codec.encode(dec))).astype(np.float32)
         rows = slice(s * rows_per_slot, (s + 1) * rows_per_slot)
-        labels[rows, 0, :] = cw[0].reshape(rows_per_slot, num_res)
-        label_err.append(float((labels[rows, 0, :] != tx_bits[rows, 0, :]).mean()))
-    ok_slots = [s for s in range(num_slots) if ok[s]]
-    fail_slots = [] if labels_only else [s for s in range(num_slots) if not ok[s]]
-    print(f"[{tag}] group={group_idx} crc_ok={len(ok_slots)}/{num_slots} (escnn={n_escnn} lmmse={n_lmmse} "
-          f"lmmse_only={n_lmmse_only}) " + ("" if labels_only else f"bp_slots={len(fail_slots)} ")
+        for u in range(n_users):
+            if ok[s, u]:
+                labels[rows, u, :] = cw[u].reshape(rows_per_slot, num_res)
+                label_err.append(float((labels[rows, u, :] != tx_bits[rows, u, :]).mean()))
+    n_fail = 0 if labels_only else int((~ok).sum())
+    print(f"[{tag}] group={group_idx} crc_ok={int(ok.sum())}/{ok.size} (escnn={int(ok_escnn.sum())} "
+          f"lmmse={int(ok_lmmse.sum())} lmmse_only={int((ok_lmmse & ~ok_escnn).sum())}) "
+          + ("" if labels_only else f"bp_slots={n_fail} ")
           + (f"label_err_max={max(label_err):.4f}" if label_err else "label_err_max=n/a"), flush=True)
 
     sps = _DMRS_NUM_PAYLOAD_SYMB
@@ -958,24 +960,27 @@ def _sgdht_update(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, rx_real_t: to
     def _rows(slots, per):
         return torch.as_tensor(np.concatenate([np.arange(s * per, (s + 1) * per) for s in slots]))
 
-    def _train(slots, tx_np):
+    def _train(slots, tx_np, user):
         sym, bit = _rows(slots, sps), _rows(slots, rows_per_slot)
         pa = probs_for_aug[sym] if probs_for_aug.numel() else probs_for_aug
         escnn_trainer._online_training(torch.from_numpy(tx_np[bit.numpy()]), rx_real_t[sym], num_bits_pilot,
                                         n_users, conf.iterations, conf.epochs, False, pa,
-                                        payload_symbols_per_slot=sps)
+                                        payload_symbols_per_slot=sps, users=[user])
 
     saved_loss, saved_bp = getattr(conf, 'training_loss', 'bce'), getattr(escnn_trainer, 'synd_use_bp', False)
     try:
-        if ok_slots:
-            conf.set_value('training_loss', 'bce')
-            escnn_trainer.synd_use_bp = False
-            _train(ok_slots, labels)
-        if fail_slots:
-            # Blind loss: tx_bits is passed only for _train_model's collapse diagnostics, never as supervision.
-            conf.set_value('training_loss', 'tsyn')
-            escnn_trainer.synd_use_bp = True
-            _train(fail_slots, tx_bits.astype(np.float32))
+        for u in range(n_users):
+            ok_slots = [s for s in range(num_slots) if ok[s, u]]
+            fail_slots = [] if labels_only else [s for s in range(num_slots) if not ok[s, u]]
+            if ok_slots:
+                conf.set_value('training_loss', 'bce')
+                escnn_trainer.synd_use_bp = False
+                _train(ok_slots, labels, u)
+            if fail_slots:
+                # Blind loss: tx_bits is passed only for _train_model's collapse diagnostics, never as supervision.
+                conf.set_value('training_loss', 'tsyn')
+                escnn_trainer.synd_use_bp = True
+                _train(fail_slots, tx_bits.astype(np.float32), u)
     finally:
         conf.set_value('training_loss', saved_loss)
         escnn_trainer.synd_use_bp = saved_bp

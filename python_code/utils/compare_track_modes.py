@@ -59,6 +59,19 @@ MODE_SLOT = {"ekfcrc": 0, "ekfbp": 1, "ekfh": 2, "ekfht": 3, "ekfi": 4, "sgdsbp"
 METRICS = [("BLER", "_bler", "log", "mean"), ("MI", "_mi", "linear", "mean"),
            ("BER", "", "log", "mean")]
 NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)(_bler|_mi)?\.csv$")
+# Per seed, fill SNRs that other seeds of the same curve have but this seed is missing - interior
+# gaps only (between this seed's own first and last SNR; never extrapolated), before averaging, so
+# neighbouring points don't average different seed subsets. log10 interpolation for BLER/BER (linear
+# when a bracketing value is 0), linear for MI. Same idea as plot_multiple_csvs'
+# INTERPOLATE_MISSING_PER_SEED, without its gap cap.
+INTERPOLATE_MISSING_PER_SEED = True
+# After that fill, per mode: the SNR grid is the SNRs that more than half of the figure's seeds have.
+# A seed still missing any grid SNR of ANY mode (gaps at its ends, which are never extrapolated, or
+# no runs of that mode at all) is left out of EVERY mode's average, so all curves average the same
+# seed set and stay comparable; SNRs outside a mode's grid are not drawn. Decided on the BLER CSVs,
+# applied to every panel. The kept/dropped seeds go into the figure title. Single-seed figures are
+# unaffected.
+DROP_INCOMPLETE_SEEDS = True
 
 
 def _record(store, name, read_fn):
@@ -147,26 +160,111 @@ def bler10_label(snrs, vals, step):
     return "  (10% not reached)"
 
 
-def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None):
+def _interp_interior(have, want, log):
+    """have: {snr: value} of one seed. -> {snr: value} for the SNRs in `want` strictly inside
+    (min(have), max(have)) that `have` lacks, interpolated from the nearest neighbours."""
+    xs = sorted(have)
+    out = {}
+    if len(xs) < 2:
+        return out
+    for s in want:
+        if s in have or not xs[0] < s < xs[-1]:
+            continue
+        i = next(j for j, x in enumerate(xs) if x > s)
+        x0, x1, y0, y1 = xs[i - 1], xs[i], have[xs[i - 1]], have[xs[i]]
+        a = (s - x0) / (x1 - x0)
+        if log and y0 > 0 and y1 > 0:
+            out[s] = 10 ** ((1 - a) * np.log10(y0) + a * np.log10(y1))
+        else:
+            out[s] = (1 - a) * y0 + a * y1
+    return out
+
+
+def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None, incomplete="seeds"):
     """Draw the BLER/MI/BER comparison of `modes` (legend labels, in order; chosen[label] is the
     config key each one plots) from a load() store, save it to `out` and return the figure.
     Labels found in MODE_SLOT keep their fixed color. With table=True the per-SNR table is also
     written as CSV next to the figure. snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive).
     chosen[label] may also be a tuple of config keys, pooled together (e.g. one per seed when each
-    seed's run carries its own w=/r= hash)."""
+    seed's run carries its own w=/r= hash).
+    incomplete (DROP_INCOMPLETE_SEEDS, several seeds only): what to leave out when a seed doesn't cover
+    a mode's SNR grid - "seeds": that seed, from every mode (all modes shown, fewer seeds); "modes":
+    that mode (every seed kept, only fully covered modes shown)."""
+    all_modes = list(modes)   # color slots stay fixed even when incomplete="modes" hides some
     cfgs = lambda v: (v,) if isinstance(v, str) else tuple(v)
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
+    # Pass 1: per (mode, metric), every seed's curve, interior gaps filled (INTERPOLATE_MISSING_PER_SEED).
+    curves = {m: {} for m in modes}    # mode -> met -> {seed: {snr: (escnn, ref)}}
+    filled = {m: {} for m in modes}    # mode -> {seed: interpolated BLER points}
     for mode, config in chosen.items():
-        for met, kind, _, agg in METRICS:
-            per_snr = collections.defaultdict(list)
+        for met, kind, scale, agg in METRICS:
+            per_seed = collections.defaultdict(dict)
             for (c, k, seed, snr), (ts, e, l, _) in store.items():
                 if c in cfgs(config) and k == kind and (seeds is None or seed in seeds)                         and (snr_range is None or snr_range[0] <= snr <= snr_range[1]):
-                    per_snr[snr].append((e, l))
+                    per_seed[seed][snr] = (e.mean(), l.mean())
+            if INTERPOLATE_MISSING_PER_SEED:
+                want = sorted({snr for d in per_seed.values() for snr in d})
+                for seed, d in per_seed.items():
+                    fe = _interp_interior({s_: v[0] for s_, v in d.items()}, want, scale == "log")
+                    fl = _interp_interior({s_: v[1] for s_, v in d.items()}, want, scale == "log")
+                    for s_ in fe:
+                        d[s_] = (fe[s_], fl[s_])
+                    if met == "BLER":
+                        filled[mode][seed] = len(fe)
+            curves[mode][met] = dict(per_seed)
+
+    # Pass 2 (DROP_INCOMPLETE_SEEDS): one seed set for the whole figure, so the modes stay comparable.
+    # Per mode, the grid is the BLER SNRs held by more than half of the figure's seeds; a seed missing
+    # any grid SNR of ANY mode (or that mode altogether) is dropped from every mode. SNRs off a mode's
+    # grid are not drawn.
+    all_seeds = sorted({sd for m in modes for d in curves[m].values() for sd in d})
+    keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
+    if DROP_INCOMPLETE_SEEDS and len(all_seeds) > 1:
+        for mode in modes:
+            bl = curves[mode]["BLER"]
+            cover = collections.Counter(snr for d in bl.values() for snr in d)
+            grids[mode] = {snr for snr, n in cover.items() if n > len(all_seeds) / 2}
+            for sd in all_seeds:
+                if not grids[mode] <= set(bl.get(sd, {})):
+                    keep.discard(sd)
+                    why[sd].append(mode)
+        if incomplete == "modes":
+            bad = {m for ms in why.values() for m in ms}
+            if bad == set(modes):
+                print("  [WARN] no mode is covered by every seed - showing every mode, averaging every available seed per point")
+                grids = {}
+            else:
+                print(f"  every seed kept; left out mode(s) not covered by every seed: "
+                      + ", ".join(f"{m} (s={','.join(str(sd) for sd in all_seeds if m in why[sd])})"
+                                  for m in modes if m in bad))
+                title = f"{title}  [all {len(all_seeds)} seeds; modes left out: {', '.join(m for m in modes if m in bad)}]"
+                modes = [m for m in modes if m not in bad]
+            keep, why = set(all_seeds), collections.defaultdict(list)
+        elif not keep:   # nothing covers everything - fall back to the raw per-SNR averages
+            print("  [WARN] no seed covers every mode's SNR grid - averaging every available seed per point")
+            keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
+    dropped = sorted(set(all_seeds) - keep)
+    n_interp = {m: sum(n for sd, n in filled[m].items() if sd in keep) for m in modes}
+
+    # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
+    data = {m: {met: {} for met, *_ in METRICS} for m in modes}
+    for mode in modes:
+        for met, *_ in METRICS:
+            per_snr = collections.defaultdict(list)
+            for sd, d in curves[mode][met].items():
+                if sd not in keep:
+                    continue
+                for snr, v in d.items():
+                    if mode not in grids or snr in grids[mode]:
+                        per_snr[snr].append(v)
             for snr, v in per_snr.items():
-                ev, lv = np.mean([x[0].mean() for x in v]), np.mean([x[1].mean() for x in v])
-                data[mode][met][snr] = (ev, lv, len(v))
+                data[mode][met][snr] = (np.mean([x[0] for x in v]), np.mean([x[1] for x in v]), len(v))
+    if dropped:
+        print(f"  averaged {len(keep)}/{len(all_seeds)} seeds in every mode; dropped "
+              + ", ".join(f"s={sd} (incomplete: {' '.join(why[sd])})" for sd in dropped))
+        title = f"{title}  [seeds {','.join(map(str, sorted(keep)))}; dropped {','.join(map(str, dropped))}]"
     # code rate from the R=<r> token (same for all modes after --filter, else taken from the first)
     rate = next((float(t[2:]) for t in cfgs(chosen[modes[0]])[0].split("_") if t.startswith("R=")), None)
 
@@ -176,7 +274,7 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
 
     grid = sorted({s for m in data.values() for d in m.values() for s in d})
     step = min(np.diff(grid)) if len(grid) > 1 else 0
-    slot = mode_slots(modes)
+    slot = mode_slots(all_modes)
     fig, axes = plt.subplots(1, len(METRICS), figsize=(6 * len(METRICS), 5.4))
     for ax, (met, _, scale, _) in zip(axes, METRICS):
         ref = data[modes[0]][met]
@@ -198,6 +296,8 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
                 lab += f"  [{len(snrs)}/{len(grid)} SNRs]"
             if nseeds and (len(nseeds) > 1 or nseeds[0] > 1):
                 lab += f"  [{'-'.join(map(str, (nseeds[0], nseeds[-1]))) if len(nseeds) > 1 else nseeds[0]} seeds]"
+            if n_interp[mode]:
+                lab += f"  [{n_interp[mode]} interp]"
             ax.plot(grid, [d[s][0] if s in d else np.nan for s in grid], color=COLORS[i],
                     marker=MARKERS[i], ms=6, lw=2, label=lab)
         if scale == "log":

@@ -29,9 +29,9 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = 'itrknk';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
-modes      = {'notrack', 'ekfcrc', 'ekfht', 'sgdht','ekfit'};   % legend order (ref is drawn first)
-seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = 'idsseed';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
+modes      = {'notrack', 'ekfcrc', 'ekfht', 'sgdht'};   % legend order (ref is drawn first)
+seeds      = [17 123 1011 1505 1806 1807 1809 3008];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
 deepofdm_root = 'C:\Projects\DeepOFDM';
@@ -40,7 +40,10 @@ ref_label  = '';          % '' = take it from the CSV ('LMMSE' / 'DeepSIC'); or 
 fig_size   = [3.5, 2.5];  % inches (IEEE column = 3.5)
 legend_loc = 'southwest'; % inside the axes; the low-SNR / low-BLER corner is empty in these plots
 legend_cols = 1;
-y_min      = [];          % [] = automatic (the decade below the lowest point); or e.g. 1e-2
+y_min      = 1e-3;        % bottom of the BLER axis; [] = automatic (the decade below the lowest point)
+bler_min_drawn = 2e-3;    % points below this are not drawn - the curve drops off the axis at its
+                          % first such point (like BLER = 0), so isolated one- or two-error points
+                          % in the tail disappear. [] = draw every point (default: y_min)
 % ----------------------------
 
 % mode -> {legend, color, line style, marker, line width}
@@ -143,7 +146,7 @@ for t = 1:numel(tables)
         end
     end
     plot_one(csv_path, out_name, modes, STYLE, REF_STYLE, MARKER_SIZE, FLOOR, ref_label, ...
-             fig_size, legend_loc, legend_cols, y_min);
+             fig_size, legend_loc, legend_cols, y_min, bler_min_drawn);
 end
 
 % =========================================================
@@ -172,7 +175,7 @@ names = names(order);
 end
 
 function plot_one(csv_path, out_name, modes, STYLE, REF_STYLE, MARKER_SIZE, FLOOR, ref_label, ...
-                  fig_size, legend_loc, legend_cols, y_min)
+                  fig_size, legend_loc, legend_cols, y_min, bler_min_drawn)
 seeds_note = [csv_path(1:end-4), '_seeds.txt'];
 if isfile(seeds_note)
     fprintf('%s', fileread(seeds_note));
@@ -200,7 +203,7 @@ handles = gobjects(0);
 labels  = {};
 all_pos = [];
 
-[y, ~] = waterfall(T.(ref_col)(:)', FLOOR);
+[y, ~] = waterfall(T.(ref_col)(:)', FLOOR, bler_min_drawn);
 all_pos = [all_pos, y(y > FLOOR)];
 handles(end+1) = semilogy(ax, snr, y, 'Color', REF_STYLE{1}, 'LineStyle', REF_STYLE{2}, ...
     'Marker', REF_STYLE{3}, 'LineWidth', REF_STYLE{4});
@@ -223,7 +226,7 @@ for i = 1:numel(modes)
         continue;
     end
     st = STYLE(m);
-    [y, mk] = waterfall(T.(col)(:)', FLOOR);
+    [y, mk] = waterfall(T.(col)(:)', FLOOR, bler_min_drawn);
     all_pos = [all_pos, y(y > FLOOR)]; %#ok<AGROW>
     handles(end+1) = semilogy(ax, snr, y, 'Color', st{2}, 'LineStyle', st{3}, 'Marker', st{4}, ...
         'MarkerIndices', mk, 'MarkerFaceColor', st{2}, ...
@@ -276,7 +279,11 @@ savefig(fig, [out_name, '.fig']);
 fprintf('Saved %s.{eps,pdf,png,fig}\n', out_name);
 end
 
-function [y, mk] = waterfall(b, floor_val)
+function [y, mk] = waterfall(b, floor_val, y_min)
+% y_min (optional, non-empty): values below it count as 0 (not resolved on this axis).
+if nargin > 2 && ~isempty(y_min)
+    b(b < y_min) = 0;
+end
 % BLER = 0 (no block errors) can't be drawn on a log axis: the first zero after
 % a non-zero point becomes floor_val (line drops straight off the axis, no
 % marker there), further zeros and missing SNRs (NaN) leave the line broken.

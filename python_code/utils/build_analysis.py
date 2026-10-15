@@ -116,6 +116,16 @@ def drop_redundant_hashes(diffs):
             diffs = trimmed
     return diffs
 
+def _hash_tag(k):
+    """The weights hashes (r= loaded / w= saved, 6-char SHA1 prefixes) of a config key, e.g. 'r=fdc7ba'."""
+    return " ".join(tok for name, tok in _split_key_tokens(k) if name in HASH_TOKENS)
+
+def _h3(label, k):
+    """Heading for one config: its differing tokens, plus its weights hash when the label lacks it."""
+    h = _hash_tag(k)
+    extra = f" <span class='wts'>[weights {h}]</span>" if h and h not in label else ""
+    return f"<h3>{label}{extra}</h3>"
+
 SAFE = lambda s: re.sub(r"[^A-Za-z0-9=_.,\-]", "", s)
 
 # Token names that are intrinsic to the tracking mode itself (ekf.py only
@@ -377,8 +387,15 @@ def compare_sections(tag, keys, out_dir):
     for label, gkey, labeled, prefix, incomplete in sections:
         order = sorted(labeled, key=lambda l: (_trk_group(labeled[l][0]), l))
         seeds = sorted({_split_seed(k)[1] for ks in labeled.values() for k in ks})
+        # weights hashes (r=/w=) per seed - the pooled gkey has them stripped (see _cmp_entries)
+        hashes = collections.defaultdict(set)
+        for ks in labeled.values():
+            for k in ks:
+                hashes[_split_seed(k)[1]].update(tok for name, tok in _split_key_tokens(k) if name in HASH_TOKENS)
+        hash_txt = ", ".join(f"s={sd}: {' '.join(sorted(hashes[sd])) or '-'}" for sd in seeds)
         html.append(f"<h3>{label}</h3><p class='params'>{gkey}"
-                    + (f"<br>seeds: {', '.join(map(str, seeds))}" if len(seeds) > 1 else "") + "</p>")
+                    + (f"<br>seeds: {', '.join(map(str, seeds))}<br>weights: {hash_txt}" if len(seeds) > 1 else "")
+                    + "</p>")
         n = len(ctm.COLORS)
         for ci in range(0, len(order), n):
             part = order[ci:ci + n]
@@ -436,7 +453,11 @@ def _build_one(tag, name, keys):
   th, td { border: 1px solid #999; padding: 3px; text-align: center; vertical-align: top; }
   th { background: #eee; font-size: 13px; } td.snr { font-size: 14px; font-weight: bold; width: 3em; background: #f7f7f7; }
   td img { width: 100%%; max-width: 560px; }
+  span.wts { font-weight: normal; font-family: Consolas, monospace; font-size: 12px; color: #555; }
+  p.wtsline { font-family: Consolas, monospace; font-size: 13px; font-weight: bold; }
 </style></head><body>""" % name]
+    all_hashes = sorted({t for k in keys for t in _hash_tag(k).split()})
+    html.append(f"<p class='wtsline'>Weights (SHA1 tags) on this page: {', '.join(all_hashes) or 'none'}</p>")
     cmp_html = compare_sections(tag, keys, out_dir)
     if cmp_html:
         html.append(f"<h1>{name} &mdash; Part 0: tracking-mode comparisons (ESCNN, all modes per configuration)</h1>")
@@ -495,7 +516,7 @@ def _build_one(tag, name, keys):
         except Exception as e:
             print(f"  [FAIL] {e}"); failed.append((label, str(e)))
         plt.close("all")
-        html.append(f"<h3>{label}</h3><p class='params'>{k}</p>"
+        html.append(f"{_h3(label, k)}<p class='params'>{k}</p>"
                     f"<img class='curve' src='curve_{short}.png'>")
         if has_ue_curve:
             html.append(f"<img class='curve' src='curve_{short}_peruser.png'>")
@@ -526,7 +547,7 @@ def _build_one(tag, name, keys):
     for k in keys:
         short = SAFE("_".join(diffs[k]))
         label = " | ".join(display_tokens(k, diffs[k]))
-        html.append(f"<h3>{label}</h3><p class='params'>{k}</p>")
+        html.append(f"{_h3(label, k)}<p class='params'>{k}</p>")
         snrs_avail = jpg_snrs(k)
         if not snrs_avail:
             html.append("<p class='params'>no histogram jpgs found for this configuration</p>")

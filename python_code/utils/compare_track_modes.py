@@ -180,11 +180,12 @@ def _interp_interior(have, want, log):
     return out
 
 
-def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None, incomplete="seeds"):
-    """Draw the BLER/MI/BER comparison of `modes` (legend labels, in order; chosen[label] is the
-    config key each one plots) from a load() store, save it to `out` and return the figure.
-    Labels found in MODE_SLOT keep their fixed color. With table=True the per-SNR table is also
-    written as CSV next to the figure. snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive).
+def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomplete="seeds"):
+    """The seed averaging behind make_figure (and write_table): per mode/metric/SNR the mean over the
+    CSV rows, then over the kept seeds. `modes`: legend labels, in order; chosen[label] is the
+    config key each one plots, from a load() store. Any number of modes (no palette limit here).
+    -> dict(data, modes, all_modes, title, ref_name, rate, n_interp); data[mode][metric][snr] =
+    (escnn, ref, n_seeds). snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive).
     chosen[label] may also be a tuple of config keys, pooled together (e.g. one per seed when each
     seed's run carries its own w=/r= hash).
     incomplete (DROP_INCOMPLETE_SEEDS, several seeds only): what to leave out when a seed doesn't cover
@@ -271,6 +272,64 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
     # reference name from the first mode's CSVs (falls back to LMMSE per file - see _record)
     ref_names = {v[3] for (c, *_), v in store.items() if c in cfgs(chosen[modes[0]])}
     ref_name = ref_names.pop() if len(ref_names) == 1 else "LMMSE"
+    return dict(data=data, modes=modes, all_modes=all_modes, title=title, ref_name=ref_name,
+                rate=rate, n_interp=n_interp, kept_seeds=sorted(keep), dropped_seeds=dropped,
+                dropped_why={sd: why[sd] for sd in dropped})
+
+
+def write_seeds_note(agg, csv_path, config=None):
+    """<csv>_seeds.txt next to a table: which seeds its averages use (read by
+    escnn_matlab\\master_plot_trk_bler_paper.m, which prints it). config (optional): the
+    configuration key shared by the table's modes - MATLAB passes its tokens back as --filter to
+    re-average just the modes/seeds it draws."""
+    path = os.path.splitext(csv_path)[0] + "_seeds.txt"
+    with open(LONG(path), "w") as f:
+        f.write("averaged seeds: " + " ".join(map(str, agg["kept_seeds"])) + "\n")
+        f.write("dropped seeds: " + (", ".join(f"{sd} (incomplete: {' '.join(agg['dropped_why'][sd])})"
+                                               for sd in agg["dropped_seeds"]) or "-") + "\n")
+        if config:
+            f.write("config: " + config + "\n")
+
+
+def table_rows(agg):
+    """Per-SNR rows of an aggregate() result: SNR, <ref>_BLER, then <mode>_BLER/_MI/_BER per mode
+    (NaN where a mode has no point) - the CSV escnn_matlab\\master_plot_trk_bler_paper.m reads."""
+    data, modes, ref_name = agg["data"], agg["modes"], agg["ref_name"]
+    grid = sorted({s for m in data.values() for d in m.values() for s in d})
+    rows = []
+    for s in grid:
+        row = {"SNR": s, f"{ref_name}_BLER": data[modes[0]]["BLER"].get(s, (np.nan,) * 3)[1]}
+        for mode in modes:
+            for met, *_ in METRICS:
+                row[f"{mode}_{met}"] = data[mode][met].get(s, (np.nan,) * 3)[0]
+        rows.append(row)
+    return rows
+
+
+def write_table(store, chosen, modes, path, config=None, **kw):
+    """aggregate() + table_rows() -> CSV at `path`, without drawing (so any number of modes).
+    config: written into the seeds note (see write_seeds_note). kw: aggregate's
+    title/seeds/snr_range/incomplete. Returns the aggregate() dict."""
+    agg = aggregate(store, chosen, modes, **kw)
+    if not agg["modes"]:   # incomplete="modes" and no mode is covered by every seed
+        print("  no table: no mode is complete for every seed -", path)
+        return agg
+    os.makedirs(LONG(os.path.dirname(path)), exist_ok=True)
+    pd.DataFrame(table_rows(agg)).to_csv(LONG(path), index=False)
+    write_seeds_note(agg, path, config)
+    print("table", path)
+    return agg
+
+
+def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None, incomplete="seeds"):
+    """Draw the BLER/MI/BER comparison of `modes` (legend labels, in order; chosen[label] is the
+    config key each one plots) from a load() store, save it to `out` and return the figure.
+    Averaging: see aggregate(). Labels found in MODE_SLOT keep their fixed color; at most
+    len(COLORS) modes. With table=True the per-SNR table is also written as CSV next to the figure."""
+    a = aggregate(store, chosen, modes, title, seeds, snr_range, incomplete)
+    data, modes, all_modes, title = a["data"], a["modes"], a["all_modes"], a["title"]
+    ref_name, rate, n_interp = a["ref_name"], a["rate"], a["n_interp"]
+    cfgs = lambda v: (v,) if isinstance(v, str) else tuple(v)
 
     grid = sorted({s for m in data.values() for d in m.values() for s in d})
     step = min(np.diff(grid)) if len(grid) > 1 else 0
@@ -322,16 +381,11 @@ def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_r
     for mode, config in chosen.items():
         print(f"  {mode:8s} <- {' + '.join(cfgs(config))}")
 
-    rows = []
-    for s in grid:
-        row = {"SNR": s, f"{ref_name}_BLER": data[modes[0]]["BLER"].get(s, (np.nan,) * 3)[1]}
-        for mode in modes:
-            for met, *_ in METRICS:
-                row[f"{mode}_{met}"] = data[mode][met].get(s, (np.nan,) * 3)[0]
-        rows.append(row)
+    rows = table_rows(a)
     if table:
         tpath = os.path.splitext(out)[0] + ".csv"
         pd.DataFrame(rows).to_csv(LONG(tpath), index=False)
+        write_seeds_note(a, tpath)
         print("table", tpath)
     return fig
 
@@ -378,6 +432,11 @@ def main():
         c = sorted(configs.get(mode, ()))
         if not c:
             missing.append(mode)
+            continue
+        # Configs that differ only in the per-seed weight hash (r=/w=, one per seed's checkpoint) are the
+        # same curve: pool them (make_figure accepts a tuple of config keys).
+        if len(c) > 1 and len({re.sub(r"_(r|w)=[^_]+", "", x) for x in c}) == 1:
+            chosen[mode] = tuple(c)
             continue
         if len(c) > 1:
             print(f"mode {mode!r}: {len(c)} matching configs - add a --filter token to pick one:")

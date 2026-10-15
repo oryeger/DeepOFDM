@@ -17,7 +17,9 @@ What it does, given experiment tag <tag>:
      short names (long originals exceed Windows MAX_PATH at this depth).
   5. Runs compare_track_modes.make_figure() once per unique configuration that was run with
      several tracking modes (t=<mode>; configs are grouped by every token except the
-     tracking-mode family CMP_FAMILY), overlaying all of its modes on one BLER/MI/BER figure.
+     tracking-mode family CMP_FAMILY), overlaying all of its modes on one BLER/MI/BER figure,
+     and writes the per-SNR table behind each such section (all its modes) as compare_*.csv -
+     the input of escnn_matlab\\master_plot_trk_bler_paper.m (seed-averaged: compare_avg_<i>.csv).
   6. Writes <tag>.html: Part 0 = tracking-mode comparisons, Part 1 = curves, Part 2 = histogram
      tables (rows = SNR, columns = detectors), each plot preceded by its parameters.
 Rerunning never overwrites a previous build: the newest build always lands at
@@ -195,11 +197,11 @@ def _trk_group(k):
     mode = next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
     if mode is None:
         return 6
-    if re.fullmatch(r"ekfi\d*", mode):
+    if re.fullmatch(r"ekfi\d*", mode) or mode in ("ekfit", "ekfis"):
         return 2
     if mode in ("ekfbp", "ekfbps", "ekfbpc", "ekfcrc", "ekfht"):
         return 4
-    return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdsbp": 5, "sgdht": 5}.get(mode, 6)
+    return {"notrack": 0, "ekf": 1, "sgdbcei": 3, "sgdbceit": 3, "sgdsbp": 5, "sgdht": 5}.get(mode, 6)
 
 def sort_key(diffs):
     """Natural ordering, except tw follows presentation order 0.0, 1.0, 0.5 and seeds (s=) sort
@@ -396,14 +398,26 @@ def compare_sections(tag, keys, out_dir):
         html.append(f"<h3>{label}</h3><p class='params'>{gkey}"
                     + (f"<br>seeds: {', '.join(map(str, seeds))}<br>weights: {hash_txt}" if len(seeds) > 1 else "")
                     + "</p>")
+        # store keys hold the config without its s= token; pass every run behind each label
+        chosen_all = {l: tuple(sorted({_split_seed(k)[0] for k in labeled[l]})) for l in order}
+        # One per-SNR BLER/MI/BER table per section, with EVERY mode of the section (not split by
+        # palette like the figures, so all modes share one seed set): <prefix>.csv, the input of
+        # escnn_matlab\master_plot_trk_bler_paper.m (it picks the modes it draws by column name).
+        csv_path = os.path.join(out_dir, prefix + ".csv")
+        try:
+            ctm.write_table(store, chosen_all, order, csv_path, config=gkey,
+                            title=label.replace("&mdash;", "-"), seeds=seeds, incomplete=incomplete)
+            if os.path.exists(LONG(csv_path)):
+                html.append(f"<p class='params'>table (MATLAB): {csv_path}</p>")
+        except Exception as e:
+            print(f"  [FAIL] table {csv_path}: {e}"); failed.append((label, f"table: {e}"))
         n = len(ctm.COLORS)
         for ci in range(0, len(order), n):
             part = order[ci:ci + n]
             fname = prefix + (f"_{ci // n}" if len(order) > n else "") + ".png"
             print("=" * 70); print(f"[compare {label}]  {' '.join(part)}")
             try:
-                # store keys hold the config without its s= token; pass every run behind each label
-                chosen = {l: tuple(sorted({_split_seed(k)[0] for k in labeled[l]})) for l in part}
+                chosen = {l: chosen_all[l] for l in part}
                 fig = ctm.make_figure(store, chosen, part, label.replace("&mdash;", "-"),
                                       os.path.join(out_dir, fname), seeds=seeds, incomplete=incomplete)
                 plt.close(fig)

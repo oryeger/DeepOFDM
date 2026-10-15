@@ -1,0 +1,223 @@
+% =========================================================
+% master_plot_trk_bler_paper.m  -  BLER-only paper figure (IEEE single
+%                                  column) comparing tracking modes,
+%                                  seed-averaged.
+% =========================================================
+%
+% Based on master_plot_trk_mi_bler.m, but:
+%   - BLER only (one axes),
+%   - seed-averaged over exactly the modes drawn here: the script first runs
+%     compare_track_modes.py --table for `modes` (and `seeds`), so a seed is dropped only
+%     when one of THESE modes is incomplete for it (a mode left out of `modes`, e.g. ekfbp,
+%     no longer costs seeds). Same averaging as build_analysis: per-seed interior gaps
+%     interpolated, seeds that don't cover every mode's SNR grid dropped from every mode.
+%     Output table: Scratchpad\Analysis\<tag>\paper\bler_<modes>_s=<seeds|all>.csv,
+%     plus <same>_seeds.txt (which seeds were averaged / dropped and why - printed here).
+%   - fixed paper style and legend name per mode (STYLE below).
+% use_csv = true skips the Python step and plots csv_path as is (e.g. a build_analysis
+% compare_avg_<i>.csv - note those drop seeds incomplete for ANY mode of the tag).
+
+clear; clc;
+
+% ---- User configuration ----
+tag        = 'itrknk';
+modes      = {'notrack', 'ekfcrc', 'ekfht', 'sgdht'};   % legend order (ref is drawn first)
+seeds      = [];          % [] = every seed that has these modes; or e.g. [58 123 1011 1505]
+use_csv    = false;       % true = plot csv_path below as is, no Python step
+csv_path   = 'C:\Projects\Scratchpad\Analysis\idsseed\compare_avg_0.csv';
+ref_label  = '';          % '' = take it from the CSV ('LMMSE' / 'DeepSIC'); or e.g. 'LMMSE'
+out_name   = '';          % '' = next to the CSV, <csv name>_paper.{eps,pdf,png,fig}
+fig_size   = [3.5, 2.5];  % inches (IEEE column = 3.5)
+legend_loc = 'southwest'; % inside the axes; the low-SNR / low-BLER corner is empty in these plots
+legend_cols = 1;
+y_min      = [];          % [] = automatic (the decade below the lowest point); or e.g. 1e-2
+% ----------------------------
+
+% mode -> {legend, color, line style, marker, line width}
+STYLE = containers.Map();
+STYLE('notrack')  = {'No adaptation',          [0.00 0.00 0.00], '-',  'o', 0.9};
+STYLE('ekfcrc')   = {'EKF, CRC',               [0.00 0.45 0.74], '-',  's', 0.9};
+STYLE('ekfbp')    = {'EKF, syndrome',          [0.93 0.49 0.09], '-',  '^', 0.9};
+STYLE('ekfht')    = {'EKF, CRC+syn.',          [0.80 0.10 0.10], '-',  'p', 1.4};
+STYLE('ekfit')    = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};
+STYLE('ekfis')    = {'EKF, genie (causal)',    [0.13 0.55 0.13], ':',  'd', 0.9};
+STYLE('ekfi')     = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};   % old genie, if ekfit not run yet
+STYLE('sgdht')    = {'SGD, CRC+syn.',          [0.80 0.10 0.10], '--', 'p', 0.9};
+STYLE('sgdbceit') = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
+STYLE('sgdbcei')  = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
+REF_STYLE         = {[0.50 0.50 0.50], '-.', 'none', 0.9};
+MARKER_SIZE       = 3;    % points ('p' is drawn 1 pt larger - it looks small otherwise)
+
+% ---- Data source (Python step) ----
+zipfile       = '';        % '' = loose result CSVs in Scratchpad; else the archive name (Scratchpad\<name>.gz)
+extra_filter  = {};        % more exact filename tokens if a mode matches several configs, e.g. {'R=0.48'}
+deepofdm_root = 'C:\Projects\DeepOFDM';
+python_exe    = 'python';
+% ----------------------------
+
+FLOOR = 1e-12;   % stand-in for BLER = 0: the line drops off the bottom of the axis there
+
+if ~use_csv
+    if isempty(seeds)
+        seed_txt = 'all';
+        seed_arg = '';
+    else
+        seed_txt = strjoin(arrayfun(@num2str, seeds, 'UniformOutput', false), '-');
+        seed_arg = [' --seeds ', strjoin(arrayfun(@num2str, seeds, 'UniformOutput', false), ' ')];
+    end
+    out_png = fullfile('C:\Projects\Scratchpad\Analysis', tag, 'paper', ...
+        ['bler_', strjoin(modes, '-'), '_s=', seed_txt, '.png']);
+    cmd = sprintf('cd /d "%s" && %s python_code\\utils\\compare_track_modes.py --modes %s --filter %s%s --table --no-open --out "%s"', ...
+        deepofdm_root, python_exe, strjoin(modes, ' '), strjoin([{tag}, extra_filter], ' '), seed_arg, out_png);
+    if ~isempty(zipfile)
+        cmd = [cmd, ' --zipfile ', zipfile];
+    end
+    fprintf('Running: %s\n', cmd);
+    [status, out_txt] = system(cmd);
+    fprintf('%s\n', out_txt);
+    if status ~= 0
+        error('master_plot_trk_bler_paper: compare_track_modes.py failed (see output above).');
+    end
+    csv_path = strrep(out_png, '.png', '.csv');
+end
+
+if ~isfile(csv_path)
+    error('master_plot_trk_bler_paper: CSV not found: %s', csv_path);
+end
+seeds_note = [csv_path(1:end-4), '_seeds.txt'];
+if isfile(seeds_note)
+    fprintf('%s', fileread(seeds_note));
+else
+    fprintf('(no %s - table written before seed notes existed; rerun build_analysis.py)\n', seeds_note);
+end
+T = readtable(csv_path, 'VariableNamingRule', 'preserve');
+vars = T.Properties.VariableNames;
+snr  = T.SNR(:)';
+
+% Reference (primary receiver) = 2nd column, '<name>_BLER' (see compare_track_modes.make_figure).
+ref_col = vars{2};
+if isempty(ref_label)
+    ref_label = erase(ref_col, '_BLER');
+end
+
+fig = figure('Units', 'inches', 'Position', [1 1 fig_size]);
+ax = axes(fig);
+hold(ax, 'on');
+set(ax, 'FontName', 'Times New Roman', 'FontSize', 8, 'YScale', 'log', 'Box', 'on', ...
+    'TickDir', 'in', 'XMinorTick', 'off', 'YMinorTick', 'on', 'LineWidth', 0.6);
+grid(ax, 'on');
+
+handles = gobjects(0);
+labels  = {};
+all_pos = [];
+
+[y, mk] = waterfall(T.(ref_col)(:)', FLOOR);
+all_pos = [all_pos, y(y > FLOOR)];
+handles(end+1) = semilogy(ax, snr, y, 'Color', REF_STYLE{1}, 'LineStyle', REF_STYLE{2}, ...
+    'Marker', REF_STYLE{3}, 'LineWidth', REF_STYLE{4});
+labels{end+1} = [ref_label, ' only'];
+% Blank legend row (no line/marker): the "<ref> + ESCNN:" group header is drawn over it after the
+% legend is placed (right-aligned, with a separator line above it) - see below.
+handles(end+1) = semilogy(ax, NaN, NaN, 'LineStyle', 'none', 'Marker', 'none');
+labels{end+1} = ' ';
+header_row = numel(labels);
+
+for i = 1:numel(modes)
+    m = modes{i};
+    col = [m, '_BLER'];
+    if ~ismember(col, vars)
+        warning('master_plot_trk_bler_paper: no column %s in %s - skipped', col, csv_path);
+        continue;
+    end
+    if ~isKey(STYLE, m)
+        warning('master_plot_trk_bler_paper: no STYLE entry for %s - skipped', m);
+        continue;
+    end
+    st = STYLE(m);
+    [y, mk] = waterfall(T.(col)(:)', FLOOR);
+    all_pos = [all_pos, y(y > FLOOR)]; %#ok<AGROW>
+    handles(end+1) = semilogy(ax, snr, y, 'Color', st{2}, 'LineStyle', st{3}, 'Marker', st{4}, ...
+        'MarkerIndices', mk, 'MarkerFaceColor', st{2}, ...
+        'MarkerSize', MARKER_SIZE + strcmp(st{4}, 'p'), 'LineWidth', st{5}); %#ok<SAGROW>
+    labels{end+1} = st{1}; %#ok<SAGROW>
+end
+hold(ax, 'off');
+
+xlabel(ax, 'SNR [dB]');
+ylabel(ax, 'BLER');
+xlim(ax, [min(snr), max(snr)]);
+% y from the decade below the lowest drawn point up to 1 (whole decades, clean ticks)
+if isempty(y_min)
+    y_lo = 10 ^ floor(log10(min(all_pos)));
+else
+    y_lo = y_min;
+end
+ylim(ax, [y_lo, 1]);
+set(ax, 'YTick', 10 .^ (log10(y_lo):0));
+set(ax, 'GridColor', [0.80 0.80 0.80], 'GridAlpha', 1, 'MinorGridColor', [0.90 0.90 0.90], ...
+    'MinorGridAlpha', 1, 'MinorGridLineStyle', '-');
+
+lgd = legend(ax, handles, labels, 'Interpreter', 'tex', 'Location', legend_loc, ...
+    'NumColumns', legend_cols, 'FontSize', 6.5, 'Box', 'on', 'EdgeColor', [0.6 0.6 0.6]);
+lgd.ItemTokenSize = [16, 6];
+
+% Group header: "<ref> + ESCNN:" left-aligned in its (blank) row, at the row's bottom so a gap
+% separates it from "<ref> only" above. Rows are equally spaced inside the legend box;
+% legend_pad is the box's top/bottom padding as a fraction of its height.
+drawnow;
+lp = lgd.Position;                       % normalized figure units
+n_rows = numel(labels);
+legend_pad = 0.035;
+row_h = lp(4) * (1 - 2 * legend_pad) / n_rows;
+row_top = @(k) lp(2) + lp(4) * (1 - legend_pad) - (k - 1) * row_h;   % top edge of row k
+y_row = row_top(header_row) - row_h;     % bottom edge of the header row
+annotation(fig, 'textbox', [lp(1) + 0.015, y_row - 0.2 * row_h, lp(3) - 0.03, row_h], ...
+    'String', [ref_label, ' + ESCNN:'], 'Interpreter', 'none', ...
+    'HorizontalAlignment', 'left', 'VerticalAlignment', 'bottom', 'EdgeColor', 'none', ...
+    'Margin', 0, 'FontName', 'Times New Roman', 'FontSize', 6.5, 'FontAngle', 'normal');
+
+% ---- Export ----
+% EPS (vector, -painters) as the older master_plot_* scripts do - what the paper includes;
+% PDF also vector (handy for Overleaf), PNG for a quick look, FIG to tweak by hand.
+if isempty(out_name)
+    [p, n] = fileparts_safe(csv_path);
+    out_name = fullfile(p, [n, '_paper']);
+end
+set(fig, 'PaperUnits', 'inches', 'PaperPosition', [0 0 fig_size], 'PaperSize', fig_size);
+print(fig, [out_name, '.eps'], '-depsc', '-painters');
+exportgraphics(fig, [out_name, '.pdf'], 'ContentType', 'vector');
+exportgraphics(fig, [out_name, '.png'], 'Resolution', 600);
+savefig(fig, [out_name, '.fig']);
+fprintf('Saved %s.{eps,pdf,png,fig}\n', out_name);
+
+% =========================================================
+function [y, mk] = waterfall(b, floor_val)
+% BLER = 0 (no block errors) can't be drawn on a log axis: the first zero after
+% a non-zero point becomes floor_val (line drops straight off the axis, no
+% marker there), further zeros and missing SNRs (NaN) leave the line broken.
+y = b;
+prev = NaN;
+for k = 1:numel(b)
+    if isnan(b(k))
+        y(k) = NaN;
+    elseif b(k) > 0
+        y(k) = b(k);
+    elseif ~isnan(prev) && prev > floor_val
+        y(k) = floor_val;
+    else
+        y(k) = NaN;
+    end
+    prev = y(k);
+end
+mk = find(~isnan(y) & y > floor_val);
+end
+
+function [p, n] = fileparts_safe(f)
+% Not fileparts: folder/file names here contain dots (R=0.48, cfo=0.20, ...).
+idx = find(f == filesep, 1, 'last');
+p = f(1:idx-1);
+n = f(idx+1:end);
+if endsWith(lower(n), '.csv')
+    n = n(1:end-4);
+end
+end

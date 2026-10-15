@@ -67,6 +67,18 @@ here - see config.yaml's weights_track_mode comment):
       measurement (single-step supervised CM-EKF, as in Gusakov et al., IEEE TSP 2026) - see
       ESCNNTrainer.ekf_predict_update_supervised. Uses the same escnn_ekf_* settings as 'ekf'.
       No validation split (nothing to validate/early-stop).
+  'ekfit' - 'ekfi' on the scored slots themselves ('t' = this slot): no calib region; one EKF predict
+      per group, then one supervised update per scored slot with that slot's own true bits (ekfi's R0
+      agreement measurement, linearized at the predicted weights), and only then is the group detected
+      and scored, with the updated weights. Genie reference for ekfht: same slot, exact labels on every
+      slot (ekfht has them only on CRC passes). Optimistic - it updates on the noisy observation it is
+      then scored on. Draws nothing extra from rng, so its data/channels match ekfht's.
+  'ekfis' - 'ekfi simple', the causal genie: like 'ekfit' (the scored slots' own true bits, no calib
+      region), but in ekfcrc's order - predict, detect/score with the predicted weights, then one
+      supervised update per slot; the update only affects later groups (no re-detection of the slot).
+      Equivalent to ekfcrc/ekfht with every label exact. Draws nothing extra from rng.
+  'sgdbceit' - the SGD counterpart of 'ekfit': BCE on the scored slots' own true bits, conf.epochs,
+      persistent Adam, no val split (like sgdht's BCE), before the group is scored. No calib region.
   'ekfp' - the EKF counterpart of 'sgdbce' ('p' = pilots): the same labels as sgdbce - the group's
       own embedded DMRS pilots, built by _build_dmrs_bce_training_data - but instead of epochs of BCE
       it gets one EKF predict per group and one supervised update per slot (that slot's DMRS
@@ -294,13 +306,13 @@ def _build_ekf_filename_suffix(chan_text: str, mod_text: str, n_users: int, code
     title_string += '_spg=' + str(getattr(conf, 'slots_per_group', 1))
     track_mode = getattr(conf, 'weights_track_mode', 'ekf')
     title_string += '_t=' + track_mode  # tracking mode (was '_trk=' before 2026-10-04)
-    if track_mode == 'sgdbcei' or track_mode.startswith('ekfi'):  # DEBUG-LADDER: ekfi1..ekfi6
+    if track_mode == 'sgdbcei' or track_mode in _EKFI_STEP_CODES:  # DEBUG-LADDER: ekfi1..ekfi6 (not ekfit: no calib)
         title_string += '_csg=' + str(getattr(conf, 'calib_slots_per_group', 1))
     if track_mode in _BP_MODES:
         _bpi = getattr(conf, 'bp_iters', None)
         title_string += '_bpi=' + str(10 if _bpi is None else int(_bpi))
     title_string += '_lr=' + f"{getattr(conf, 'learning_rate', 5.0e-3):.0e}".replace('e-0', 'e-').replace('e+0', 'e+')
-    if track_mode in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht'):
+    if track_mode in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdbceit', 'sgdht'):
         title_string += '_ep=' + str(getattr(conf, 'epochs', 100))
         _bs = int(getattr(conf, 'batch_size', -1))
         if _bs > 0:  # absent = full batch (-1), so older names stay valid
@@ -1205,11 +1217,12 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                           tx_ref=torch.from_numpy(tx_bits.astype(np.float32)),
                                           use_bp=(weights_track_mode in _EKFBP_GATES), crc_check_fn=_crc_check_fn,
                                           bp_gate=_EKFBP_GATES.get(weights_track_mode, 'none'))
-    elif weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht'):
+    elif weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht', 'ekfis'):
         # Decision-directed (+ BP fallback for ekfht/sgdht): updated after this group is scored and
         # decoded - see below. EKF modes: the predict runs HERE, before scoring, so detection uses the
         # prior theta_{t|t-1} (predict -> detect -> update); the updates below then skip their own predict.
-        if weights_track_mode in ('ekfcrc', 'ekfht'):
+        # 'ekfis' (genie, causal): same order, the update after scoring uses the true bits.
+        if weights_track_mode in ('ekfcrc', 'ekfht', 'ekfis'):
             escnn_trainer.ekf_predict_only()
     else:
         # escnn_frozen mirrors evaluate.py's own guard before calling _online_training (Adam
@@ -1261,6 +1274,20 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                                                          payload_symbols_per_slot=len(_DMRS_SYMBOL_LOCAL_IDX),
                                                          ekfi_step=0, log_suffix=" src=DMRS",
                                                          real_bit_idx=dmrs_real_bit_idx)
+        elif weights_track_mode == 'ekfit':
+            # Genie reference for ekfht: one predict, then one supervised update per scored slot with that
+            # slot's own true bits (R0 agreement, linearized at the predicted weights) - before scoring,
+            # so the _forward below detects this same group with the updated weights. No calib region.
+            escnn_trainer.ekf_predict_update_supervised(rx_real_t, torch.from_numpy(tx_bits.astype(np.float32)),
+                                                         num_bits_pilot, n_users, conf.iterations, probs_for_aug,
+                                                         payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                                         ekfi_step=0, log_suffix=" src=TRUE")
+        elif weights_track_mode == 'sgdbceit':
+            # SGD counterpart of ekfit: BCE on this group's own scored slots' true bits, before scoring
+            # (no val split - see escnn_trainer._train_model's _no_val_split).
+            escnn_trainer._online_training(torch.from_numpy(tx_bits.astype(np.float32)), rx_real_t, num_bits_pilot,
+                                            n_users, conf.iterations, conf.epochs, False, probs_for_aug,
+                                            payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB)
         elif weights_track_mode.startswith('ekfi'):  # DEBUG-LADDER: 'ekfi' (R0) and 'ekfi1'..'ekfi6' (R1..R6)
             # Same separate calib region as sgdbcei (drawn from rng at the same point, so both
             # modes see identical channels/data), but one EKF predict + one update per calib slot
@@ -1375,6 +1402,14 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
                   flush=True)
     bler_escnn_user = (bler_escnn_fail / group_size_slots).tolist()
     bler_lmmse_user = (bler_lmmse_fail / group_size_slots).tolist()
+
+    if weights_track_mode == 'ekfis':
+        # Causal genie: this group was scored above with the prior weights (predict already ran before
+        # scoring); now one supervised update per slot with the true bits - it only affects later groups.
+        escnn_trainer.ekf_predict_update_supervised(rx_real_t, torch.from_numpy(tx_bits.astype(np.float32)),
+                                                     num_bits_pilot, n_users, conf.iterations, probs_for_aug,
+                                                     payload_symbols_per_slot=_DMRS_NUM_PAYLOAD_SYMB,
+                                                     ekfi_step=0, log_suffix=" src=TRUE", do_predict=False)
 
     if weights_track_mode in ('ekfcrc', 'ekfht', 'sgdht'):
         # Causal: this group was scored above with the prior weights; the update only affects later groups.
@@ -1547,7 +1582,7 @@ def main():
     # file again ('ekf' mode doesn't use it at all - ekf_predict_update never reads
     # conf.training_loss - so any value is fine there).
     weights_track_mode = getattr(conf, 'weights_track_mode', 'ekf')
-    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'ekfp', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht', 'notrack') + tuple(
+    _MODE_CHOICES = ('ekf', 'ekfbp', 'ekfbps', 'ekfbpc', 'ekfcrc', 'ekfht', 'ekfi', 'ekfit', 'ekfis', 'ekfp', 'sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdbceit', 'sgdht', 'notrack') + tuple(
         m for m in _EKFI_STEP_CODES if m != 'ekfi')  # DEBUG-LADDER: R1..R6, R4s, R4m
     if weights_track_mode not in _MODE_CHOICES:
         raise ValueError(f"weights_track_mode={weights_track_mode!r} not in {_MODE_CHOICES}.")
@@ -1599,7 +1634,7 @@ def main():
     best_weights_path = load_pretrained_weights(escnn_trainer)
     # One Adam per network for this whole run (= one SNR) instead of a fresh one per group -
     # see ESCNNTrainer._deep_learning_setup. Only the sgd_* modes ever reach _train_model here.
-    escnn_trainer.persist_optimizer = getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdht')
+    escnn_trainer.persist_optimizer = getattr(conf, 'weights_track_mode', 'ekf') in ('sgdsyn', 'sgdsbp', 'sgdbce', 'sgdbcei', 'sgdbceit', 'sgdht')
     # 'sgdsbp': L_synd uses ekfbp's BP-based measurement - see ESCNNTrainer._syndrome_component_bp.
     escnn_trainer.synd_use_bp = getattr(conf, 'weights_track_mode', 'ekf') == 'sgdsbp'
     deepsic_trainer, deeprx_trainer = load_frozen_augment_weights(
@@ -1650,6 +1685,16 @@ def main():
     calib_slots_per_group = max(1, int(getattr(conf, 'calib_slots_per_group', 1)))
     if weights_track_mode == 'sgdbcei':
         calib_note = f", {calib_slots_per_group} calib slot(s)/group for sgd training"
+    elif weights_track_mode == 'ekfit':
+        # No commas (plot_drift_log.py's HEADER_RE reads "training directly on ..." up to the next comma).
+        calib_note = (", training directly on scored slots (ekfi measurement on their own true bits "
+                      "before scoring - genie)")
+    elif weights_track_mode == 'sgdbceit':
+        calib_note = ", training directly on scored slots (BCE on their own true bits before scoring - genie)"
+    elif weights_track_mode == 'ekfis':
+        # No commas (see above).
+        calib_note = (", training directly on scored slots (ekfi measurement on their own true bits "
+                      "after scoring - causal genie)")
     elif weights_track_mode.startswith('ekfi'):  # DEBUG-LADDER: ekfi1..ekfi6
         # No commas after "calib slot(s)/group": plot_drift_log.py's HEADER_RE reads the note up to
         # the next comma. Plain 'ekfi' keeps the original text exactly.

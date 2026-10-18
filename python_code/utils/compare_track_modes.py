@@ -24,8 +24,8 @@ a disambiguating --filter token (e.g. bpi=10).
 
 --filter tokens are exact '_'-separated filename tokens (e.g. R=0.48, cfo=0.20, bpi=10, lr=2e-2).
 Output: Analysis\\<NAME or 'scratch'>_<filters>\\compare_<modes>.png unless --out is given; with --table the
-per-SNR table is also written as CSV next to the figure (it is not printed). The figure is also copied to
-the clipboard and opened in Paint (plot_drift_log's helpers) unless --no-open is given.
+per-SNR table is also written as CSV next to the figure (it is not printed). The figure is also opened in
+Paint (plot_drift_log's helper) unless --no-open is given.
 """
 import argparse, collections, glob, io, os, re, sys, tarfile
 
@@ -36,9 +36,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 try:   # run as a script from DeepOFDM root -> sys.path[0] is this utils dir
-    from plot_drift_log import _copy_fig_to_clipboard, _open_in_viewer
+    from plot_drift_log import _open_in_viewer
 except ImportError:   # run as python -m python_code.utils.compare_track_modes
-    from python_code.utils.plot_drift_log import _copy_fig_to_clipboard, _open_in_viewer
+    from python_code.utils.plot_drift_log import _open_in_viewer
 
 SCRATCH = r"C:\Projects\Scratchpad"
 ANALYSIS = os.path.join(SCRATCH, "Analysis")
@@ -402,7 +402,7 @@ def main():
     ap.add_argument("--out", default=None, help="output .png path")
     ap.add_argument("--table", action="store_true", help="also write the per-SNR table as CSV")
     ap.add_argument("--no-open", dest="open", action="store_false",
-                    help="do not copy the figure to the clipboard or open it in Paint")
+                    help="do not open the figure in Paint")
     args = ap.parse_args()
     if len(args.modes) > len(COLORS):
         sys.exit(f"at most {len(COLORS)} modes per figure (fixed categorical palette) - split into two figures")
@@ -457,11 +457,6 @@ def main():
     fig = make_figure(store, chosen, modes, f"{src}  {' '.join(args.filter)}  ({seed_txt})", out,
                       seeds=args.seeds, table=args.table, snr_range=args.snr)
     if args.open:
-        try:
-            _copy_fig_to_clipboard(fig)
-            print("plot copied to clipboard")
-        except Exception as e:
-            print(f"could not copy to clipboard: {e}")
         try:
             _open_in_viewer(fig)
         except Exception as e:

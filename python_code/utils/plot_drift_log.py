@@ -506,14 +506,6 @@ if __name__ == '__main__':
         fig.savefig(args.output, dpi=150)
         print(f"[plot_drift_log] saved {args.output}")
 
-    # Always copy to the clipboard (e.g. to paste into OneNote) - a failure here (non-Windows,
-    # pywin32/Pillow missing) shouldn't stop the plot itself from showing.
-    try:
-        _copy_fig_to_clipboard(fig)
-        print("[plot_drift_log] plot copied to clipboard")
-    except Exception as e:
-        print(f"[plot_drift_log] could not copy to clipboard: {e}")
-
     # Hand the image off to the OS viewer (its own process) instead of plt.show(), which would
     # block this terminal until the window is closed.
     try:

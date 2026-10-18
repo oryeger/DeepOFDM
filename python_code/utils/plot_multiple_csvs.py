@@ -1310,34 +1310,6 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
         fig_u.savefig(save_path_u, dpi=180)
         print(f"[INFO] UE{u} plot saved to: {save_path_u}")
 
-    try:
-        from PIL import Image
-        img = Image.open(save_path)
-        scale = 0.70
-        new_size = (int(img.width * scale), int(img.height * scale))
-        img_resized = img.resize(new_size, Image.LANCZOS)
-        resized_path = save_path.replace(".png", "_clipboard.png")
-        img_resized.save(resized_path)
-
-        if platform.system() == "Windows":
-            cmd = (
-                'powershell -command "'
-                'Add-Type -AssemblyName System.Windows.Forms;'
-                f"[System.Windows.Forms.Clipboard]::SetImage("
-                f"[System.Drawing.Image]::FromFile('{resized_path}'))"
-                '"'
-            )
-            subprocess.run(cmd, shell=True, check=True)
-        else:
-            subprocess.run(
-                ["xclip", "-selection", "clipboard", "-t", "image/png", "-i", resized_path],
-                check=True
-            )
-        os.remove(resized_path)
-        print(f"[INFO] Plot copied to clipboard ({int(scale*100)}% size: {new_size[0]}x{new_size[1]}).")
-    except Exception as e:
-        print(f"[INFO] Could not copy to clipboard: {e}")
-
     plt.show()
 
     # ---- Save averaged BLER/BER/MI curves to .mat file ----

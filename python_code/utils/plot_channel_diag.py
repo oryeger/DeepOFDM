@@ -20,12 +20,11 @@ each additional series within a type is drawn a shade lighter (fading alpha) rat
 color, so curve *type* stays the primary visual cue.
 
 Usage:
-    python plot_channel_diag.py [--cdi CDI] [--file PATH] [--db] [--noisy] [--clipboard]
+    python plot_channel_diag.py [--cdi CDI] [--file PATH] [--db] [--noisy]
 
 With no --file, the newest *_diag.h5 file in Scratchpad is used (ekf.py writes one such file
 per run - "newest" is normally the run you just produced). With no --cdi, the first cdi group
-in the file is plotted; pass an invalid one to see the full list of what's available. --clipboard
-copies the plot as an image to the Windows clipboard (e.g. to paste into OneNote) - Windows only.
+in the file is plotted; pass an invalid one to see the full list of what's available.
 """
 import argparse
 import glob
@@ -252,14 +251,6 @@ def main():
     file_path = args.file or _find_latest_diag_file(SCRATCHPAD_DIR)
     print(f"[plot_channel_diag] using {file_path}")
     fig = plot_channel(file_path, cdi=args.cdi, db=args.db, show_noisy=args.noisy)
-
-    # Always copy to the clipboard (e.g. to paste into OneNote) - a failure here (non-Windows,
-    # pywin32/Pillow missing) shouldn't stop the plot itself from showing.
-    try:
-        _copy_fig_to_clipboard(fig)
-        print("[plot_channel_diag] plot copied to clipboard")
-    except Exception as e:
-        print(f"[plot_channel_diag] could not copy to clipboard: {e}")
 
     # Hand the image off to the OS viewer (its own process) instead of plt.show(), which would
     # block this terminal until the window is closed.

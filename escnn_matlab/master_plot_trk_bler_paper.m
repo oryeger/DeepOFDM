@@ -29,9 +29,9 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = 'idsseed';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
-modes      = {'notrack', 'ekfcrc', 'ekfht', 'sgdht'};   % legend order (ref is drawn first)
-seeds      = [17 123 1011 1505 1806 1807 1809 3008];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = 'ipilot_R=0.42';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
+modes      = {'notrack', 'ekfbp', 'ekfcrc', 'ekfp', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
+seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
 deepofdm_root = 'C:\Projects\DeepOFDM';
@@ -40,7 +40,7 @@ ref_label  = '';          % '' = take it from the CSV ('LMMSE' / 'DeepSIC'); or 
 fig_size   = [3.5, 2.5];  % inches (IEEE column = 3.5)
 legend_loc = 'southwest'; % inside the axes; the low-SNR / low-BLER corner is empty in these plots
 legend_cols = 1;
-y_min      = 1e-3;        % bottom of the BLER axis; [] = automatic (the decade below the lowest point)
+y_min      = 2e-3;        % bottom of the BLER axis; [] = automatic (the decade below the lowest point)
 bler_min_drawn = 2e-3;    % points below this are not drawn - the curve drops off the axis at its
                           % first such point (like BLER = 0), so isolated one- or two-error points
                           % in the tail disappear. [] = draw every point (default: y_min)
@@ -50,11 +50,12 @@ bler_min_drawn = 2e-3;    % points below this are not drawn - the curve drops of
 STYLE = containers.Map();
 STYLE('notrack')  = {'No adaptation',          [0.00 0.00 0.00], '-',  'o', 0.9};
 STYLE('ekfcrc')   = {'EKF, CRC',               [0.00 0.45 0.74], '-',  's', 0.9};
-STYLE('ekfbp')    = {'EKF, syndrome',          [0.93 0.49 0.09], '-',  '^', 0.9};
+STYLE('ekfbp')    = {'EKF, syn.',              [0.93 0.49 0.09], '-',  '^', 0.9};
 STYLE('ekfht')    = {'EKF, CRC+syn.',          [0.80 0.10 0.10], '-',  'p', 1.4};
 STYLE('ekfit')    = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};
 STYLE('ekfis')    = {'EKF, genie (causal)',    [0.13 0.55 0.13], ':',  'd', 0.9};
 STYLE('ekfi')     = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};   % old genie, if ekfit not run yet
+STYLE('ekfp')     = {'EKF, pilots',            [0.49 0.18 0.56], '-',  'v', 0.9};
 STYLE('sgdht')    = {'SGD, CRC+syn.',          [0.80 0.10 0.10], '--', 'p', 0.9};
 STYLE('sgdbceit') = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
 STYLE('sgdbcei')  = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
@@ -245,7 +246,7 @@ else
     y_lo = y_min;
 end
 ylim(ax, [y_lo, 1]);
-set(ax, 'YTick', 10 .^ (log10(y_lo):0));
+set(ax, 'YTick', 10 .^ (ceil(log10(y_lo) - 1e-9):0));   % ticks on whole decades only (y_lo may be e.g. 2e-3)
 set(ax, 'GridColor', [0.80 0.80 0.80], 'GridAlpha', 1, 'MinorGridColor', [0.90 0.90 0.90], ...
     'MinorGridAlpha', 1, 'MinorGridLineStyle', '-');
 

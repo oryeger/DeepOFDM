@@ -198,7 +198,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
     # Pass 1: per (mode, metric), every seed's curve, interior gaps filled (INTERPOLATE_MISSING_PER_SEED).
     curves = {m: {} for m in modes}    # mode -> met -> {seed: {snr: (escnn, ref)}}
-    filled = {m: {} for m in modes}    # mode -> {seed: interpolated BLER points}
+    filled = {m: {} for m in modes}    # mode -> {seed: SNRs of its interpolated BLER points}
     for mode, config in chosen.items():
         for met, kind, scale, agg in METRICS:
             per_seed = collections.defaultdict(dict)
@@ -213,20 +213,23 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                     for s_ in fe:
                         d[s_] = (fe[s_], fl[s_])
                     if met == "BLER":
-                        filled[mode][seed] = len(fe)
+                        filled[mode][seed] = set(fe)
             curves[mode][met] = dict(per_seed)
 
     # Pass 2 (DROP_INCOMPLETE_SEEDS): one seed set for the whole figure, so the modes stay comparable.
     # Per mode, the grid is the BLER SNRs held by more than half of the figure's seeds; a seed missing
     # any grid SNR of ANY mode (or that mode altogether) is dropped from every mode. SNRs off a mode's
-    # grid are not drawn.
+    # grid are not drawn. A mode with no SNR held by more than half the seeds (e.g. most of its runs
+    # never finished) would get an empty grid, which every seed passes trivially - it would then be
+    # drawn empty while seeds lacking it stay in. Its grid is every SNR it has instead, so seeds that
+    # don't cover it are dropped like for any other mode.
     all_seeds = sorted({sd for m in modes for d in curves[m].values() for sd in d})
     keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
     if DROP_INCOMPLETE_SEEDS and len(all_seeds) > 1:
         for mode in modes:
             bl = curves[mode]["BLER"]
             cover = collections.Counter(snr for d in bl.values() for snr in d)
-            grids[mode] = {snr for snr, n in cover.items() if n > len(all_seeds) / 2}
+            grids[mode] = {snr for snr, n in cover.items() if n > len(all_seeds) / 2} or set(cover)
             for sd in all_seeds:
                 if not grids[mode] <= set(bl.get(sd, {})):
                     keep.discard(sd)
@@ -247,7 +250,9 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
             print("  [WARN] no seed covers every mode's SNR grid - averaging every available seed per point")
             keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
     dropped = sorted(set(all_seeds) - keep)
-    n_interp = {m: sum(n for sd, n in filled[m].items() if sd in keep) for m in modes}
+    # only interpolated points that are actually drawn (kept seed, on the mode's grid)
+    n_interp = {m: sum(len(s if m not in grids else s & grids[m]) for sd, s in filled[m].items() if sd in keep)
+                for m in modes}
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}

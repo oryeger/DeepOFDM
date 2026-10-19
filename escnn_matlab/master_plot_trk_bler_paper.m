@@ -29,8 +29,8 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = 'ipilot_R=0.42';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
-modes      = {'notrack', 'ekfbp', 'ekfcrc', 'ekfp', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
+analysis_dir = 'ilmseed';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
+modes      = {'notrack', 'ekfbp', 'ekfcrc', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
 seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name

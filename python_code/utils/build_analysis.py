@@ -244,9 +244,22 @@ def _rotate_out_dir(tag):
     idx = 2
     while os.path.isdir(os.path.join(ANALYSIS, f"{tag}_{idx}")):
         idx += 1
-    for n in range(idx - 1, 1, -1):
-        os.rename(os.path.join(ANALYSIS, f"{tag}_{n}"), os.path.join(ANALYSIS, f"{tag}_{n + 1}"))
-    os.rename(base, os.path.join(ANALYSIS, f"{tag}_2"))
+    try:
+        for n in range(idx - 1, 1, -1):
+            os.rename(os.path.join(ANALYSIS, f"{tag}_{n}"), os.path.join(ANALYSIS, f"{tag}_{n + 1}"))
+        os.rename(base, os.path.join(ANALYSIS, f"{tag}_2"))
+    except PermissionError as e:
+        # Windows refuses to rename a folder while any program holds it or a file in it open
+        # (Explorer window, MATLAB's current folder or an open figure, an image viewer, ...).
+        # Don't lose the build over it: write it to the first free <tag>_N instead.
+        idx = 2
+        while os.path.isdir(os.path.join(ANALYSIS, f"{tag}_{idx}")):
+            idx += 1
+        fresh = os.path.join(ANALYSIS, f"{tag}_{idx}")
+        print(f"[WARN] couldn't rotate the previous '{tag}' build ({e.strerror}: {e.filename}) - some "
+              f"program has it open (Explorer, MATLAB, an image viewer?). This build goes to "
+              f"'{tag}_{idx}' instead; close that program and rerun to get the usual layout.")
+        return fresh
     print(f"Analysis dir for tag '{tag}' already existed; rotated it (and any older builds) up "
           f"by one index, so this build gets the unsuffixed '{tag}' dir")
     return base

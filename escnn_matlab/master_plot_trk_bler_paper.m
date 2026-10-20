@@ -38,12 +38,12 @@
 clear; clc;
 
 % ---- User configuration ----
-%analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-%titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-analysis_dir = {'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-modes      = {'notrack', 'ekfbp', 'ekfcrc', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
-%seeds      = [17 123 1011];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+%analysis_dir = {'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+modes      = {'notrack', 'ekfcrc', 'ekfbp', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
+%seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+seeds      = [17 123 1011 1505 3008];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
                           % (side-by-side: '' lets each folder find its own Scratchpad\<tag>.gz)
@@ -284,8 +284,14 @@ function [handles, keys, labels, csv_ref] = draw_bler_axes(ax, csv_path, modes, 
 % handles(1) / keys{1} = 'ref' is the reference curve; the rest are the modes found in the CSV.
 % labels are the STYLE legend names ('' for the reference - the caller names it).
 seeds_note = [csv_path(1:end-4), '_seeds.txt'];
+% analysis folder the table belongs to (re-averaged tables sit in its paper\ subfolder)
+[tbl_dir, ~] = fileparts(csv_path);
+[up_dir, tbl_name] = fileparts(tbl_dir);
+if strcmp(tbl_name, 'paper')
+    [~, tbl_name] = fileparts(up_dir);
+end
 if isfile(seeds_note)
-    fprintf('%s', fileread(seeds_note));
+    fprintf('[%s]\n%s', tbl_name, fileread(seeds_note));
 else
     fprintf('(no %s - table written before seed notes existed; rerun build_analysis.py)\n', seeds_note);
 end

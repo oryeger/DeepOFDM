@@ -60,6 +60,32 @@ def archived_scripts_for(job_id, archive_dir, bash_files):
             if pat.search(os.path.splitext(f)[0])]
 
 
+_LOOP_ARRAY = re.compile(r'^\s*for\s+\w+\s+in\s+"\$\{(\w+)\[@\]\}"', re.M)
+
+
+def total_tests(path):
+    """Number of configs (= array tasks) the archived make_multiple_tests.bash generated: the
+    product of the lengths of the arrays its loops run over (the loops never skip a combination).
+    The Parameters section (everything before `total_count=0`) is run in bash to evaluate the
+    arrays - it only assigns variables, e.g. snrs=($(seq 0 1 30)). None if that fails."""
+    try:
+        with open(path) as f:
+            text = f.read()
+        head, sep, body = text.partition('\ntotal_count=0')
+        body = body.partition('((total_count++))')[0]   # later loops (all_config_files) aren't sweeps
+        names = list(dict.fromkeys(_LOOP_ARRAY.findall(body)))
+        if not sep or not names:
+            return None
+        script = (head + '\nn=1\nfor a in ' + ' '.join(names) +
+                  '; do eval "k=\\${#$a[@]}"; n=$((n*k)); done\necho $n\n')
+        # '-- x.yaml' satisfies the script's one-argument check
+        out = subprocess.run(['bash', '-s', '--', 'x.yaml'], input=script, capture_output=True,
+                             text=True, timeout=10).stdout.split()
+        return int(out[-1]) if out and out[-1].isdigit() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
 def cur_str_of(path):
     """<cur_str> of an archived <ts>_make_<cur_str>[_job<ID>...].bash; the bare stem if the
     name doesn't follow that pattern."""
@@ -91,11 +117,14 @@ def main():
     paths = []        # matched files, de-duplicated (a resubmitted file can carry several IDs)
     unmatched = []
     cur_strs = {}     # job ID -> cur_str(s) of its archived file(s), '-' if none
+    totals = {}       # job ID -> tests its archived generator made (None: unknown)
     for job_id in jobs:
         matches = archived_scripts_for(job_id, archive_dir, bash_files)
         if not matches:
             unmatched.append(job_id)
         cur_strs[job_id] = ','.join(dict.fromkeys(cur_str_of(p) for p in matches)) or '-'
+        # several files for one ID shouldn't happen; then the total is ambiguous
+        totals[job_id] = total_tests(matches[0]) if len(matches) == 1 else None
         for path in matches:
             if path not in paths:
                 paths.append(path)
@@ -109,8 +138,14 @@ def main():
         running = states.get('RUNNING', 0)
         pending = states.get('PENDING', 0)
         other = sum(states.values()) - running - pending
+        total = totals[job_id]
         line = (f'{job_id}  {cur_strs[job_id]:<{width}}  '
-                f'running={running:<4d} pending={pending:<4d}')
+                f'{running:4d} running out of {total if total is not None else "?":>4} total tests'
+                f'  (pending={pending}')
+        if total is not None:
+            # finished tasks (done or failed) leave the queue
+            line += f', left the queue={max(total - sum(states.values()), 0)}'
+        line += ')'
         if other:
             line += '  other=' + ','.join(f'{s}:{n}' for s, n in states.items()
                                           if s not in ('RUNNING', 'PENDING'))

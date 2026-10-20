@@ -5,8 +5,8 @@
 % =========================================================
 %
 % Usage: run build_analysis.py <tag> first, then set analysis_dir below to the
-% name of the Analysis folder it produced (e.g. 'itrknk', or 'itrknk_R=0.48_LMMSE'
-% for a tag that build_analysis split per code rate / primary) and run.
+% name of the Analysis folder it produced (e.g. 'itrknk', or 'itrknk_R=0.48_LMMSE' - found under
+% its parent Analysis\itrknk\ - for a tag that build_analysis split per code rate / primary) and run.
 %
 % For every seed-averaged comparison table build_analysis wrote in that folder
 % (compare_avg_<i>.csv - one per configuration run with several tracking modes),
@@ -29,9 +29,10 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = 'ilmseed';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
-modes      = {'notrack', 'ekfbp', 'ekfcrc', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
-seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = 'idsseed';      % folder name under C:\Projects\Scratchpad\Analysis (or a full path)
+modes      = {'notrack', 'ekfcrc', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
+seeds      = [17 123 1011];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+%seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
 deepofdm_root = 'C:\Projects\DeepOFDM';
@@ -44,7 +45,13 @@ y_min      = 2e-3;        % bottom of the BLER axis; [] = automatic (the decade 
 bler_min_drawn = 2e-3;    % points below this are not drawn - the curve drops off the axis at its
                           % first such point (like BLER = 0), so isolated one- or two-error points
                           % in the tail disappear. [] = draw every point (default: y_min)
+clip_y     = true;        % true = apply y_min / bler_min_drawn above; false = automatic axis
+                          % bottom and every point drawn (both treated as [])
 % ----------------------------
+if ~clip_y
+    y_min = [];
+    bler_min_drawn = [];
+end
 
 % mode -> {legend, color, line style, marker, line width}
 STYLE = containers.Map();
@@ -69,6 +76,14 @@ if contains(analysis_dir, ':')
     dir_path = analysis_dir;
 else
     dir_path = fullfile('C:\Projects\Scratchpad\Analysis', analysis_dir);
+    if ~isfolder(dir_path)
+        % per-rate/primary builds sit under a parent tag folder (e.g. icpilot\icpilot_R=0.59)
+        % (dir on a folder pattern lists that folder's contents, so .folder is the match)
+        hit = dir(fullfile('C:\Projects\Scratchpad\Analysis', '*', analysis_dir));
+        if ~isempty(hit)
+            dir_path = hit(1).folder;
+        end
+    end
 end
 if ~isfolder(dir_path)
     error('master_plot_trk_bler_paper: no such folder: %s (run build_analysis.py first)', dir_path);

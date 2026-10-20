@@ -22,6 +22,8 @@ What it does, given experiment tag <tag>:
      the input of escnn_matlab\\master_plot_trk_bler_paper.m (seed-averaged: compare_avg_<i>.csv).
   6. Writes <tag>.html: Part 0 = tracking-mode comparisons, Part 1 = curves, Part 2 = histogram
      tables (rows = SNR, columns = detectors), each plot preceded by its parameters.
+A tag mixing several code rates / primary receivers gets one build per combination, as subdirs
+of a parent Analysis\\<tag>\\ (e.g. icpilot\\icpilot_R=0.59\\), with an index.html linking them.
 Rerunning never overwrites a previous build: the newest build always lands at
 C:\\Projects\\Scratchpad\\Analysis\\<tag>\\ (no suffix). If that already exists, it - and any
 older <tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2, <tag>_2 -> <tag>_3,
@@ -277,9 +279,10 @@ def _primary(k):
 
 def build(tag):
     """One build per (code rate, primary receiver): a batch mixing several R= values and/or
-    several primary receivers gets a separate ANALYSIS/<tag>_R=<rate>_<PRIMARY>/ dir + html per
-    combination (only the axes that actually vary go into the suffix); a batch with a single
-    rate and primary keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
+    several primary receivers gets a parent ANALYSIS/<tag>/ dir (index.html linking the builds)
+    holding a <tag>_R=<rate>_<PRIMARY>/ subdir + html per combination (only the axes that actually
+    vary go into the suffix); the parent is what gets rotated (<tag> -> <tag>_2, ...). A batch with
+    a single rate and primary keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
     purge_redundant_tw_variants(tag)
     cfgs = unique_configs(tag)
     if not cfgs:
@@ -296,9 +299,18 @@ def build(tag):
     order = sorted(groups, key=lambda g: (str(g[0]), g[1]))
     print(f"Tag '{tag}' mixes {len(groups)} code-rate/primary combinations -> one build each: "
           + ", ".join(suffix(*g).lstrip("_") for g in order))
+    parent = _rotate_out_dir(tag)
+    os.makedirs(parent, exist_ok=True)
+    names = [f"{tag}{suffix(*g)}" for g in order]
     rc = 0
-    for g in order:
-        rc |= _build_one(tag, f"{tag}{suffix(*g)}", groups[g])
+    for g, name in zip(order, names):
+        rc |= _build_one(tag, name, groups[g], out_dir=os.path.join(parent, name))
+    with open(os.path.join(parent, "index.html"), "w", encoding="utf-8") as f:
+        f.write(f"<!DOCTYPE html><html><head><meta charset='utf-8'><title>{tag}</title></head>"
+                f"<body style='font-family:sans-serif'><h2>{tag}</h2><ul>"
+                + "".join(f"<li><a href='{n}/{n}.html'>{n}</a></li>" for n in names)
+                + "</ul></body></html>")
+    print(f"Index of the {len(names)} builds: {os.path.join(parent, 'index.html')}")
     return rc
 
 def _mode(k):
@@ -429,13 +441,14 @@ def compare_sections(tag, keys, out_dir):
           f"failed: {len(failed)}")
     return html
 
-def _build_one(tag, name, keys):
-    """Build the analysis page for `keys` (configs of `tag`) into ANALYSIS/<name>/<name>.html."""
+def _build_one(tag, name, keys, out_dir=None):
+    """Build the analysis page for `keys` (configs of `tag`) into <out_dir>/<name>.html; out_dir
+    defaults to ANALYSIS/<name> (rotated if taken - see _rotate_out_dir)."""
     keys = sorted(keys)
     diffs = drop_redundant_hashes(differing_tokens(keys))
     keys.sort(key=lambda k: (_trk_group(k), sort_key(diffs[k])))
 
-    out_dir = _rotate_out_dir(name)
+    out_dir = out_dir or _rotate_out_dir(name)
     os.makedirs(out_dir, exist_ok=True)
 
     # third plot panel is GFMI when nll=gf, plain BER otherwise

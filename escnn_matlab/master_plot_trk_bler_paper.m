@@ -39,17 +39,17 @@ clear; clc;
 
 % ---- User configuration ----
 analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+%titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
 titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-%analysis_dir = {'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
 modes      = {'notrack', 'ekfcrc', 'ekfbp', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
-%seeds      = [];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-seeds      = [17 123 1011 1505 3008];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+%seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+seeds      = [17 123];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
                           % (side-by-side: '' lets each folder find its own Scratchpad\<tag>.gz)
 deepofdm_root = 'C:\Projects\DeepOFDM';
 python_exe = 'python';
-ref_label  = '';          % '' = take it from the CSV ('LMMSE' / 'DeepSIC'); or e.g. 'LMMSE'
+ref_label  = '';          % '' = take it from the CgSV ('LMMSE' / 'DeepSIC'); or e.g. 'LMMSE'
 fig_size   = [3.5, 2.5];  % inches (IEEE column = 3.5)
 legend_loc = 'southwest'; % inside the axes; the low-SNR / low-BLER corner is empty in these plots
 legend_cols = 1;

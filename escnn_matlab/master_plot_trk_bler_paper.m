@@ -38,18 +38,23 @@
 clear; clc;
 
 % ---- User configuration ----
-% analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-% seeds = [17 41 58 123 1011 1505 1806 1809];
-% seeds = [58 123];
-% titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+seeds = [17 41 58 123 1011 1505 1806 1809];
+seeds = [58 123];
+titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+zoom_xlim  = {};          % side-by-side only: zoom inset per subplot (see PAIR.zoom_pos); {} = none
+zoom_ylim  = {};
 
-analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-seeds      = [17 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+% analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+% titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+% zoom_xlim  = {[11.5 14.5], [11 14]};     % SNR range (dB) of each subplot's zoom inset, around the 10% BLER crossing
+% zoom_ylim  = {[5e-2 1.5e-1], [5e-2 1.5e-1]}; % BLER range of each inset
+% seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+% seeds      = [17 1505 123];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 
-modes      = {'notrack', 'ekfht', 'ekfbp', 'sgdht', 'ekfcrc', 'ekfit'};   % drawing order (ref first; later = on top) -
-                          % ekfcrc after ekfht so the thin EKF-CRC line shows on the thick EKF-CRC+syn. one.
+modes      = {'notrack', 'ekfbp', 'sgdht', 'ekfit', 'ekfht', 'ekfcrc'};   % drawing order (ref first; later = on top) -
+                          % ekfht (the proposed method) on top of every curve except ekfcrc, which comes last
+                          % so the thin EKF-CRC line shows on the thick EKF-CRC+syn. one.
                           % Legend order: PAIR.order (pair) / this order (single)
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
@@ -88,6 +93,14 @@ PAIR.marker_size      = 5;
 PAIR.lw_scale         = 1.5;        % multiplies the STYLE line widths (figure is shrunk ~2x in the paper)
 PAIR.shrink           = 0.18;       % room left under the axes for the legend + xlabel (0.14 in master_plot_mi_bler, 2-row legend)
 PAIR.same_ylim        = true;       % both subplots get the same BLER range
+PAIR.zoom_enable      = false;      % true = draw the zoom insets set by zoom_xlim / zoom_ylim (next to analysis_dir)
+PAIR.zoom_xlim        = zoom_xlim;
+PAIR.zoom_ylim        = zoom_ylim;
+if ~PAIR.zoom_enable
+    PAIR.zoom_xlim = {};
+end
+PAIR.zoom_pos         = [0.10, 0.11, 0.30, 0.32];   % inset inside each axes, normalized [left bottom width height]: lower-left corner,
+                                    % clear of the main tick labels and left of the ~13 dB waterfalls
 % ----------------------------
 if ~clip_y
     y_min = [];
@@ -108,7 +121,7 @@ STYLE('ekfit')    = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9}
 STYLE('ekfis')    = {'EKF, genie (causal)',    [0.13 0.55 0.13], ':',  'd', 0.9};
 STYLE('ekfi')     = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};   % old genie, if ekfit not run yet
 STYLE('ekfp')     = {'EKF, pilots',            [0.49 0.18 0.56], '-',  'v', 0.9};
-STYLE('sgdht')    = {'SGD, CRC+syn.',          [0.80 0.10 0.10], '--', 'p', 0.9};
+STYLE('sgdht')    = {'SGD, CRC+syn.',          [0.49 0.18 0.56], '--', 'x', 0.9, '', '', 1};   % purple 'x', distinct from EKF-CRC+syn. (red star); +1 pt so it shows
 STYLE('sgdbceit') = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
 STYLE('sgdbcei')  = {'SGD, genie',             [0.13 0.55 0.13], '--', 'd', 0.9};
 REF_STYLE         = {[0.50 0.50 0.50], '-.', 'none', 0.9};
@@ -505,7 +518,56 @@ for d = 1:2
     ax(d).Position = [pos(1), pos(2) + P.shrink, pos(3), pos(4) - P.shrink];
 end
 
+% Zoom insets - after the layout is final, as the connectors are placed in figure coordinates
+for d = 1:2
+    if numel(P.zoom_xlim) >= d && ~isempty(P.zoom_xlim{d})
+        add_zoom_inset(ax(d), P.zoom_xlim{d}, P.zoom_ylim{d}, P.zoom_pos, P.font_size - 3);
+    end
+end
+
 export_fig_set(fig, out_name, P.fig_size);
+end
+
+function add_zoom_inset(ax, zoom_xlim, zoom_ylim, inset_pos_norm, font_size)
+% Magnified inset of a region of a (log-y) BLER axes - master_plot_mi_bler.m's
+% add_mi_zoom_inset, with log-y mapping. Copies the axes' lines into a new axes placed at
+% inset_pos_norm ([left bottom width height], normalized within ax), marks the region with
+% a black rectangle and draws two connectors: rectangle bottom-left -> inset top-left and
+% rectangle bottom-right -> inset top-right (the inset sits below-left of the region).
+fig = ancestor(ax, 'figure');
+drawnow;
+ax_pos = double(ax.Position);
+inset_ax = axes('Parent', fig, 'Position', [ax_pos(1) + inset_pos_norm(1) * ax_pos(3), ...
+    ax_pos(2) + inset_pos_norm(2) * ax_pos(4), inset_pos_norm(3) * ax_pos(3), inset_pos_norm(4) * ax_pos(4)]);
+copyobj(findobj(ax, 'Type', 'line'), inset_ax);
+set(inset_ax, 'YScale', ax.YScale, 'XLim', zoom_xlim, 'YLim', zoom_ylim, 'Box', 'on', ...
+    'Color', [1 1 1], 'FontName', 'Times New Roman', 'FontSize', font_size, ...
+    'XTick', ceil(zoom_xlim(1)):floor(zoom_xlim(2)), 'XMinorTick', 'off', 'YMinorTick', 'on', ...
+    'TickDir', 'in', 'LineWidth', 0.6);
+if strcmp(ax.YScale, 'log')
+    yt = 10.^(ceil(log10(zoom_ylim(1))):floor(log10(zoom_ylim(2))));   % the decades inside (10^-1 here)
+    set(inset_ax, 'YTick', yt);
+end
+grid(inset_ax, 'on');
+
+rectangle(ax, 'Position', [zoom_xlim(1), zoom_ylim(1), diff(zoom_xlim), diff(zoom_ylim)], ...
+    'EdgeColor', 'k', 'LineWidth', 0.8);
+
+% Connectors (figure-normalized coordinates; log mapping on a log y axis)
+drawnow;
+ax_pos = double(ax.Position);
+in_pos = double(inset_ax.Position);
+xl = double(ax.XLim);
+yl = double(ax.YLim);
+if strcmp(ax.YScale, 'log')
+    ymap = @(y) ax_pos(2) + (log10(y) - log10(yl(1))) / (log10(yl(2)) - log10(yl(1))) * ax_pos(4);
+else
+    ymap = @(y) ax_pos(2) + (y - yl(1)) / diff(yl) * ax_pos(4);
+end
+xmap = @(x) ax_pos(1) + (x - xl(1)) / diff(xl) * ax_pos(3);
+in_top = in_pos(2) + in_pos(4);
+annotation(fig, 'line', [xmap(zoom_xlim(1)), in_pos(1)],             [ymap(zoom_ylim(1)), in_top], 'Color', 'k', 'LineWidth', 0.6);
+annotation(fig, 'line', [xmap(zoom_xlim(2)), in_pos(1) + in_pos(3)], [ymap(zoom_ylim(1)), in_top], 'Color', 'k', 'LineWidth', 0.6);
 end
 
 function export_fig_set(fig, out_name, fig_size)
@@ -521,39 +583,50 @@ end
 
 function [x, y, mk] = waterfall(snr, b, floor_val, y_min)
 % Returns the points to draw (x, y) and the marker indices into them.
-% A BLER = 0 with a non-zero point at a higher SNR (a lucky error-free point inside the
-% curve) is skipped, so the line connects its neighbours; so are missing SNRs (NaN).
-last_pos = find(b > 0, 1, 'last');
-if ~isempty(last_pos)
-    inner = false(size(b));
-    inner(1:last_pos) = true;
-    b(inner & b == 0) = NaN;
-end
+% Missing SNRs (NaN) are skipped: the line connects their neighbours.
 % y_min (optional, non-empty): values below it count as 0 (not resolved on this axis).
+% BLER = 0 can't be drawn on a log axis:
+%  - a single 0 between two non-zero points (a lucky error-free point) is skipped, so the
+%    line connects its neighbours;
+%  - a run of >= 2 zeros after a non-zero point: the line drops to floor_val (off the axis,
+%    no marker) at the run's first SNR and, when non-zero points follow, rises from floor_val
+%    at its last SNR; nothing is drawn in between (the line breaks instead of bridging it);
+%  - zeros before the first non-zero point are skipped.
 if nargin > 3 && ~isempty(y_min)
     b(b < y_min) = 0;
 end
-% BLER = 0 (no block errors) can't be drawn on a log axis: the first zero after
-% a non-zero point becomes floor_val (line drops straight off the axis, no
-% marker there), further zeros are not drawn.
+v = find(~isnan(b));           % SNRs with data, in order
+z = b(v) == 0;
 y = b;
-prev = NaN;
-for k = 1:numel(b)
-    if isnan(b(k))
-        y(k) = NaN;
-        continue;              % skipped point: prev stays the last drawn one
-    elseif b(k) > 0
-        y(k) = b(k);
-    elseif ~isnan(prev) && prev > floor_val
-        y(k) = floor_val;
-    else
-        y(k) = NaN;
+skip = isnan(b);               % removed points: the line connects across them
+k = 1;
+while k <= numel(v)
+    if ~z(k)
+        k = k + 1;
+        continue;
     end
-    prev = y(k);
+    e = k;
+    while e < numel(v) && z(e + 1)
+        e = e + 1;             % zero run: v(k..e)
+    end
+    before = k > 1;            % non-zero point before the run
+    after  = e < numel(v);     % non-zero point after the run
+    if ~before || (e == k && after)
+        skip(v(k:e)) = true;
+    else
+        y(v(k:e)) = NaN;       % kept as NaN: breaks the line
+        y(v(k)) = floor_val;
+        if after
+            y(v(e)) = floor_val;
+        end
+    end
+    k = e + 1;
 end
-keep = ~isnan(y);
-if ~any(keep)                  % nothing to draw: one invisible point, so semilogy still returns a line handle
+keep = ~skip;
+if ~any(~isnan(y(keep)))       % nothing to draw: one invisible point, so semilogy still returns a line handle
+    keep = false(size(b));
     keep(1) = true;
+    y(1) = NaN;
 end
 x = snr(keep);
 y = y(keep);

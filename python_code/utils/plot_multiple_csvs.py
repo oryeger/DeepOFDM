@@ -633,6 +633,10 @@ def plot_csvs(filter_pattern=None, plot_all_iters=False, mat_out_dir=None, mat_n
             unique_files = []
 
             for file in seed_files:
+                # BER pattern also matches the _bler/_mi companions (same total_ber_* columns), so
+                # without a BER csv the BLER file would be read as BER - never use them for BER.
+                if plot_type == "BER" and (file.endswith("_bler.csv") or file.endswith("_mi.csv")):
+                    continue
                 match = re.search(search_pattern, file)
                 if match:
                     snr = int(match.group(1))

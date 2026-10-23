@@ -68,6 +68,11 @@ NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)(_bler|_mi)?\.csv$
 # longer gap stays open, so the seed counts as incomplete (see DROP_INCOMPLETE_SEEDS).
 INTERPOLATE_MISSING_PER_SEED = True
 MAX_INTERP_GAP = None   # None: no cap - fill any interior gap (as before); an int N: only gaps of <= N missing SNRs
+# Leading gap (the seed's curve starts above the figure's lowest SNR): when its first BLER is already
+# >= LEADING_FILL_MIN_BLER (saturated), the missing lower SNRs get BLER = 1.0 - BLER panel only (MI/BER
+# are not filled, so those panels average fewer seeds there). Listed as "BLER=1 filled:" in the note.
+FILL_LEADING_BLER_ONE = True
+LEADING_FILL_MIN_BLER = 0.99
 # After that fill: the SNR grid is the SNRs that more than half of the figure's seeds have in ANY mode
 # (with several seeds, a mode is not required at an SNR no seed ran it at).
 # A seed still missing any grid SNR of ANY mode (gaps at its ends, which are never extrapolated, or
@@ -212,6 +217,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     # Pass 1: per (mode, metric), every seed's curve, interior gaps filled (INTERPOLATE_MISSING_PER_SEED).
     curves = {m: {} for m in modes}    # mode -> met -> {seed: {snr: (escnn, ref)}}
     filled = {m: {} for m in modes}    # mode -> {seed: SNRs of its interpolated BLER points}
+    lead_filled = {m: {} for m in modes}   # mode -> {seed: leading SNRs set to BLER=1 (FILL_LEADING_BLER_ONE)}
     # SNRs to fill toward: what ANY mode of the figure has (any seed), so a lone seed's holes are filled too
     all_cfgs = {c for v in chosen.values() for c in cfgs(v)}
     want_all = {kind: sorted({snr for (c, k, seed, snr) in store
@@ -233,6 +239,19 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                         d[s_] = (fe[s_], fl[s_])
                     if met == "BLER":
                         filled[mode][seed] = set(fe)
+            if FILL_LEADING_BLER_ONE and met == "BLER":
+                for seed, d in per_seed.items():
+                    if not d:
+                        continue
+                    s0 = min(d)
+                    e0, l0 = d[s0]
+                    if e0 < LEADING_FILL_MIN_BLER:
+                        continue
+                    lead = [s_ for s_ in want_all[kind] if s_ < s0]
+                    for s_ in lead:   # reference likewise only when it is saturated too
+                        d[s_] = (1.0, 1.0 if l0 >= LEADING_FILL_MIN_BLER else np.nan)
+                    if lead:
+                        lead_filled[mode][seed] = set(lead)
             curves[mode][met] = dict(per_seed)
 
     # Pass 2 (DROP_INCOMPLETE_SEEDS): one seed set for the whole figure, so the modes stay comparable.
@@ -283,6 +302,8 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                 for m in modes}
     interp_pts = {m: {sd: sorted(s if m not in grids else s & grids[m]) for sd, s in filled[m].items()
                       if sd in keep and (s if m not in grids else s & grids[m])} for m in modes}
+    lead_pts = {m: {sd: sorted(s if m not in grids else s & grids[m]) for sd, s in lead_filled[m].items()
+                    if sd in keep and (s if m not in grids else s & grids[m])} for m in modes}
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
@@ -296,7 +317,9 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                     if mode not in grids or snr in grids[mode]:
                         per_snr[snr].append(v)
             for snr, v in per_snr.items():
-                data[mode][met][snr] = (np.mean([x[0] for x in v]), np.mean([x[1] for x in v]), len(v))
+                # reference: nanmean - a leading BLER=1 fill leaves it NaN when it isn't saturated too
+                ref_v = [x[1] for x in v if not np.isnan(x[1])]
+                data[mode][met][snr] = (np.mean([x[0] for x in v]), np.mean(ref_v) if ref_v else np.nan, len(v))
     if dropped:
         print(f"  averaged {len(keep)}/{len(all_seeds) + len(absent)} seeds in every mode; dropped "
               + ", ".join(f"s={sd} ({drop_txt[sd]})" for sd in dropped))
@@ -310,7 +333,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     return dict(data=data, modes=modes, all_modes=all_modes, title=title, ref_name=ref_name,
                 rate=rate, n_interp=n_interp, kept_seeds=sorted(keep), dropped_seeds=dropped,
                 dropped_why={sd: why[sd] for sd in dropped}, interp_pts=interp_pts,
-                dropped_txt=drop_txt,
+                dropped_txt=drop_txt, lead_pts=lead_pts,
                 snr_grid=sorted(fig_grid) if DROP_INCOMPLETE_SEEDS and all_seeds else [])
 
 
@@ -330,6 +353,10 @@ def write_seeds_note(agg, csv_path, config=None):
         pts = [f"s={sd} {m}@" + ",".join(f"{x:g}" for x in snrs)
                for m, d in agg.get("interp_pts", {}).items() for sd, snrs in sorted(d.items())]
         f.write("interpolated: " + ("; ".join(pts) or "-") + "\n")
+        lead = [f"s={sd} {m}@" + ",".join(f"{x:g}" for x in snrs)
+                for m, d in agg.get("lead_pts", {}).items() for sd, snrs in sorted(d.items())]
+        if lead:
+            f.write("BLER=1 filled: " + "; ".join(lead) + "\n")
         if config:
             f.write("config: " + config + "\n")
 

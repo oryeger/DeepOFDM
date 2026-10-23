@@ -41,14 +41,19 @@ LONG = lambda p: "\\\\?\\" + os.path.abspath(p)   # MAX_PATH-safe prefix
 
 # ---------------------------------------------------------------- discovery
 def base_csvs(tag):
-    """BER csvs only (skip _bler/_mi companions) for the given tag."""
-    out = []
+    """One name per run of the given tag, in BER-csv form: the BER csv itself, or - when only the
+    _bler companion was copied (no BER/_mi) - the _bler name with its suffix stripped. Discovery
+    only needs <ts>/<config>/<seed>/<SNR> from the name, so the BER file need not exist.
+    _mi files never count on their own."""
+    out = set()
     for p in glob.glob(os.path.join(SCRATCH, f"*_{tag}_s=*_SNR=*.csv")):
         n = os.path.basename(p)
-        if n.endswith("_bler.csv") or n.endswith("_mi.csv"):
+        if n.endswith("_mi.csv"):
             continue
-        out.append(n)
-    return out
+        if n.endswith("_bler.csv"):
+            n = n[:-len("_bler.csv")] + ".csv"
+        out.add(n)
+    return sorted(out)
 
 NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)\.csv$")
 

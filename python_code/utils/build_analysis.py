@@ -22,8 +22,9 @@ What it does, given experiment tag <tag>:
      the input of escnn_matlab\\master_plot_trk_bler_paper.m (seed-averaged: compare_avg_<i>.csv).
   6. Writes <tag>.html: Part 0 = tracking-mode comparisons, Part 1 = curves, Part 2 = histogram
      tables (rows = SNR, columns = detectors), each plot preceded by its parameters.
-A tag mixing several code rates / primary receivers gets one build per combination, as subdirs
-of a parent Analysis\\<tag>\\ (e.g. icpilot\\icpilot_R=0.59\\), with an index.html linking them.
+A tag mixing several modulations / code rates / primary receivers gets one build per combination,
+as subdirs of a parent Analysis\\<tag>\\ (e.g. icpilot\\icpilot_16Q_R=0.59\\), with an index.html
+linking them.
 Rerunning never overwrites a previous build: the newest build always lands at
 C:\\Projects\\Scratchpad\\Analysis\\<tag>\\ (no suffix). If that already exists, it - and any
 older <tag>_N builds - are shifted up by one index first (<tag> -> <tag>_2, <tag>_2 -> <tag>_3,
@@ -283,6 +284,17 @@ def _code_rate(k):
     """Value of the R=<code rate> token (e.g. '0.48'), or None if the key has none."""
     return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name == "R"), None)
 
+_MOD_TOKEN = re.compile(r"BPSK|QPSK|\d+Q")   # ekf.py/evaluate.py's mod_text (e.g. '16Q')
+
+def _modulation(k):
+    """Modulation token of a config ('BPSK'/'QPSK'/'16Q'/...), or None if the key has none."""
+    return next((tok for name, tok in _split_key_tokens(k)
+                 if name.startswith("bare_") and _MOD_TOKEN.fullmatch(tok)), None)
+
+def _mod_order(m):
+    """Sort key: BPSK < QPSK < 16Q < 64Q < ... (unknown/None last)."""
+    return {"BPSK": 2, "QPSK": 4}.get(m) or (int(m[:-1]) if m and m[:-1].isdigit() else 10**6)
+
 def _primary(k):
     """Primary receiver (which_augment) of a config: 'LMMSE'/'SPHERE'/'DEEPSIC'/'DEEPRX', or
     'NOAUG' when the key carries no recognised aug token (e.g. NO_AUGMENT)."""
@@ -291,26 +303,27 @@ def _primary(k):
     return pmc.detect_aug_type(k) or "NOAUG"
 
 def build(tag):
-    """One build per (code rate, primary receiver): a batch mixing several R= values and/or
-    several primary receivers gets a parent ANALYSIS/<tag>/ dir (index.html linking the builds)
-    holding a <tag>_R=<rate>_<PRIMARY>/ subdir + html per combination (only the axes that actually
-    vary go into the suffix); the parent is what gets rotated (<tag> -> <tag>_2, ...). A batch with
-    a single rate and primary keeps the plain ANALYSIS/<tag>/<tag>.html layout."""
+    """One build per (modulation, code rate, primary receiver): a batch mixing several of any of
+    these gets a parent ANALYSIS/<tag>/ dir (index.html linking the builds) holding a
+    <tag>_<MOD>_R=<rate>_<PRIMARY>/ subdir + html per combination (only the axes that actually
+    vary go into the suffix, e.g. icpilot_16Q_R=0.59); the parent is what gets rotated
+    (<tag> -> <tag>_2, ...). A batch with a single modulation, rate and primary keeps the plain
+    ANALYSIS/<tag>/<tag>.html layout."""
     purge_redundant_tw_variants(tag)
     cfgs = unique_configs(tag)
     if not cfgs:
         print(f"No CSVs found for tag '{tag}'"); return 1
     groups = {}
     for k in cfgs:
-        groups.setdefault((_code_rate(k), _primary(k)), []).append(k)
-    multi_rate = len({r for r, _ in groups}) > 1
-    multi_prim = len({a for _, a in groups}) > 1
+        groups.setdefault((_modulation(k), _code_rate(k), _primary(k)), []).append(k)
+    multi = [len({g[i] for g in groups}) > 1 for i in range(3)]   # mod, rate, primary
     if len(groups) == 1:
         return _build_one(tag, tag, list(cfgs))
-    def suffix(rate, prim):
-        return "".join(([f"_R={rate}"] if multi_rate else []) + ([f"_{prim}"] if multi_prim else []))
-    order = sorted(groups, key=lambda g: (str(g[0]), g[1]))
-    print(f"Tag '{tag}' mixes {len(groups)} code-rate/primary combinations -> one build each: "
+    def suffix(mod, rate, prim):
+        parts = [f"_{mod}", f"_R={rate}", f"_{prim}"]
+        return "".join(p for p, m in zip(parts, multi) if m)
+    order = sorted(groups, key=lambda g: (_mod_order(g[0]), str(g[1]), g[2]))
+    print(f"Tag '{tag}' mixes {len(groups)} modulation/code-rate/primary combinations -> one build each: "
           + ", ".join(suffix(*g).lstrip("_") for g in order))
     parent = _rotate_out_dir(tag)
     os.makedirs(parent, exist_ok=True)

@@ -63,14 +63,18 @@ NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)(_bler|_mi)?\.csv$
 # gaps only (between this seed's own first and last SNR; never extrapolated), before averaging, so
 # neighbouring points don't average different seed subsets. log10 interpolation for BLER/BER (linear
 # when a bracketing value is 0), linear for MI. Same idea as plot_multiple_csvs'
-# INTERPOLATE_MISSING_PER_SEED, without its gap cap.
+# INTERPOLATE_MISSING_PER_SEED. Only gaps of at most MAX_INTERP_GAP consecutive missing SNRs are
+# filled, from that seed's own neighbours (1: a missing X is filled only when X-1 and X+1 exist); a
+# longer gap stays open, so the seed counts as incomplete (see DROP_INCOMPLETE_SEEDS).
 INTERPOLATE_MISSING_PER_SEED = True
-# After that fill, per mode: the SNR grid is the SNRs that more than half of the figure's seeds have.
+MAX_INTERP_GAP = None   # None: no cap - fill any interior gap (as before); an int N: only gaps of <= N missing SNRs
+# After that fill: the SNR grid is the SNRs that more than half of the figure's seeds have in ANY mode
+# (with several seeds, a mode is not required at an SNR no seed ran it at).
 # A seed still missing any grid SNR of ANY mode (gaps at its ends, which are never extrapolated, or
 # no runs of that mode at all) is left out of EVERY mode's average, so all curves average the same
 # seed set and stay comparable; SNRs outside a mode's grid are not drawn. Decided on the BLER CSVs,
-# applied to every panel. The kept/dropped seeds go into the figure title. Single-seed figures are
-# unaffected.
+# applied to every panel. The kept/dropped seeds go into the figure title. If no seed is complete
+# (e.g. a single seed missing points of a listed mode), nothing is drawn for that table.
 DROP_INCOMPLETE_SEEDS = True
 
 
@@ -172,12 +176,21 @@ def _interp_interior(have, want, log):
             continue
         i = next(j for j, x in enumerate(xs) if x > s)
         x0, x1, y0, y1 = xs[i - 1], xs[i], have[xs[i - 1]], have[xs[i]]
+        if MAX_INTERP_GAP is not None and sum(1 for w in want if x0 < w < x1) > MAX_INTERP_GAP:   # gap too long - leave it open
+            continue
         a = (s - x0) / (x1 - x0)
         if log and y0 > 0 and y1 > 0:
             out[s] = 10 ** ((1 - a) * np.log10(y0) + a * np.log10(y1))
         else:
             out[s] = (1 - a) * y0 + a * y1
     return out
+
+
+def _why_txt(sd, why, have_n):
+    """'ekfbp 15/31 SNRs ekfht 29/31 SNRs': per incomplete mode of seed sd, how many of the grid's
+    SNRs it has (an interpolated point counts as had)."""
+    return " ".join(f"{m} {have_n[(sd, m)][0]}/{have_n[(sd, m)][1]} SNRs" if (sd, m) in have_n else m
+                    for m in why[sd])
 
 
 def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomplete="seeds"):
@@ -188,7 +201,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     (escnn, ref, n_seeds). snr_range=(lo, hi) keeps only SNRs in [lo, hi] (inclusive).
     chosen[label] may also be a tuple of config keys, pooled together (e.g. one per seed when each
     seed's run carries its own w=/r= hash).
-    incomplete (DROP_INCOMPLETE_SEEDS, several seeds only): what to leave out when a seed doesn't cover
+    incomplete (DROP_INCOMPLETE_SEEDS): what to leave out when a seed doesn't cover
     a mode's SNR grid - "seeds": that seed, from every mode (all modes shown, fewer seeds); "modes":
     that mode (every seed kept, only fully covered modes shown)."""
     all_modes = list(modes)   # color slots stay fixed even when incomplete="modes" hides some
@@ -217,23 +230,29 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
             curves[mode][met] = dict(per_seed)
 
     # Pass 2 (DROP_INCOMPLETE_SEEDS): one seed set for the whole figure, so the modes stay comparable.
-    # Per mode, the grid is the BLER SNRs held by more than half of the figure's seeds; a seed missing
-    # any grid SNR of ANY mode (or that mode altogether) is dropped from every mode. SNRs off a mode's
-    # grid are not drawn. A mode with no SNR held by more than half the seeds (e.g. most of its runs
-    # never finished) would get an empty grid, which every seed passes trivially - it would then be
-    # drawn empty while seeds lacking it stay in. Its grid is every SNR it has instead, so seeds that
-    # don't cover it are dropped like for any other mode.
+    # The grid is figure-wide: the BLER SNRs that more than half of the seeds have in ANY mode. Judging a
+    # mode only against its own seeds let a gap shared by half the seeds (e.g. 1 of 2) shrink that mode's
+    # grid instead of flagging the seeds. With several seeds a mode is not required at SNRs no seed ran
+    # it at; with one seed every mode must cover the figure-wide grid. A seed missing any grid SNR of ANY
+    # mode (or that mode altogether) is dropped from every mode; SNRs off a mode's grid are not drawn.
+    # If that leaves no seed (e.g. the only seed is incomplete), nothing is drawn for the table.
     all_seeds = sorted({sd for m in modes for d in curves[m].values() for sd in d})
     keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
-    if DROP_INCOMPLETE_SEEDS and len(all_seeds) > 1:
+    have_n = {}   # (seed, mode) -> (grid SNRs the seed has, grid size), for incomplete pairs
+    if DROP_INCOMPLETE_SEEDS and all_seeds:
+        fig_cover = collections.Counter(
+            snr for sd in all_seeds
+            for snr in set().union(*(curves[m]["BLER"].get(sd, {}).keys() for m in modes)))
+        fig_grid = {snr for snr, n in fig_cover.items() if n > len(all_seeds) / 2}
         for mode in modes:
             bl = curves[mode]["BLER"]
-            cover = collections.Counter(snr for d in bl.values() for snr in d)
-            grids[mode] = {snr for snr, n in cover.items() if n > len(all_seeds) / 2} or set(cover)
+            ran = {snr for d in bl.values() for snr in d}
+            grids[mode] = fig_grid if len(all_seeds) == 1 else fig_grid & ran
             for sd in all_seeds:
                 if not grids[mode] <= set(bl.get(sd, {})):
                     keep.discard(sd)
                     why[sd].append(mode)
+                    have_n[(sd, mode)] = (len(grids[mode] & set(bl.get(sd, {}))), len(grids[mode]))
         if incomplete == "modes":
             bad = {m for ms in why.values() for m in ms}
             if bad == set(modes):
@@ -246,13 +265,18 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                 title = f"{title}  [all {len(all_seeds)} seeds; modes left out: {', '.join(m for m in modes if m in bad)}]"
                 modes = [m for m in modes if m not in bad]
             keep, why = set(all_seeds), collections.defaultdict(list)
-        elif not keep:   # nothing covers everything - fall back to the raw per-SNR averages
-            print("  [WARN] no seed covers every mode's SNR grid - averaging every available seed per point")
-            keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
+        elif not keep:   # no seed covers every mode's grid (e.g. the only seed is incomplete) - draw nothing
+            print("  [WARN] no seed covers every mode's SNR grid - nothing is drawn for this table")
     dropped = sorted(set(all_seeds) - keep)
+    absent = sorted(set(seeds) - set(all_seeds)) if seeds else []   # requested, but no runs in the data at all
+    drop_txt = {sd: "incomplete: " + _why_txt(sd, why, have_n) for sd in dropped}
+    drop_txt.update({sd: "no runs found" for sd in absent})
+    dropped = sorted(dropped + absent)
     # only interpolated points that are actually drawn (kept seed, on the mode's grid)
     n_interp = {m: sum(len(s if m not in grids else s & grids[m]) for sd, s in filled[m].items() if sd in keep)
                 for m in modes}
+    interp_pts = {m: {sd: sorted(s if m not in grids else s & grids[m]) for sd, s in filled[m].items()
+                      if sd in keep and (s if m not in grids else s & grids[m])} for m in modes}
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
@@ -268,8 +292,8 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
             for snr, v in per_snr.items():
                 data[mode][met][snr] = (np.mean([x[0] for x in v]), np.mean([x[1] for x in v]), len(v))
     if dropped:
-        print(f"  averaged {len(keep)}/{len(all_seeds)} seeds in every mode; dropped "
-              + ", ".join(f"s={sd} (incomplete: {' '.join(why[sd])})" for sd in dropped))
+        print(f"  averaged {len(keep)}/{len(all_seeds) + len(absent)} seeds in every mode; dropped "
+              + ", ".join(f"s={sd} ({drop_txt[sd]})" for sd in dropped))
         title = f"{title}  [seeds {','.join(map(str, sorted(keep)))}; dropped {','.join(map(str, dropped))}]"
     # code rate from the R=<r> token (same for all modes after --filter, else taken from the first)
     rate = next((float(t[2:]) for t in cfgs(chosen[modes[0]])[0].split("_") if t.startswith("R=")), None)
@@ -279,7 +303,9 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     ref_name = ref_names.pop() if len(ref_names) == 1 else "LMMSE"
     return dict(data=data, modes=modes, all_modes=all_modes, title=title, ref_name=ref_name,
                 rate=rate, n_interp=n_interp, kept_seeds=sorted(keep), dropped_seeds=dropped,
-                dropped_why={sd: why[sd] for sd in dropped})
+                dropped_why={sd: why[sd] for sd in dropped}, interp_pts=interp_pts,
+                dropped_txt=drop_txt,
+                snr_grid=sorted(fig_grid) if DROP_INCOMPLETE_SEEDS and all_seeds else [])
 
 
 def write_seeds_note(agg, csv_path, config=None):
@@ -289,9 +315,15 @@ def write_seeds_note(agg, csv_path, config=None):
     re-average just the modes/seeds it draws."""
     path = os.path.splitext(csv_path)[0] + "_seeds.txt"
     with open(LONG(path), "w") as f:
-        f.write("averaged seeds: " + " ".join(map(str, agg["kept_seeds"])) + "\n")
-        f.write("dropped seeds: " + (", ".join(f"{sd} (incomplete: {' '.join(agg['dropped_why'][sd])})"
+        f.write("averaged seeds: " + (" ".join(map(str, agg["kept_seeds"])) or "- (nothing drawn)") + "\n")
+        f.write("dropped seeds: " + (", ".join(f"{sd} ({agg.get('dropped_txt', {}).get(sd) or 'incomplete: ' + ' '.join(agg['dropped_why'][sd])})"
                                                for sd in agg["dropped_seeds"]) or "-") + "\n")
+        left = [m for m in agg.get("all_modes", []) if m not in agg["modes"]]
+        if left:
+            f.write("left out modes (incomplete): " + " ".join(left) + "\n")
+        pts = [f"s={sd} {m}@" + ",".join(f"{x:g}" for x in snrs)
+               for m, d in agg.get("interp_pts", {}).items() for sd, snrs in sorted(d.items())]
+        f.write("interpolated: " + ("; ".join(pts) or "-") + "\n")
         if config:
             f.write("config: " + config + "\n")
 
@@ -300,7 +332,8 @@ def table_rows(agg):
     """Per-SNR rows of an aggregate() result: SNR, <ref>_BLER, then <mode>_BLER/_MI/_BER per mode
     (NaN where a mode has no point) - the CSV escnn_matlab\\master_plot_trk_bler_paper.m reads."""
     data, modes, ref_name = agg["data"], agg["modes"], agg["ref_name"]
-    grid = sorted({s for m in data.values() for d in m.values() for s in d})
+    # no kept seed -> all-NaN rows on the figure's SNR grid, so the table (and its subplot) is empty
+    grid = sorted({s for m in data.values() for d in m.values() for s in d}) or agg.get("snr_grid", [])
     rows = []
     for s in grid:
         row = {"SNR": s, f"{ref_name}_BLER": data[modes[0]]["BLER"].get(s, (np.nan,) * 3)[1]}

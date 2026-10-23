@@ -38,12 +38,19 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-%titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-modes      = {'notrack', 'ekfcrc', 'ekfbp', 'ekfht', 'sgdht', 'ekfit'};   % legend order (ref is drawn first)
+analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+%seeds = [17 41 58 123 1011 1505 1806 1809];
+seeds = [58 123];
+titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+
+%analysis_dir = {'ilmseed', 'isdseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+%titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
 %seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-seeds      = [17 123];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+%seeds      = [17 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+
+modes      = {'notrack', 'ekfht', 'ekfbp', 'sgdht', 'ekfcrc', 'ekfit'};   % drawing order (ref first; later = on top) -
+                          % ekfcrc after ekfht so the thin EKF-CRC line shows on the thick EKF-CRC+syn. one.
+                          % Legend order: PAIR.order (pair) / this order (single)
 recompute  = true;        % true = re-average for `modes`/`seeds` (see above); false = tables as is
 zipfile    = '';          % recompute only: '' = loose result CSVs in Scratchpad, else the archive name
                           % (side-by-side: '' lets each folder find its own Scratchpad\<tag>.gz)
@@ -57,7 +64,7 @@ y_min      = 2e-3;        % bottom of the BLER axis; [] = automatic (the decade 
 bler_min_drawn = 2e-3;    % points below this are not drawn - the curve drops off the axis at its
                           % first such point (like BLER = 0), so isolated one- or two-error points
                           % in the tail disappear. [] = draw every point (default: y_min)
-clip_y     = true;        % true = apply y_min / bler_min_drawn above; false = automatic axis
+clip_y     = false;        % true = apply y_min / bler_min_drawn above; false = automatic axis
                           % bottom and every point drawn (both treated as [])
 
 % ---- Side-by-side layout (two folders only) - drawn like master_plot_mi_bler.m: 7" wide,
@@ -87,10 +94,14 @@ if ~clip_y
     bler_min_drawn = [];
 end
 
-% mode -> {legend, color, line style, marker, line width}
+% mode -> {legend, color, line style, marker, line width[, marker face[, marker SNRs[, marker +pt]]]}
+%   marker face: '' or omitted = the line color (filled); 'none' = open marker
+%   marker SNRs: '' or omitted = every drawn point; 'odd' / 'even' = only at odd / even SNRs, to stagger
+%   the markers of curves that coincide (ekfcrc / ekfht)
+%   marker +pt: points added to the marker size (e.g. so open markers on top of another curve show)
 STYLE = containers.Map();
 STYLE('notrack')  = {'No adaptation',          [0.00 0.00 0.00], '-',  'o', 0.9};
-STYLE('ekfcrc')   = {'EKF, CRC',               [0.00 0.45 0.74], '-',  's', 0.9};
+STYLE('ekfcrc')   = {'EKF, CRC',               [0.00 0.45 0.74], '-',  's', 0.5, 'none', '', -1};   % very thin, small open markers - drawn over ekfht
 STYLE('ekfbp')    = {'EKF, syn.',              [0.93 0.49 0.09], '-',  '^', 0.9};
 STYLE('ekfht')    = {'EKF, CRC+syn.',          [0.80 0.10 0.10], '-',  'p', 1.4};
 STYLE('ekfit')    = {'EKF, genie',             [0.13 0.55 0.13], '-',  'd', 0.9};
@@ -196,6 +207,15 @@ if isempty(tables)
     end
 end
 if isempty(tables)
+    % a tag split per modulation / code rate / primary: the tables sit in its subfolders
+    subs = dir(dir_path);
+    subs = {subs([subs.isdir] & ~startsWith({subs.name}, '.')).name};
+    subs = subs(cellfun(@(s) ~isempty(dir(fullfile(dir_path, s, 'compare_*.csv'))), subs));
+    if ~isempty(subs)
+        error(['master_plot_trk_bler_paper: %s is a parent folder (build_analysis split the tag per ', ...
+               'modulation / code rate / primary) - set analysis_dir to one of its subfolders: %s'], ...
+              dir_path, strjoin(strcat('''', subs, ''''), ', '));
+    end
     error(['master_plot_trk_bler_paper: no compare_*.csv tables in %s - build_analysis.py writes ', ...
            'them only for configurations run with at least two tracking modes.'], dir_path);
 end
@@ -313,9 +333,9 @@ keys    = {};
 labels  = {};
 all_pos = [];
 
-[y, ~] = waterfall(T.(ref_col)(:)', FLOOR, bler_min_drawn);
+[x, y, ~] = waterfall(snr, T.(ref_col)(:)', FLOOR, bler_min_drawn);
 all_pos = [all_pos, y(y > FLOOR)];
-handles(end+1) = semilogy(ax, snr, y, 'Color', REF_STYLE{1}, 'LineStyle', REF_STYLE{2}, ...
+handles(end+1) = semilogy(ax, x, y, 'Color', REF_STYLE{1}, 'LineStyle', REF_STYLE{2}, ...
     'Marker', REF_STYLE{3}, 'LineWidth', REF_STYLE{4} * lw_scale);
 keys{end+1}   = 'ref';
 labels{end+1} = '';
@@ -332,11 +352,23 @@ for i = 1:numel(modes)
         continue;
     end
     st = STYLE(m);
-    [y, mk] = waterfall(T.(col)(:)', FLOOR, bler_min_drawn);
+    [x, y, mk] = waterfall(snr, T.(col)(:)', FLOOR, bler_min_drawn);
+    mk_plus = 0;                                    % extra marker size (see STYLE)
+    if numel(st) >= 8 && ~isempty(st{8})
+        mk_plus = st{8};
+    end
+    face = st{2};                                   % marker face (see STYLE)
+    if numel(st) >= 6 && ~isempty(st{6})
+        face = st{6};
+    end
+    if numel(st) >= 7 && ~isempty(st{7})            % staggered markers: odd / even SNRs only
+        mk = mk(mod(round(x(mk)), 2) == strcmp(st{7}, 'odd'));
+    end
     all_pos = [all_pos, y(y > FLOOR)]; %#ok<AGROW>
-    handles(end+1) = semilogy(ax, snr, y, 'Color', st{2}, 'LineStyle', st{3}, 'Marker', st{4}, ...
-        'MarkerIndices', mk, 'MarkerFaceColor', st{2}, ...
-        'MarkerSize', marker_size + strcmp(st{4}, 'p'), 'LineWidth', st{5} * lw_scale); %#ok<AGROW>
+    handles(end+1) = semilogy(ax, x, y, 'Color', st{2}, 'LineStyle', st{3}, 'Marker', st{4}, ...
+        'MarkerIndices', mk, 'MarkerFaceColor', face, ...
+        'MarkerSize', marker_size + strcmp(st{4}, 'p') + mk_plus, ...
+        'LineWidth', st{5} * lw_scale); %#ok<AGROW>
     keys{end+1}   = m;     %#ok<AGROW>
     labels{end+1} = st{1}; %#ok<AGROW>
 end
@@ -346,10 +378,12 @@ xlabel(ax, 'SNR [dB]');
 ylabel(ax, 'BLER');
 xlim(ax, [min(snr), max(snr)]);
 % y from the decade below the lowest drawn point up to 1 (whole decades, clean ticks)
-if isempty(y_min)
-    y_lo = 10 ^ floor(log10(min(all_pos)));
-else
+if ~isempty(y_min)
     y_lo = y_min;
+elseif isempty(all_pos)   % nothing drawn: no complete seed (see the seeds note)
+    y_lo = 0.1;             % high, so PAIR.same_ylim takes the other subplot's range
+else
+    y_lo = 10 ^ floor(log10(min(all_pos)));
 end
 set_bler_ylim(ax, y_lo);
 set(ax, 'GridColor', [0.80 0.80 0.80], 'GridAlpha', 1, 'MinorGridColor', [0.90 0.90 0.90], ...
@@ -485,19 +519,29 @@ savefig(fig, [out_name, '.fig']);
 fprintf('Saved %s.{eps,pdf,png,fig}\n', out_name);
 end
 
-function [y, mk] = waterfall(b, floor_val, y_min)
+function [x, y, mk] = waterfall(snr, b, floor_val, y_min)
+% Returns the points to draw (x, y) and the marker indices into them.
+% A BLER = 0 with a non-zero point at a higher SNR (a lucky error-free point inside the
+% curve) is skipped, so the line connects its neighbours; so are missing SNRs (NaN).
+last_pos = find(b > 0, 1, 'last');
+if ~isempty(last_pos)
+    inner = false(size(b));
+    inner(1:last_pos) = true;
+    b(inner & b == 0) = NaN;
+end
 % y_min (optional, non-empty): values below it count as 0 (not resolved on this axis).
-if nargin > 2 && ~isempty(y_min)
+if nargin > 3 && ~isempty(y_min)
     b(b < y_min) = 0;
 end
 % BLER = 0 (no block errors) can't be drawn on a log axis: the first zero after
 % a non-zero point becomes floor_val (line drops straight off the axis, no
-% marker there), further zeros and missing SNRs (NaN) leave the line broken.
+% marker there), further zeros are not drawn.
 y = b;
 prev = NaN;
 for k = 1:numel(b)
     if isnan(b(k))
         y(k) = NaN;
+        continue;              % skipped point: prev stays the last drawn one
     elseif b(k) > 0
         y(k) = b(k);
     elseif ~isnan(prev) && prev > floor_val
@@ -507,5 +551,8 @@ for k = 1:numel(b)
     end
     prev = y(k);
 end
-mk = find(~isnan(y) & y > floor_val);
+keep = ~isnan(y);
+x = snr(keep);
+y = y(keep);
+mk = find(y > floor_val);
 end

@@ -212,6 +212,12 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     # Pass 1: per (mode, metric), every seed's curve, interior gaps filled (INTERPOLATE_MISSING_PER_SEED).
     curves = {m: {} for m in modes}    # mode -> met -> {seed: {snr: (escnn, ref)}}
     filled = {m: {} for m in modes}    # mode -> {seed: SNRs of its interpolated BLER points}
+    # SNRs to fill toward: what ANY mode of the figure has (any seed), so a lone seed's holes are filled too
+    all_cfgs = {c for v in chosen.values() for c in cfgs(v)}
+    want_all = {kind: sorted({snr for (c, k, seed, snr) in store
+                              if c in all_cfgs and k == kind and (seeds is None or seed in seeds)
+                              and (snr_range is None or snr_range[0] <= snr <= snr_range[1])})
+                for _, kind, _, _ in METRICS}
     for mode, config in chosen.items():
         for met, kind, scale, agg in METRICS:
             per_seed = collections.defaultdict(dict)
@@ -219,7 +225,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                 if c in cfgs(config) and k == kind and (seeds is None or seed in seeds)                         and (snr_range is None or snr_range[0] <= snr <= snr_range[1]):
                     per_seed[seed][snr] = (e.mean(), l.mean())
             if INTERPOLATE_MISSING_PER_SEED:
-                want = sorted({snr for d in per_seed.values() for snr in d})
+                want = want_all[kind]
                 for seed, d in per_seed.items():
                     fe = _interp_interior({s_: v[0] for s_, v in d.items()}, want, scale == "log")
                     fl = _interp_interior({s_: v[1] for s_, v in d.items()}, want, scale == "log")

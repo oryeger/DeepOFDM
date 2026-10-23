@@ -38,15 +38,15 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-%seeds = [17 41 58 123 1011 1505 1806 1809];
-seeds = [58 123];
-titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+% analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+% seeds = [17 41 58 123 1011 1505 1806 1809];
+% seeds = [58 123];
+% titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
 
-%analysis_dir = {'ilmseed', 'isdseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-%titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-%seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-%seeds      = [17 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+seeds      = [17 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 
 modes      = {'notrack', 'ekfht', 'ekfbp', 'sgdht', 'ekfcrc', 'ekfit'};   % drawing order (ref first; later = on top) -
                           % ekfcrc after ekfht so the thin EKF-CRC line shows on the thick EKF-CRC+syn. one.
@@ -552,6 +552,9 @@ for k = 1:numel(b)
     prev = y(k);
 end
 keep = ~isnan(y);
+if ~any(keep)                  % nothing to draw: one invisible point, so semilogy still returns a line handle
+    keep(1) = true;
+end
 x = snr(keep);
 y = y(keep);
 mk = find(y > floor_val);

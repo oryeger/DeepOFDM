@@ -38,19 +38,19 @@
 clear; clc;
 
 % ---- User configuration ----
-analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-seeds = [17 41 58 123 1011 1505 1806 1809];
-seeds = [58 123];
-titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-zoom_xlim  = {};          % side-by-side only: zoom inset per subplot (see PAIR.zoom_pos); {} = none
-zoom_ylim  = {};
+% analysis_dir = {'itr5nk', 'itrknk'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+% seeds = [17 41 58 123 1011 1505 1806 1809];
+% seeds = [58 123];
+% titles     = {'Code rate 0.37', 'Code rate 0.48'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+% zoom_xlim  = {};          % side-by-side only: zoom inset per subplot (see PAIR.zoom_pos); {} = none
+% zoom_ylim  = {};
 
-% analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
-% titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
-% zoom_xlim  = {[11.5 14.5], [11 14]};     % SNR range (dB) of each subplot's zoom inset, around the 10% BLER crossing
-% zoom_ylim  = {[5e-2 1.5e-1], [5e-2 1.5e-1]}; % BLER range of each inset
-% seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
-% seeds      = [17 1505 123];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+analysis_dir = {'ilmseed', 'idsseed'};   % one folder (char) or two folders (cell) under C:\Projects\Scratchpad\Analysis (or full paths)
+titles     = {'LMMSE', 'DeepSIC'};       % side-by-side only: subplot titles; {} = the reference name from each CSV
+zoom_xlim  = {[11.5 14.5], [11 14]};     % SNR range (dB) of each subplot's zoom inset, around the 10% BLER crossing
+zoom_ylim  = {[5e-2 1.5e-1], [5e-2 1.5e-1]}; % BLER range of each inset
+seeds      = [17 123 1011 1505];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
+seeds      = [17 1505 123];          % [] = every seed complete for `modes`; or e.g. [58 123 1011 1505]
 
 modes      = {'notrack', 'ekfbp', 'sgdht', 'ekfit', 'ekfht', 'ekfcrc'};   % drawing order (ref first; later = on top) -
                           % ekfht (the proposed method) on top of every curve except ekfcrc, which comes last
@@ -92,6 +92,10 @@ PAIR.bold   = {'ekfht'};        % legend entries drawn in bold (the proposed met
 PAIR.marker_size      = 5;
 PAIR.lw_scale         = 1.5;        % multiplies the STYLE line widths (figure is shrunk ~2x in the paper)
 PAIR.shrink           = 0.18;       % room left under the axes for the legend + xlabel (0.14 in master_plot_mi_bler, 2-row legend)
+PAIR.show_legend      = false;       % false = no legend (a second figure with the same curves, captioned
+                                    % "legend as in Fig. X"): the figure is cut below the xlabel so the axes
+                                    % keep exactly their size with the legend; saved as *_nolegend.*
+PAIR.xlabel_room      = 0.42;       % show_legend = false only: inches kept under the axes (ticks + "SNR [dB]")
 PAIR.same_ylim        = true;       % both subplots get the same BLER range
 PAIR.zoom_enable      = false;      % true = draw the zoom insets set by zoom_xlim / zoom_ylim (next to analysis_dir)
 PAIR.zoom_xlim        = zoom_xlim;
@@ -518,6 +522,22 @@ for d = 1:2
     ax(d).Position = [pos(1), pos(2) + P.shrink, pos(3), pos(4) - P.shrink];
 end
 
+% No legend: remove it and cut the figure from the bottom up to P.xlabel_room under the axes,
+% keeping the axes' absolute size (so the plots match the figure drawn with the legend)
+fig_size = P.fig_size;
+if ~P.show_legend
+    delete(lgd);
+    set(ax, 'Units', 'inches');                 % axes keep their inch geometry while the figure shrinks
+    cut_in = min(arrayfun(@(a) a.Position(2), ax)) - P.xlabel_room;
+    fig_size(2) = fig_size(2) - cut_in;
+    fig.Position(4) = fig_size(2);
+    for d = 1:2
+        ax(d).Position(2) = ax(d).Position(2) - cut_in;
+    end
+    set(ax, 'Units', 'normalized');
+    out_name = [out_name, '_nolegend'];
+end
+
 % Zoom insets - after the layout is final, as the connectors are placed in figure coordinates
 for d = 1:2
     if numel(P.zoom_xlim) >= d && ~isempty(P.zoom_xlim{d})
@@ -525,7 +545,7 @@ for d = 1:2
     end
 end
 
-export_fig_set(fig, out_name, P.fig_size);
+export_fig_set(fig, out_name, fig_size);
 end
 
 function add_zoom_inset(ax, zoom_xlim, zoom_ylim, inset_pos_norm, font_size)

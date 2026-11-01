@@ -30,7 +30,7 @@ from python_code.utils.probs_utils import skip_indices
 
 from python_code.utils.constants import (TRAIN_PERCENTAGE, GENIE_CFO, DMRS_NUM_PAYLOAD_SYMB,
                                          FFT_size, FIRST_CP, CP, NUM_SYMB_PER_SLOT, NUM_SAMPLES_PER_SLOT)
-from python_code.coding.dmrs_pilots import lmmse_equalize_with_H, genie_ici_noise_var
+from python_code.coding.dmrs_pilots import lmmse_equalize_with_H, lmmse_equalize_mmse, genie_ici_noise_var
 
 import pandas as pd
 
@@ -1203,7 +1203,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     # per-symbol branch) - feeds LMMSE's reported metrics and ESCNN's
                     # augmentation input directly, no group-boundary loop needed here.
                     H_re = H_dmrs_est[:, re, :, :]
-                    equalized, postEqSINR = lmmse_equalize_with_H(H_re, rx_c, noise_var_dmrs_est, re)
+                    # MMSE-correct regularizer (sigma^2/Es) - see lmmse_equalize_mmse.
+                    equalized, postEqSINR = lmmse_equalize_mmse(H_re, rx_c, noise_var_dmrs_est, re, mod_data)
                     H = H_re[0]                    # representative single matrix (constant within
                     noise_var = noise_var_dmrs_est[0]  # group 0) for Sphere/accumulator/debug below
                 else:

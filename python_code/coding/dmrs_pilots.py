@@ -31,12 +31,17 @@ CONSTELLATION_FACTOR = {2: 1, 4: 2, 16: 10, 64: 42, 256: 170}
 
 # These are concrete numbers from the DMRS design, not tunables, so they're kept as
 # constants rather than new config.yaml keys.
-DMRS_POWER_BOOST_DB = 3.0     # extra pilot EPRE (dB) at n_users==1 only, where the
-                               # 'odd' comb sits completely unused for DMRS (see
-                               # dmrs_known_tx/dmrs_layout) - n_users in (2, 4)
-                               # already occupy every comb RE, so no spare budget to
-                               # redistribute and no boost
 DMRS_DELAY_TRUNC_MARGIN = 12  # fallback window for non-TDL models: margin * delay_spread (see _dd_fallback_extent)
+# DMRS EPRE relative to the payload's own Es (CONSTELLATION_FACTOR[mod_data]), per user/layer.
+# 38.214 Table 6.2.2-1: DMRS with no data on its symbols and both comb CDM groups unavailable for
+# data -> DMRS is +3 dB over PUSCH data EPRE. Applies at every n_users here, since no user ever
+# transmits on the other comb's REs (dmrs_layout). (Previously: QPSK energy CONSTELLATION_FACTOR[4]
+# regardless of mod_data, +3 dB at n_users==1 only - 7 dB below 16QAM data at n_users 2/4, measured
+# with utils/dmrs_ce_diag.py as ~3.5 dB of the LMMSE loss vs genie CSI at n_users=4.)
+DMRS_EPRE_OFFSET_DB = 3.0
+# Successive-cancellation passes after the pairwise FD-OCC pass (n_users==4 only) - see
+# estimate_channel_from_dmrs. 2 vs 4 passes differ by <1 dB NMSE (utils/dmrs_ce_diag.py).
+DMRS_OCC_SIC_ITERS = 2
 
 # 3GPP 38.901 Tables 7.7.2-1..5: last-path delay of TDL-A..E in units of the RMS delay spread.
 # Used only for the fallback delay-domain window (no noise estimate available - see
@@ -98,21 +103,15 @@ def dmrs_reference_values(rng: np.random.Generator, num_res: int) -> dict:
     return {'even': _qpsk(n_even_pairs), 'odd': _qpsk(n_odd_pairs)}
 
 
-def dmrs_known_tx(layout: dict, ref_values: dict, n_users: int) -> dict:
+def dmrs_known_tx(layout: dict, ref_values: dict, n_users: int, mod_data: int) -> dict:
     """Per user: {'occ_active': bool, 'entries': [(re_a, re_b_or_None, val_a, val_b_or_None), ...]}
     - the exact known complex symbol each of that user's DMRS REs carries (comb reference value
-    x OCC sign x amplitude). DMRS is always QPSK, independent of whatever modulation the payload
-    (mod_data) uses, so amplitude is fixed at QPSK's own nominal per-RE energy
-    (CONSTELLATION_FACTOR[4] - the same Es convention noise_var is derived from, just always at
-    QPSK's value rather than the payload's) - plus the +3dB (linear sqrt(2) amplitude) boost only
-    at n_users==1, where the 'odd' comb sits completely unused for DMRS (see dmrs_layout) so the
-    freed budget goes entirely into the one active port; at n_users==2 both combs are already
-    occupied (one user each, no spare to redistribute), same as n_users==4's OCC-shared case, so
-    neither gets a boost. Shared by build_dmrs_tx_symbols (what gets transmitted) and
-    estimate_channel_from_dmrs (what the LS/deocc division uses)."""
-    amp = np.sqrt(CONSTELLATION_FACTOR[4])  # DMRS's own (QPSK) reference energy, not mod_data's
-    if n_users == 1:
-        amp *= 10 ** (DMRS_POWER_BOOST_DB / 20.0)  # dB -> linear amplitude factor
+    x OCC sign x amplitude). DMRS values are QPSK (dmrs_reference_values) whatever the payload
+    modulation, but their EPRE follows the payload's: CONSTELLATION_FACTOR[mod_data] (the Es that
+    noise_var is derived from) + DMRS_EPRE_OFFSET_DB, at every n_users (see DMRS_EPRE_OFFSET_DB).
+    Shared by build_dmrs_tx_symbols (what gets transmitted) and estimate_channel_from_dmrs (what
+    the LS/deocc division uses)."""
+    amp = np.sqrt(CONSTELLATION_FACTOR[mod_data]) * 10 ** (DMRS_EPRE_OFFSET_DB / 20.0)
     out = {}
     for user, info in layout.items():
         ref = ref_values[info['comb']]
@@ -285,7 +284,7 @@ def _genie_pilot_ici_var(known_tx: dict, user: int, num_res: int, h_pwr: float) 
 
 
 def _mirror_dd_interpolate(p: np.ndarray, pos: np.ndarray, num_res: int, sigma2_p: float,
-                           delta_f: float, full: bool = False):
+                           delta_f: float, full: bool = False, c_cap: int = None):
     """Delay-domain denoise + interpolate one user's pilot estimates, all antennas at once.
 
     p: (M, n_ants) LS pilot estimates at uniformly spaced RE positions pos (spacing S, possibly a
@@ -316,7 +315,8 @@ def _mirror_dd_interpolate(p: np.ndarray, pos: np.ndarray, num_res: int, sigma2_
     n_signed = np.fft.fftfreq(N) * N                                         # 0..M-1, -M..-1
 
     c_min = int(np.ceil(DD_FILTER_SPILL_SAMPLES / SAMPLING_RATE / bin_w)) + 1
-    c_max = M - 1
+    c_max = M - 1 if c_cap is None else max(min(M - 1, int(c_cap)), 0)
+    c_min = min(c_min, c_max)
     if full:
         c = c_max
     elif sigma2_p is not None and sigma2_p > 0:
@@ -394,7 +394,7 @@ def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: in
     #
     # Residual on the RAW (undivided, uncombined) rx samples, not on the LS estimates - dividing
     # by val_a/val_b first would scale the residual by the DMRS reference amplitude (which includes
-    # DMRS_POWER_BOOST_DB and CONSTELLATION_FACTOR[4]). h_true*val is constant across occasions
+    # DMRS_EPRE_OFFSET_DB and CONSTELLATION_FACTOR[mod_data]). h_true*val is constant across occasions
     # (block fading + val doesn't vary per occasion), so raw - mean(raw) equals
     # noise - mean(noise) regardless of amplitude or FD-OCC combining.
     noise_var_terms = []
@@ -456,6 +456,52 @@ def estimate_channel_from_dmrs(rx_dmrs: torch.Tensor, known_tx: dict, n_ants: in
             H_untrunc[:, :, user], _, _ = _mirror_dd_interpolate(pair_est, pair_pos, num_res, None, delta_f,
                                                                   full=True)
 
+    # FD-OCC successive cancellation (n_users == 4): the pairwise FD-OCC
+    # combine assumes each user's channel is equal on the two REs of a pair (2 subcarriers apart),
+    # so the comb partner leaks in by half its channel's difference across the pair - a signal-
+    # proportional error that floors NMSE at ~-24 dB on TDL-C 300 ns (utils/dmrs_ce_diag.py). Here,
+    # starting from the pairwise estimates, every user's per-RE LS is recomputed on ALL of its comb
+    # REs (spacing 2, no deocc) after subtracting its comb partner's current reconstruction, then
+    # re-interpolated with the same _mirror_dd_interpolate. Jacobi update (all users from the previous
+    # pass), DMRS_OCC_SIC_ITERS passes. No-op unless some user is occ_active (n_users == 4).
+    if any(i['occ_active'] for i in known_tx.values()):
+        val_map = {u: {} for u in known_tx}
+        for u, info in known_tx.items():
+            for re_a, re_b, val_a, val_b in info['entries']:
+                val_map[u][re_a] = val_a
+                if re_b is not None:
+                    val_map[u][re_b] = val_b
+        partners = {u: [v for v in known_tx if v != u and set(val_map[v]) == set(val_map[u])]
+                    for u in known_tx}
+        rx_mean = rx_np.mean(axis=0)                                           # (n_ants, num_res)
+        nv_rx_all = (float(np.mean(noise_var_terms)) * dof_corr
+                     if (noise_var_terms and dof_corr is not None) else None)
+        for _ in range(DMRS_OCC_SIC_ITERS):
+            H_prev = H.copy()
+            for u in known_tx:
+                res = np.array(sorted(val_map[u]))
+                vals = np.array([val_map[u][r] for r in res])
+                resid = rx_mean[:, res].copy()                                 # (n_ants, M)
+                for v in partners[u]:
+                    vals_v = np.array([val_map[v][r] for r in res])
+                    resid -= H_prev[res, :, v].T * vals_v[None, :]
+                p = (resid / vals[None, :]).T                                  # (M, n_ants)
+                if nv_rx_all is not None:
+                    sigma2_p = nv_rx_all * float(np.mean(1.0 / np.abs(vals) ** 2)) / num_occ
+                    # _genie_pilot_ici_var halves its term for occ_active users (deocc averaging),
+                    # which this per-RE estimate doesn't do - undo that. 0.0 when cfo == 0.
+                    ici = _genie_pilot_ici_var(known_tx, u, num_res, float(np.mean(np.abs(p) ** 2)))
+                    sigma2_p += ici * (2.0 if known_tx[u]['occ_active'] else 1.0)
+                else:
+                    sigma2_p = None
+                # The partner's residual error enters p modulated by its OCC sign ratio, which
+                # alternates every comb RE -> it sits at the far (Nyquist) end of the delay axis.
+                # Cap the window at half the delay span so the MSE rule can't open up to "fit" it.
+                H[:, :, u], c_bins, bin_w = _mirror_dd_interpolate(p, res.astype(float), num_res,
+                                                                    sigma2_p, delta_f,
+                                                                    c_cap=res.size // 2 - 1)
+                dd_window_s[u] = c_bins * bin_w
+
     result = {'H': torch.from_numpy(H), 'dd_window_s': dd_window_s}
     if return_untruncated:
         result['H_untrunc'] = torch.from_numpy(H_untrunc)
@@ -502,3 +548,17 @@ def lmmse_equalize_with_H(H: torch.Tensor, rx_c: torch.Tensor, noise_var, re: in
             equalized[i, :] = torch.matmul(W_i.cpu(), rx_c[i, :, re]) / bias_i.cpu()
             postEqSINR[i, :] = (bias_i / (1 - bias_i)).cpu()
     return equalized, postEqSINR
+
+
+def lmmse_equalize_mmse(H: torch.Tensor, rx_c: torch.Tensor, noise_var, re: int, mod_data: int):
+    """lmmse_equalize_with_H with the MMSE-correct regularizer. noise_var (DMRS residual or genie)
+    is the rx-domain sigma^2, but the payload has energy Es = CONSTELLATION_FACTOR[mod_data] on the
+    commpy grid, so the MMSE regularizer is sigma^2/Es - passing sigma^2 itself over-regularizes by
+    Es (10 dB at 16QAM), measured ~2 dB at n_users=4 even with genie H (utils/dmrs_ce_diag.py).
+    postEqSINR from that call is Es x the grid-unit SINR that LmmseDemod's LMMSE_MAXLOG_LLR_SCALE
+    assumes, so it is divided back: LLRs and every downstream SINR diagnostic keep their meaning
+    (identical to lmmse_equalize_with_H at n_users=1, where the bias normalization cancels the
+    regularizer)."""
+    Es = CONSTELLATION_FACTOR[mod_data]
+    equalized, postEqSINR = lmmse_equalize_with_H(H, rx_c, noise_var / Es, re)
+    return equalized, postEqSINR / Es

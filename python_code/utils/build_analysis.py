@@ -16,8 +16,9 @@ What it does, given experiment tag <tag>:
   4. Copies the per-SNR histogram/loss jpgs (lmmse/escnn/...) there under
      short names (long originals exceed Windows MAX_PATH at this depth).
   5. Runs compare_track_modes.make_figure() once per unique configuration that was run with
-     several tracking modes (t=<mode>; configs are grouped by every token except the
-     tracking-mode family CMP_FAMILY), overlaying all of its modes on one BLER/MI/BER figure,
+     several tracking modes and/or freeze scopes (t=<mode>, frz=<scope>; configs are grouped by
+     every token except the tracking-mode family CMP_FAMILY and CMP_AXES), overlaying all of its
+     modes / freeze scopes on one BLER/MI/BER figure,
      and writes the per-SNR table behind each such section (all its modes) as compare_*.csv -
      the input of escnn_matlab\\master_plot_trk_bler_paper.m (seed-averaged: compare_avg_<i>.csv).
   6. Writes <tag>.html: Part 0 = tracking-mode comparisons, Part 1 = curves, Part 2 = histogram
@@ -147,6 +148,10 @@ TRK_FAMILY = {"trk", "t", "csg", "lr", "ep", "bs", "loss", "tw", "po"}
 # Grouping for the Part 0 tracking-mode comparisons additionally ignores bpi (ekf.py emits it only
 # for the BP modes ekfbp/ekfht/sgdsbp/...). Kept out of TRK_FAMILY so mat_target's buckets don't move.
 CMP_FAMILY = TRK_FAMILY | {"bpi"}
+# Other tokens the Part 0 comparisons overlay as separate curves instead of separate figures (the
+# legend label gets the token when it varies within a figure) - for EKF runs (next to the tracking
+# mode) and for evaluate runs (no t= token) alike.
+CMP_AXES = {"frz"}
 
 def mat_target(tag, k, diffs_k, short, aug_type):
     """Where plot_csvs() should save this config's .mat file(s).
@@ -349,36 +354,45 @@ def _mode(k):
     return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
 
 def _cmp_entries(keys, drop):
-    """Group `keys` for the Part 0 comparisons: group key = every token except the CMP_FAMILY ones
-    and the token names in `drop`. Keeps groups run with >= 2 tracking modes. -> {gkey: {legend
+    """Group `keys` for the Part 0 comparisons: group key = every token except the CMP_FAMILY and
+    CMP_AXES ones and the token names in `drop`. Keeps groups with >= 2 curves. -> {gkey: {legend
     label: [keys]}}; label = the mode, plus its other trk-family tokens (lr=, csg=, ...) when the
-    same mode appears with several of them in a group."""
+    same mode appears with several of them in a group, plus the CMP_AXES tokens (frz=...) when they
+    vary in the group. Configs without a tracking mode (evaluate runs) are compared only over
+    CMP_AXES - their trk-family-named tokens (lr=, tw=, ...) still split them into separate groups."""
     groups = {}
     for k in keys:
-        if _mode(k) is None:
-            continue
-        gkey = "_".join(tok for name, tok in _split_key_tokens(k) if name not in CMP_FAMILY | drop)
+        skip = (CMP_FAMILY if _mode(k) is not None else set()) | CMP_AXES | drop
+        gkey = "_".join(tok for name, tok in _split_key_tokens(k) if name not in skip)
         groups.setdefault(gkey, []).append(k)
+    axes = lambda k: tuple(tok for name, tok in _split_key_tokens(k) if name in CMP_AXES)
     out = {}
     for gkey, ks in groups.items():
         variants = collections.defaultdict(set)   # mode -> its distinct trk-family token tuples
         extra = {}
         for k in ks:
-            extra[k] = tuple(tok for name, tok in _split_key_tokens(k) if name in CMP_FAMILY - {"t", "trk"})
+            extra[k] = (tuple(tok for name, tok in _split_key_tokens(k) if name in CMP_FAMILY - {"t", "trk"})
+                        if _mode(k) is not None else ())
             variants[_mode(k)].add(extra[k])
+        show_axes = len({axes(k) for k in ks}) > 1
         labeled = collections.defaultdict(list)
         for k in ks:
-            lab = _mode(k)
-            if len(variants[lab]) > 1:
-                lab = " ".join((lab,) + extra[k])
-            labeled[lab].append(k)
+            parts = [_mode(k)] if _mode(k) is not None else []
+            if len(variants[_mode(k)]) > 1:
+                parts += extra[k]
+            if show_axes:
+                parts += axes(k)
+            lab = " ".join(parts)
+            if lab:
+                labeled[lab].append(k)
         if len(labeled) > 1:
             out[gkey] = dict(labeled)
     return out
 
 def compare_sections(tag, keys, out_dir):
     """Part 0: compare_track_modes figures per unique configuration (all tokens except the
-    CMP_FAMILY ones) that was run with at least two tracking modes, all its modes overlaid.
+    CMP_FAMILY / CMP_AXES ones) that was run with at least two tracking modes or freeze scopes
+    (see _cmp_entries), all of them overlaid.
     When a configuration was run with several seeds, two seed-averaged figures come first - seeds
     incomplete for some mode dropped from every mode, then modes incomplete for some seed left out
     (see compare_track_modes.make_figure's `incomplete`); w=/r= hashes are ignored for this grouping
@@ -390,7 +404,7 @@ def compare_sections(tag, keys, out_dir):
     pooled = {g: labs for g, labs in _cmp_entries(keys, {"s"} | set(HASH_TOKENS)).items()
               if len({_split_seed(k)[1] for ks in labs.values() for k in ks}) > 1}
     if not per_seed and not pooled:
-        print("No configuration was run with more than one tracking mode - no comparison plots")
+        print("No configuration was run with more than one tracking mode / freeze scope - no comparison plots")
         return []
     store = {}
     for p in glob.glob(os.path.join(SCRATCH, f"*_{tag}_s=*_SNR=*.csv")):

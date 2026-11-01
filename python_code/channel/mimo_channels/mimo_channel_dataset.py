@@ -197,7 +197,7 @@ class MIMOChannel:
             num_slots_dmrs = total_payload_symbols // DMRS_NUM_PAYLOAD_SYMB
             dmrs_layout_dict = dmrs_layout(n_users, num_res)
             dmrs_ref_values = dmrs_reference_values(self._bits_generator, num_res)
-            dmrs_known_tx_dict = dmrs_known_tx(dmrs_layout_dict, dmrs_ref_values, n_users)
+            dmrs_known_tx_dict = dmrs_known_tx(dmrs_layout_dict, dmrs_ref_values, n_users, mod_data=mod_data)
             num_occasions = num_slots_dmrs * len(DMRS_SYMBOL_LOCAL_IDX)
             dmrs_s = build_dmrs_tx_symbols(dmrs_known_tx_dict, n_users, num_res, num_occasions)
             s = interleave_group_symbols(s, dmrs_s, num_slots_dmrs)

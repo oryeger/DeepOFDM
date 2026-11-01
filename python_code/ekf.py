@@ -208,7 +208,7 @@ from python_code.coding.ldpc_wrapper import LDPC5GCodec
 from python_code.coding.dmrs_pilots import (CONSTELLATION_FACTOR, build_dmrs_tx_symbols, dmrs_known_tx,
                                              dmrs_layout, dmrs_reference_values, estimate_channel_from_dmrs,
                                              genie_cfo_comp_vector, genie_ici_noise_var, interleave_group_symbols,
-                                             lmmse_equalize_with_H)
+                                             lmmse_equalize_mmse, lmmse_equalize_with_H)
 from python_code.coding.mcs_table import get_mcs
 from python_code.coding.pilot_coding import encode_pilots
 from python_code.detectors.deeprx.deeprx_trainer import DeepRxTrainer
@@ -697,7 +697,7 @@ def _generate_region_content(rng: np.random.Generator, num_slots: int, n_users: 
     tx_bits = encode_pilots(rng, payload_bit_length, num_res, n_users, codec, crc, ldpc_k, ldpc_n)
     payload_s = modulate_bits(tx_bits, mod_data, n_users, num_res)
     ref_values = dmrs_reference_values(rng, num_res)
-    known_tx = dmrs_known_tx(layout, ref_values, n_users)
+    known_tx = dmrs_known_tx(layout, ref_values, n_users, mod_data=mod_data)
     dmrs_s = build_dmrs_tx_symbols(known_tx, n_users, num_res, num_occasions)
     s = interleave_group_symbols(payload_s, dmrs_s, num_slots)
     return {'tx_bits': tx_bits, 'known_tx': known_tx, 's': s, 'num_slots': num_slots}
@@ -827,7 +827,9 @@ def _build_calib_training_data(rng, calib_slots, n_users, num_res, qm, mod_data,
     detected_word_lmmse_calib = np.zeros((num_calib_symbols * num_bits_pilot, n_users, num_res))
     llrs_mat_lmmse_calib = np.zeros((num_calib_symbols, num_bits_pilot * n_users, num_res, 1))
     for re in range(num_res):
-        equalized_c, postEqSINR_c = lmmse_equalize_with_H(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re)
+        # MMSE-correct regularizer (sigma^2/Es) - see lmmse_equalize_mmse.
+        equalized_c, postEqSINR_c = lmmse_equalize_mmse(H_calib[re], rx_calib_t, lmmse_noise_var_calib, re,
+                                                        mod_data)
         LmmseDemod(equalized_c, postEqSINR_c, qm, re, llrs_mat_lmmse_calib,
                    detected_word_lmmse_calib, pilot_data_ratio, llr_scale=LMMSE_MAXLOG_LLR_SCALE)
     rx_calib_real = np.empty((num_calib_symbols, n_ants * 2, num_res), dtype=np.float32)
@@ -1093,7 +1095,8 @@ def run_group(escnn_trainer: ESCNNTrainer, codec: LDPC5GCodec, crc: CRC5GCodec, 
     # save_diag H5 write.
     equalized_lmmse = np.zeros((num_symbols, n_users, num_res), dtype=np.complex64)
     for re in range(num_res):
-        equalized, postEqSINR = lmmse_equalize_with_H(H_data[re], rx_data_t, lmmse_noise_var, re)
+        # MMSE-correct regularizer (sigma^2/Es) - see lmmse_equalize_mmse.
+        equalized, postEqSINR = lmmse_equalize_mmse(H_data[re], rx_data_t, lmmse_noise_var, re, mod_data)
         LmmseDemod(equalized, postEqSINR, qm, re, llrs_mat_lmmse, detected_word_lmmse, pilot_data_ratio,
                    llr_scale=LMMSE_MAXLOG_LLR_SCALE)
         h_abs_per_re[re] = H_data[re].abs().cpu().numpy()

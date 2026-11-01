@@ -37,8 +37,10 @@ import matplotlib.pyplot as plt
 
 try:   # run as a script from DeepOFDM root -> sys.path[0] is this utils dir
     from plot_drift_log import _open_in_viewer
+    from plot_multiple_csvs import _to_float_cell
 except ImportError:   # run as python -m python_code.utils.compare_track_modes
     from python_code.utils.plot_drift_log import _open_in_viewer
+    from python_code.utils.plot_multiple_csvs import _to_float_cell
 
 SCRATCH = r"C:\Projects\Scratchpad"
 ANALYSIS = os.path.join(SCRATCH, "Analysis")
@@ -93,11 +95,21 @@ def _record(store, name, read_fn):
     if key in store and store[key][0] >= ts:
         return
     df = pd.read_csv(read_fn())
-    aug = next((t[4:] for t in config.split("_") if t.startswith("aug=")), None)
+    # ekf.py names the primary 'aug=aLMMSE', evaluate.py as a bare 'aDEEPSIC' token
+    aug = next((t[4:] if t.startswith("aug=") else t for t in config.split("_")
+                if t.startswith("aug=") or t in AUG_REF), None)
     col, ref_name = AUG_REF.get(aug, ("lmmse", "LMMSE"))
     if f"total_ber_{col}" not in df:
+        # evaluate.py writes iterative detectors (DeepSIC) per iteration - total_ber_deepsic_1,
+        # _2, ... (not the per-user total_ber_deepsic_user0_1): use the last iteration
+        its = [int(m.group(1)) for c in df.columns for m in [re.fullmatch(rf"total_ber_{col}_(\d+)", c)] if m]
+        if its:
+            col = f"{col}_{max(its)}"
+    if f"total_ber_{col}" not in df:
         col, ref_name = "lmmse", "LMMSE"
-    store[key] = (ts, df["total_ber_1"].to_numpy(float), df[f"total_ber_{col}"].to_numpy(float), ref_name)
+    # evaluate.py CSVs hold some cells as 'tensor(0.1227)'
+    num = lambda c: np.array([_to_float_cell(v) for v in df[c]], dtype=float)
+    store[key] = (ts, num("total_ber_1"), num(f"total_ber_{col}"), ref_name)
 
 
 def zip_path(name):

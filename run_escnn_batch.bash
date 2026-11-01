@@ -44,10 +44,14 @@ python -c "import sys; print('Python version:', sys.version)"
 #jupyter lab                                    ### this command executes jupyter lab – replace with your own command
 #python -u DCD_MUSIC/main.py -s 0 -n 15 -ft near -mt SubspaceNet -to angle,range -ss 4096 -ttr 0 -m 3 -sn coherent -snap 100 -eta $my_value -w -t
 cd /home/egero/Projects/DeepOFDM
+# default (no flag, or --train): evaluate; --track: ekf; --drift: run_multiple_eval
 if [[ "$1" == "--drift" ]]; then
   python -m python_code.run_multiple_eval --config config_files/$config_file
-elif [[ "$1" == "--train" ]]; then
+elif [[ "$1" == "--track" ]]; then
+  python -m python_code.ekf --config config_files/$config_file
+elif [[ -z "$1" || "$1" == "--train" ]]; then
   python -m python_code.evaluate --config config_files/$config_file
 else
-  python -m python_code.ekf --config config_files/$config_file
+  echo "ERROR: unknown option '$1' (use --track, --drift, --train or nothing)" >&2
+  exit 1
 fi

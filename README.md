@@ -8,7 +8,7 @@ The ESCNN is a DNN which can either run standalone, or run as an augmentation to
 
 | Paper | Status | Entry point | Workflow |
 |---|---|---|---|
-| O. Eger and N. Shlezinger, "Learning to Refine LLRs: Modular Neural Augmentation for MIMO-OFDM Receivers" ([IEEE Xplore](https://ieeexplore.ieee.org/document/11587582)) | Published, ICC | `evaluate.py` | Train and test in one run |
+| O. Eger and N. Shlezinger, "Learning to Refine LLRs: Modular Neural Augmentation for MIMO-OFDM Receivers" ([IEEE Xplore](https://ieeexplore.ieee.org/document/11587582)) | Published, ICC 2026 | `evaluate.py` | Train and test in one run |
 | O. Eger, G. C. Alexandropoulos, and N. Shlezinger, "Protocol-Aware Label-Free Online Adaptation of Neural-Augmented Receivers" | Submitted to ICC 2027 | `evaluate.py` → `ekf.py` | Pretrain, then track |
 
 # Table of Contents

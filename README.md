@@ -95,9 +95,27 @@ When it is set to True, in inference the escnn gets the lmmse probabilities rega
 
 ### utils
 
-General utils, some examples:
-- plot_multiple_csvs.py - Can aggregate multiple csv results for different SNR values into one plot and also save the results to a mat file.
-- constants.py - Defines the OFDM Numeroligy (sampling rate, etc.) and some other constants
+**Shared modules** (imported by the simulation code):
+- `constants.py` - OFDM numerology (sampling rate, FFT size, CP), slot length and the embedded-DMRS symbol positions
+- `config_singleton.py` - loads the yaml configuration into the global `conf` object
+- `probs_utils.py` - conversions between bit probabilities, symbols and QAM indices, and the bit-index masks for mixed modulations
+- `metrics.py` - BER calculation
+
+**Result analysis** (run on Windows, read the result CSVs in `C:\Projects\Scratchpad`, which is set at the top of `build_analysis.py` and `compare_track_modes.py`):
+- `build_analysis.py <tag>` - builds one HTML analysis page per experiment tag in `Scratchpad\Analysis\<tag>\`: tracking-mode comparisons, performance curves per configuration, and the per-SNR histogram/loss plots. It also writes the `compare_*.csv` tables read by `escnn_matlab\master_plot_trk_bler_paper.m`. A rebuild never overwrites: older builds are renamed `<tag>_2`, `<tag>_3`, ...
+- `plot_multiple_csvs.py` - aggregates the per-SNR CSV results of one configuration into BLER / MI / BER curves and saves them to a mat file. Called by `build_analysis.py`.
+- `compare_track_modes.py` - overlays several `ekf.py` tracking modes (`weights_track_mode`) on one BLER / MI / BER figure. Called by `build_analysis.py`, and also runs standalone, e.g. `python python_code\utils\compare_track_modes.py --modes ekfcrc ekfht --filter R=0.37`
+- `paper_figure.py <tag>` - one publication-ready BLER panel (IEEE single column) as a vector PDF in `Analysis\<tag>\paper\`, e.g. `python paper_figure.py <tag> --seeds 123 --snr-max 26 --modes notrack ekfi ekfht`
+
+**EKF tracking diagnostics:**
+- `plot_drift_log.py` - parses an `ekf.py` log and plots BER / MI / BLER per group against the drifting CFO: `python -m python_code.utils.plot_drift_log <log_file>`
+- `plot_channel_diag.py` - plots the per-RE channel power from an `ekf.py` `_diag.h5` file: the DMRS estimate, and if available the noisy estimate, the untruncated estimate and the ground truth, for a chosen `channel_drift_base_index` (`--cdi`)
+- `analyze_diag_h5.py` - offline analysis of an `ekf.py` `_diag.h5` file. It re-runs the LDPC decode per slot, since the BLER CSV only gives one result per group. Needs Sionna, so run it on the cluster: `python -m python_code.utils.analyze_diag_h5 <file>`
+- `dmrs_ce_diag.py` - isolates the DMRS channel-estimation loss of LMMSE against a genie and against the legacy whole-block estimate, in the frequency domain only: `python -m python_code.utils.dmrs_ce_diag`
+
+**Cluster job monitoring** (Slurm, run on the cluster):
+- `job_progress.py` - for each running `ekf.py` job, how many slots are done out of the total, with an ETA
+- `running_jobs_archive.py` - for each queued job, the archived generator script in `config_files/archive`, its running / pending task counts, and the augment / MCS / CFO values it swept
 
 
 ## analog

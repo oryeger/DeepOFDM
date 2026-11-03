@@ -16,8 +16,9 @@ end of stem, e.g.
 so job 2334967 does not falsely match job23349678.
 
 Output: first one `vi <full path>` line per matched file (ready to copy-paste), then each
-queued job ID with its cur_str (e.g. icpilot), running / pending / other task counts and how long
-its longest-running task has been running (squeue %M), then any job IDs that have no archived file.
+queued job ID with its cur_str (e.g. icpilot), running / pending / other task counts, how long
+its longest-running task has been running (squeue %M) and, in the last columns, the augment(s),
+MCS(s) and cfo(s) its generator swept, then any job IDs that have no archived file.
 """
 import argparse
 import getpass
@@ -114,6 +115,49 @@ def total_tests(path):
         return None
 
 
+# (label, array in the Parameters section) of the sweeps shown per job line
+_SWEEPS = (('aug', 'which_augment_vals'), ('mcs', 'mcs_vals'), ('cfo', 'cfos'))
+
+
+def swept_values(path):
+    """{label: [values]} of the _SWEEPS arrays of an archived make_multiple_tests.bash, read
+    the same way as total_tests: its Parameters section (everything before `total_count=0`) is
+    run in bash and each array is echoed. An array the script doesn't define -> []. None if
+    the file can't be evaluated."""
+    try:
+        with open(path) as f:
+            head, sep, _ = f.read().partition('\ntotal_count=0')
+        if not sep:
+            return None
+        script = head + '\n' + ''.join(f'echo "{label}=${{{arr}[*]}}"\n' for label, arr in _SWEEPS)
+        out = subprocess.run(['bash', '-s', '--', 'x.yaml'], input=script, capture_output=True,
+                             text=True, timeout=10).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    vals = {label: [] for label, _ in _SWEEPS}
+    for line in out.splitlines():
+        label, eq, rest = line.partition('=')
+        if eq and label in vals:
+            vals[label] = rest.split()
+    return vals
+
+
+def _fmt_sweeps(vals):
+    """{label: [values]} -> ['aug=LMMSE,DEEPRX', 'mcs=28', 'cfo=0.0,0.15'], one column each
+    ('?' if unknown). Augment names are shortened like make_multiple_tests.bash's aug tag
+    (AUGMENT_LMMSE -> LMMSE, NO_AUGMENT -> NOAUG)."""
+    if vals is None:
+        return [f'{label}=?' for label, _ in _SWEEPS]
+    short = {'NO_AUGMENT': 'NOAUG'}
+    parts = []
+    for label, _ in _SWEEPS:
+        v = vals[label]
+        if label == 'aug':
+            v = [short.get(x, x.replace('AUGMENT_', '')) for x in v]
+        parts.append(f'{label}={",".join(v) or "-"}')
+    return parts
+
+
 def cur_str_of(path):
     """<cur_str> of an archived <ts>_make_<cur_str>[_job<ID>...].bash; the bare stem if the
     name doesn't follow that pattern."""
@@ -146,6 +190,7 @@ def main():
     unmatched = []
     cur_strs = {}     # job ID -> cur_str(s) of its archived file(s), '-' if none
     totals = {}       # job ID -> tests its archived generator made (None: unknown)
+    sweeps = {}       # job ID -> ['aug=...', 'mcs=...', 'cfo=...'] of its archived generator
     for job_id in jobs:
         matches = archived_scripts_for(job_id, archive_dir, bash_files)
         if not matches:
@@ -153,6 +198,8 @@ def main():
         cur_strs[job_id] = ','.join(dict.fromkeys(cur_str_of(p) for p in matches)) or '-'
         # several files for one ID shouldn't happen; then the total is ambiguous
         totals[job_id] = total_tests(matches[0]) if len(matches) == 1 else None
+        sweeps[job_id] = (_fmt_sweeps(swept_values(matches[0])) if len(matches) == 1
+                          else ['-'] if not matches else _fmt_sweeps(None))
         for path in matches:
             if path not in paths:
                 paths.append(path)
@@ -184,8 +231,13 @@ def main():
         heads.append(line)
         tails.append(tail)
     hw = max(len(h) for h in heads)   # pad the (...) part so the 'oldest running' column lines up
-    for h, t in zip(heads, tails):
-        print(f'{h:<{hw}}  {t}'.rstrip())
+    tw = max(len(t) for t in tails)   # pad that column so the aug / mcs / cfo columns line up
+    # width of each aug / mcs / cfo column (a job without an archived file has a single '-')
+    sw = [max((len(sw_[i]) for sw_ in sweeps.values() if i < len(sw_)), default=0)
+          for i in range(len(_SWEEPS))]
+    for job_id, h, t in zip(jobs, heads, tails):
+        cols = '  '.join(f'{c:<{sw[i]}}' for i, c in enumerate(sweeps[job_id]))
+        print(f'{h:<{hw}}  {t:<{tw}}  {cols}'.rstrip())
 
     if unmatched:
         print(f'\nNo archived .bash file for job(s): {" ".join(unmatched)}'

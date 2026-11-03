@@ -148,6 +148,9 @@ python -m python_code.evaluate --config python_code/config.yaml
 The channel drifts over groups of slots. Each slot carries embedded 5G-style DMRS and CRC+LDPC-coded payload.
 `ekf.py` loads ESCNN weights saved by `evaluate.py` and tracks them online. The tracking method is set by `weights_track_mode`.
 `ekf.py` never trains from scratch.
+
+The proposed tracking is label-free: the EKF update uses no pilots and no ground-truth bits (the primary receiver still uses the DMRS for its channel estimate). It relies only on the structure of the 5G protocol. For each slot, if the LDPC decode (of the ESCNN or of the primary receiver) passes CRC, the decoded bits are re-encoded and used as labels for an EKF update. If decoding fails, the EKF is updated with a soft LDPC syndrome measurement instead, which measures how well the LLRs satisfy the parity checks. Labeled baselines (pilot-labeled and genie) are available as other `weights_track_mode` values for comparison.
+
 This is the entry point for the "Protocol-Aware Label-Free Online Adaptation" paper. See [Running the EKF Tracking](#running-the-ekf-tracking).
 
 ```
@@ -215,16 +218,46 @@ escnn_load_freeze: 'first_conv_and_scale_only'   # ESCNN parameters that stay fr
 weights_track_mode: 'ekfht'                      # Tracking method
 ```
 
-Main tracking modes:
+Tracking modes (`weights_track_mode`):
+
+**Label-free** (the update uses no pilots and no ground-truth bits):
 
 | Mode | Description |
 |---|---|
-| `ekfht` | Proposed hybrid: slots whose decode passes CRC are re-encoded and used as labels. Slots where decoding fails use the soft LDPC syndrome measurement. One EKF update per slot, then the failed slots are re-detected and re-decoded. |
-| `ekfcrc` | EKF with CRC-verified labels only. No update when decoding fails. |
-| `sgdbce` | SGD with BCE on the embedded DMRS pilots. |
-| `notrack` | No adaptation. The loaded weights stay frozen (forces `escnn_load_freeze: 'all'`). |
+| `ekfht` | **Proposed.** Hybrid EKF. For each (slot, user) whose LDPC decode (of the ESCNN or of the primary receiver) passes CRC, the decoded bits are re-encoded and used as labels. Where both decodes fail, the soft LDPC syndrome measurement is used instead, with punctured bits estimated by a detached BP decoder (`bp_iters`). One EKF predict per group and one update per slot. Slots where both decodes failed are then re-detected with the updated weights and decoded again. A pass counts as a success and adds a label update. |
+| `ekfcrc` | Decision-directed EKF. CRC-passing (slot, user)s are re-encoded and used as labels. No update when both decodes fail. The update happens after scoring, so it affects only later groups. |
+| `ekf` | Syndrome EKF. One EKF predict per group and one update per slot, with the soft LDPC syndrome as the measurement. |
+| `ekfbp` | Syndrome EKF on all parity checks, with punctured bits estimated by a detached BP decoder (`bp_iters`). Updates on every slot. |
+| `ekfbps` | `ekfbp`, updating only when the BP hard decision satisfies every parity check. |
+| `ekfbpc` | `ekfbp`, updating only when the decode of the current LLRs passes CRC. |
+| `sgdht` | SGD counterpart of `ekfht`: BCE on the re-encoded CRC-passing slots, the BP syndrome loss on slots where both decodes fail, the same re-decode. Persistent Adam, `epochs` per group. |
+| `sgdsyn` | SGD with the label-free `tsyn` loss (entropy minimization combined with the soft syndrome loss, weighted by `tw`) on the group's own data slots. |
+| `sgdsbp` | `sgdsyn` with the BP syndrome measurement of `ekfbp`. |
 
-The full list of modes is documented in the `ekf.py` docstring and in the `weights_track_mode` comment in `config.yaml`.
+**Labeled, practical** (labels from the embedded DMRS pilots):
+
+| Mode | Description |
+|---|---|
+| `ekfp` | EKF with one labeled update per slot on its DMRS pilots. DMRS is always QPSK, so at higher modulations only 2 bits per symbol have labels. This is the pilot-labeled baseline of Gusakov et al. (IEEE TSP 2026). |
+| `sgdbce` | SGD with BCE on the group's DMRS pilots. |
+
+**Labeled, genie** (ground-truth bits, references only):
+
+| Mode | Description |
+|---|---|
+| `ekfi` | EKF updated on a separate calibration region with known bits (`calib_slots_per_group` slots per group). |
+| `sgdbcei` | SGD with BCE on the same calibration region, with a held-out validation split. |
+| `ekfit` | EKF updated with each scored slot's own true bits before that slot is scored. Optimistic genie reference for `ekfht`. |
+| `ekfis` | Causal genie. Same true bits as `ekfit`, but the slot is scored first and the update affects only later groups. Equivalent to `ekfcrc` with every label correct. |
+| `sgdbceit` | SGD counterpart of `ekfit`: BCE on the scored slots' own true bits before scoring. |
+
+**No adaptation:**
+
+| Mode | Description |
+|---|---|
+| `notrack` | The loaded weights stay frozen (forces `escnn_load_freeze: 'all'`). |
+
+All EKF modes use the `escnn_ekf_*` settings. All SGD modes use `epochs`. `ekf.py` also accepts debug variants of `ekfi` (`ekfi1`-`ekfi6`, `ekfi4s`, `ekfi4m`, `ekfibp`), which are documented in its source.
 
 Run:
 

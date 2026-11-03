@@ -567,7 +567,9 @@ def resolve_auto_escnn_weights_tag():
     if conf.channel_model[0] == 'N':
         chan_ok = lambda name: name.startswith('Flat')
     elif conf.channel_model[0] in ('A', 'B', 'C'):
-        chan_prefix = f'TDL-{conf.channel_model}-'
+        # include the delay spread (same format as chan_text below), so e.g. a TDL-C-10 run never
+        # picks up TDL-C-300 weights now that the delay spread is selectable (channel_model 'C10')
+        chan_prefix = f'TDL-{conf.channel_model}-{int(round(float(conf.delay_spread) * 1e9))}_'
         chan_ok = lambda name: name.startswith(chan_prefix)
     else:
         chan_ok = lambda name: name.startswith(conf.channel_model)

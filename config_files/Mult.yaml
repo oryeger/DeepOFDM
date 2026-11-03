@@ -15,7 +15,7 @@ clip_percentage_in_tx: 100
 iqmm_gain: 0 # in dB
 iqmm_phase: 0 # in degrees
 epochs: 150
-iterations: 3
+iterations: 1
 pilot_size: 20000
 batch_size: -1
 shuffle: False
@@ -93,7 +93,7 @@ chanestmode: 'dmrs'  # 'legacy': dedicated whole-block genie pilot region (today
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
 save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
-load_escnn_weights_tag: 'auto' 
+load_escnn_weights_tag: '' 
 load_escnn_weights_snr_override: null
 load_escnn_weights_snr_max_override: null
 escnn_load_freeze: 'none'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
@@ -123,13 +123,14 @@ seed: 0 # run seed
 cfo_and_iqmm_in_rx: True
 
 early_stopping_patience: 10
-log_train_every_epochs: 50
+log_train_every_epochs: 0
 log_sphere_every_symbols: 5000
 
 
 # validation phase protocol
 block_length: -1 # 8004 2000 # coherence block time, total size of pilot + data. values: int.  - should be a multilpier of log2(mod_pilot)
 blocks_num: 1 # 100 number of validation frames. values: int.
+
 
 
 

@@ -1,4 +1,5 @@
 import os
+import re
 from typing import Any
 import yaml
 from dir_definitions import CONFIG_PATH
@@ -45,8 +46,19 @@ class Config:
                 "set increase_prime_modulation=False or change the percentage."
             )
 
-        model = getattr(self, 'channel_model', 'N')
-        self.delay_spread = {'A': 30e-9, 'B': 100e-9}.get(model[0], 300e-9)
+        # channel_model: TDL letter with an optional delay-spread suffix in ns ('K' = x1000):
+        # 'C' -> TDL-C at its default 300 ns, 'C10' -> 10 ns, 'C1K' -> 1000 ns (A/B defaults: 30/100 ns).
+        # The suffix is stripped here, so channel_model is always the bare letter downstream (Sionna's
+        # TDL(model=...), the channel_model[0] checks); channel_model_tag keeps the original
+        # ('C10') for ekf.py's filename. Non-TDL names (N, SUMa, UMi, ...) pass through unchanged.
+        model = str(getattr(self, 'channel_model', 'N'))
+        self.channel_model_tag = model
+        m = re.fullmatch(r'([A-E])(\d+)([kK]?)', model)
+        if m:
+            self.channel_model = m.group(1)
+            self.delay_spread = int(m.group(2)) * (1000 if m.group(3) else 1) * 1e-9
+        else:
+            self.delay_spread = {'A': 30e-9, 'B': 100e-9}.get(model[0], 300e-9)
 
     def set_value(self, field: Any, value: Any):
         setattr(self, field, value)

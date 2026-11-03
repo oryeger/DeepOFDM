@@ -4,6 +4,8 @@ build_analysis.py -- one-stop analysis page builder for DeepOFDM sweep results.
 Usage:
     python build_analysis.py <tag>          e.g.  python build_analysis.py fasty
     python build_analysis.py                (no arg: lists available tags)
+    python build_analysis.py <tag> --interp (Part 0 comparisons: fill missing per-seed SNRs -
+                                             interior interpolation + leading BLER=1; default: raw, no filling)
 
 What it does, given experiment tag <tag>:
   1. Scans C:\\Projects\\Scratchpad for result CSVs of that tag and finds the
@@ -393,13 +395,16 @@ def compare_sections(tag, keys, out_dir):
     """Part 0: compare_track_modes figures per unique configuration (all tokens except the
     CMP_FAMILY / CMP_AXES ones) that was run with at least two tracking modes or freeze scopes
     (see _cmp_entries), all of them overlaid.
-    When a configuration was run with several seeds, two seed-averaged figures come first - seeds
-    incomplete for some mode dropped from every mode, then modes incomplete for some seed left out
-    (see compare_track_modes.make_figure's `incomplete`); w=/r= hashes are ignored for this grouping
-    since they usually differ per seed - followed by one figure per seed.
+    When a configuration was run with several seeds, one seed-averaged figure comes first - every seed
+    and every mode, each point drawn only at SNRs that every seed has (compare_track_modes
+    incomplete="all"), so no curve mixes seed sets; w=/r= hashes are ignored for this grouping since
+    they usually differ per seed - followed by one figure per seed, each at the SNRs that seed has.
     Groups with more modes than the palette are split into several figures. Returns the html snippets."""
     import compare_track_modes as ctm
     import matplotlib.pyplot as plt
+    # 'cfo=0' and 'cfo=0.0' runs are the same configuration: group on normalized keys, matching the
+    # normalized CSV store below (ctm._record). Only Part 0 - Part 1 curves glob the original names.
+    keys = sorted({ctm.norm_config(k) for k in keys})
     per_seed = _cmp_entries(keys, set())
     pooled = {g: labs for g, labs in _cmp_entries(keys, {"s"} | set(HASH_TOKENS)).items()
               if len({_split_seed(k)[1] for ks in labs.values() for k in ks}) > 1}
@@ -430,17 +435,15 @@ def compare_sections(tag, keys, out_dir):
         if pdiffs[gkey] == ["config"]:
             label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
                                if name in ("sp", "cfo", "cfod", "R", "aug"))
-        sections.append((f"{label} &mdash; average of {nseeds} seeds, incomplete seeds dropped from every mode",
-                         gkey, pooled[gkey], f"compare_avg_{gi}", "seeds"))
-        sections.append((f"{label} &mdash; average of {nseeds} seeds, only modes complete for every seed",
-                         gkey, pooled[gkey], f"compare_avgm_{gi}", "modes"))
+        sections.append((f"{label} &mdash; average of all {nseeds} seeds, only SNRs every seed has",
+                         gkey, pooled[gkey], f"compare_avg_{gi}", "all"))
     gdiffs = drop_redundant_hashes(differing_tokens(sorted(per_seed))) if per_seed else {}
     for gi, gkey in enumerate(sorted(per_seed, key=lambda g: sort_key(gdiffs[g]))):
         label = " | ".join(gdiffs[gkey])
         if gdiffs[gkey] == ["config"]:   # single configuration on this page - name its main axes instead
             label = " | ".join(tok for name, tok in _split_key_tokens(gkey)
                                if name in ("sp", "cfo", "cfod", "R", "aug"))
-        sections.append((label, gkey, per_seed[gkey], f"compare_{gi}", "seeds"))
+        sections.append((label, gkey, per_seed[gkey], f"compare_{gi}", "all"))
 
     html, failed = [], []
     for label, gkey, labeled, prefix, incomplete in sections:
@@ -661,7 +664,13 @@ def detect_tags():
                    for m in [re.search(r"_([A-Za-z][A-Za-z0-9]*)_s=\d+_SNR=", os.path.basename(n))] if m})
 
 if __name__ == "__main__":
-    tags = sys.argv[1:] if len(sys.argv) > 1 else detect_tags()
+    args = sys.argv[1:]
+    interp = "--interp" in args   # fill missing per-seed SNRs in the Part 0 comparisons (default: raw, no filling)
+    args = [a for a in args if a != "--interp"]
+    sys.path.insert(0, UTILS)
+    import compare_track_modes as ctm
+    ctm.set_interp(interp)
+    tags = args if args else detect_tags()
     if not tags:
         print("No result CSVs found in", SCRATCH); sys.exit(1)
     print("Building tags:", ", ".join(tags))

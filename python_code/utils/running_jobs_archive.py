@@ -16,8 +16,8 @@ end of stem, e.g.
 so job 2334967 does not falsely match job23349678.
 
 Output: first one `vi <full path>` line per matched file (ready to copy-paste), then each
-queued job ID with its cur_str (e.g. icpilot) and running / pending / other task counts,
-then any job IDs that have no archived file.
+queued job ID with its cur_str (e.g. icpilot), running / pending / other task counts and how long
+its longest-running task has been running (squeue %M), then any job IDs that have no archived file.
 """
 import argparse
 import getpass
@@ -38,20 +38,48 @@ _ARCHIVE_NAME = re.compile(r'^\d{8}_\d{4}_make_(?P<cur_str>.+?)(?:_job\d+)*$')
 
 
 def queued_jobs(user):
-    """{array-parent job ID (%F): Counter of task states}, for the user's queued jobs."""
+    """-> ({array-parent job ID (%F): Counter of task states},
+           {job ID: seconds the longest-running of its RUNNING tasks has run (%M)}),
+    for the user's queued jobs. A job with no running task has no entry in the second dict."""
     try:
-        out = subprocess.run(['squeue', '-u', user, '-h', '-r', '-o', '%F %T'],
+        out = subprocess.run(['squeue', '-u', user, '-h', '-r', '-o', '%F %T %M'],
                              capture_output=True, text=True, check=True).stdout
     except FileNotFoundError:
         sys.exit('ERROR: squeue not found - run this on the Slurm login node')
     except subprocess.CalledProcessError as e:
         sys.exit(f'ERROR: squeue failed: {e.stderr.strip()}')
     jobs = defaultdict(Counter)
+    oldest = {}
     for line in out.splitlines():
         parts = line.split()
-        if len(parts) == 2 and parts[0].isdigit():
+        if len(parts) == 3 and parts[0].isdigit():
             jobs[parts[0]][parts[1]] += 1
-    return dict(sorted(jobs.items(), key=lambda kv: int(kv[0])))
+            if parts[1] == 'RUNNING':
+                sec = _slurm_secs(parts[2])
+                if sec is not None and sec > oldest.get(parts[0], -1):
+                    oldest[parts[0]] = sec
+    return dict(sorted(jobs.items(), key=lambda kv: int(kv[0]))), oldest
+
+
+def _slurm_secs(t):
+    """squeue %M ('M:SS', 'H:MM:SS' or 'D-HH:MM:SS') -> seconds; None if unparsable."""
+    days, _, hms = t.rpartition('-')
+    try:
+        nums = [int(x) for x in hms.split(':')]
+        d = int(days) if days else 0
+    except ValueError:
+        return None
+    while len(nums) < 3:
+        nums.insert(0, 0)
+    h, m, s = nums[-3:]
+    return ((d * 24 + h) * 60 + m) * 60 + s
+
+
+def _fmt_dur(sec):
+    """Seconds -> '05h12m' / '1d03h20m' (same style as job_progress.py)."""
+    d, rem = divmod(int(sec), 86400)
+    h, rem = divmod(rem, 3600)
+    return f'{d}d{h:02d}h{rem // 60:02d}m' if d else f'{h:02d}h{rem // 60:02d}m'
 
 
 def archived_scripts_for(job_id, archive_dir, bash_files):
@@ -107,7 +135,7 @@ def main():
     if not os.path.isdir(archive_dir):
         sys.exit(f'ERROR: archive directory not found: {archive_dir}')
 
-    jobs = queued_jobs(args.user)
+    jobs, oldest = queued_jobs(args.user)
     if not jobs:
         print(f'No queued or running jobs for user {args.user}')
         return
@@ -134,6 +162,7 @@ def main():
 
     print()
     width = max(len(c) for c in cur_strs.values())
+    heads, tails = [], []
     for job_id, states in jobs.items():
         running = states.get('RUNNING', 0)
         pending = states.get('PENDING', 0)
@@ -146,10 +175,17 @@ def main():
             # finished tasks (done or failed) leave the queue
             line += f', left the queue={max(total - sum(states.values()), 0)}'
         line += ')'
+        tail = ''
+        if job_id in oldest:   # how long the longest-running of its running tasks has been running
+            tail += f'oldest running: {_fmt_dur(oldest[job_id])}'
         if other:
-            line += '  other=' + ','.join(f'{s}:{n}' for s, n in states.items()
-                                          if s not in ('RUNNING', 'PENDING'))
-        print(line)
+            tail += ('  ' if tail else '') + 'other=' + ','.join(
+                f'{s}:{n}' for s, n in states.items() if s not in ('RUNNING', 'PENDING'))
+        heads.append(line)
+        tails.append(tail)
+    hw = max(len(h) for h in heads)   # pad the (...) part so the 'oldest running' column lines up
+    for h, t in zip(heads, tails):
+        print(f'{h:<{hw}}  {t}'.rstrip())
 
     if unmatched:
         print(f'\nNo archived .bash file for job(s): {" ".join(unmatched)}'

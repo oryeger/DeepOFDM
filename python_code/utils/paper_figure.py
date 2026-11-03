@@ -56,7 +56,7 @@ def main():
     labels = dict(LABELS, **dict(l.split("=", 1) for l in args.label))
 
     store, src = load_store(args.tag)
-    flt = set(args.filter)
+    flt = {ctm.norm_token(t) for t in args.filter}   # store keys are normalized (see ctm._record)
     # (config, seed, snr) -> (escnn BLER, ref BLER, ref name), BLER CSVs of this tag only
     rows = {(c, sd, snr): (e.mean(), l.mean(), rn) for (c, k, sd, snr), (ts, e, l, rn) in store.items()
             if k == "_bler" and c.endswith("_" + args.tag) and sd in args.seeds

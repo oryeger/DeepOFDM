@@ -9,20 +9,17 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=idsseed  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=fidmrs  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
-#seeds=(123 17 41 58)
+#seeds=(123)
 #seeds=(123 17 41 58 1505 1807 1011 1809 3008 1806) 
-#seeds=(1505 3008) 
-seeds=(1807 1011)
-#snrs=($(seq -5 40))
-snrs=($(seq 0 1 30))
-#snrs=(27)
-#snrs=(36)
-cfos=(0)
-cfo_drift_vals=(4.5)
+#seeds=(1807 1806 1505 1809 0912 1011) 
+seeds=(123 17 41 58)
+snrs=($(seq 0 25))
+cfos=(0.0)
+cfo_drift_vals=(0.0)
 speed_vals=(0)
 
 # Speed in m/s
@@ -36,17 +33,19 @@ shuffle_augment_priors_vals=(False)
 
 block_length_factor_vals=(3)
 
-epochs_vals=(100)
+epochs_vals=(150)
 
 escnn_dropout_vals=(0.0)
 escnn_weight_decay_vals=(0.0)
-learning_rate_vals=(2.0e-2)
+learning_rate_vals=(1.0e-3)
 
 escnn_load_freeze_vals=(
 # 'all'
 # 'first_conv_only'
- 'first_conv_and_scale_only'
-# 'none'
+# 'first_conv_and_scale_only'
+#  'second_conv'
+#  'scale'
+  'none'
 )
 
 pretrain_loss_vals=(
@@ -62,7 +61,7 @@ tsyn_fallback_iters_vals=(1)
 bp_iters_vals=(10)   # ekfbp/ekfbps/ekfbpc/ekfibp only: sum-product BP iterations, e.g. (1 3 10 30)
 
 escnn_ekf_alpha_vals=(0.999)
-escnn_ekf_r_scale_vals=(1.0)   # kappa in R = kappa*diag(max(1-h^2, r_floor)); 1.0 = pure CM-EKF/BONG. r_floor fixed at 0.4 in the base yaml
+escnn_ekf_r_scale_vals=(1.0)
 escnn_ekf_sigma_q_vals=(0.01)
 
 
@@ -80,16 +79,17 @@ weights_track_mode_vals=(
 #  'ekfi4m'
 #   'sgdsyn'
 #   'sgdbce'
-#   'ekfp'
 #  'ekfbps'
 #  'ekfbpc'
-  'ekfi'
-  'ekfbp'
-  'ekfcrc'
-  'ekfht'
-  'sgdbcei'
-  'sgdsbp'
-  'sgdht'
+#  'ekfi'
+#  'ekfit'
+#  'ekfbp'
+#  'ekfcrc'
+#   'ekfht'
+#  'ekfp'
+#  'sgdbcei'
+#  'sgdsbp'
+#  'sgdht'
   'notrack'
 )
 calib_slots_per_group_vals=(1)
@@ -106,21 +106,21 @@ spatial_correlation_vals=('low')
 batch_size_vals=(-1)
 
 which_augment_vals=(
-  'AUGMENT_DEEPSIC'
+  'AUGMENT_DEEPRX'
 )
 
 channel_model_vals=('C')
 kernel_size_vals=(3)
 run_tdfdcnn_vals=(False)
 
-pilot_size_vals=(5000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
-mcs_vals=(10)
+pilot_size_vals=(20000)  # writes pilot_size: only. evaluate.py reads it as its own pilot region and derives data_size from it (unless data_size is set >0 elsewhere in the base config); ekf.py reads this same pilot_size as its whole run-length budget, since every slot there is a pilot. data_size: is deliberately left untouched by this script.
+mcs_vals=(28)
 override_noise_var_vals=(False)
 
 mod_pilot_vals=(-1)
-n_users_vals=(2)
-n_ants_vals=(4)
-num_res_vals=(96)
+n_users_vals=(4)
+n_ants_vals=(8)
+num_res_vals=(24)
 make_64QAM_16QAM_percentage_vals=(0)
 
 # --------------------------------------------
@@ -438,6 +438,7 @@ echo "Archived input config to $archive_yaml"
 
 # ---------------- Auto-update run_escnn_batch.bash ----------------
 "$script_dir/../replace_config_line.bash" "$config_line"
+
 
 
 

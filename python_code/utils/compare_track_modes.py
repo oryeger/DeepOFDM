@@ -46,9 +46,10 @@ SCRATCH = r"C:\Projects\Scratchpad"
 ANALYSIS = os.path.join(SCRATCH, "Analysis")
 LONG = lambda p: ("\\\\?\\" + os.path.abspath(p)) if os.name == "nt" else p   # MAX_PATH-safe
 
-# Fixed categorical order (validated palette: blue, orange, aqua, yellow, magenta, green, violet, red);
-# markers are a second, non-color identity channel.
-COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+# Fixed categorical order (blue, orange, aqua, yellow, magenta, green, violet, near-black);
+# markers are a second, non-color identity channel. Slot 7 was red (#e34948) - too close to the
+# orange of slot 1 - so it is near-black now (still distinct from the dashed gray LMMSE reference).
+COLORS = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#2b2b2b"]
 MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
 LMMSE_COLOR = "#8a8a85"
 # aug=<token> -> (CSV column suffix, legend name) of the primary receiver used as the dashed reference
@@ -56,7 +57,11 @@ AUG_REF = {"aDEEPSIC": ("deepsic", "DeepSIC"), "aDEEPRX": ("deeprx", "DeepRx"), 
 # Fixed palette slot per mode, so a mode looks the same in every figure regardless of --modes order.
 # Modes not listed get a stable crc32-based slot (bumped to the next free slot only if it clashes
 # with another mode in the same figure) - add them here to pin them permanently.
-MODE_SLOT = {"ekfcrc": 0, "ekfbp": 1, "ekfh": 2, "ekfht": 3, "ekfi": 4, "sgdsbp": 5, "ekf": 6, "sgd": 7}
+MODE_SLOT = {"ekfcrc": 0, "ekfbp": 1, "ekfh": 2, "ekfht": 3, "ekfi": 4, "sgdsbp": 5, "ekf": 6, "sgd": 7,
+             # freeze scopes (frz=<code>, see evaluate.py's freeze_codes) - pinned so a scope keeps its
+             # color in every figure; n/sc/fc2 (the usual trio) on blue/green/violet, well apart
+             "frz=n": 0, "frz=sc": 5, "frz=fc2": 6, "frz=fc1": 2, "frz=fc3": 3, "frz=f": 4,
+             "frz=a": 7, "frz=so": 1}
 # (name, CSV kind, y scale, aggregation). "mean": mean over each CSV's rows (groups), then over seeds.
 METRICS = [("BLER", "_bler", "log", "mean"), ("MI", "_mi", "linear", "mean"),
            ("BER", "", "log", "mean")]
@@ -68,12 +73,14 @@ NAME_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)_SNR=(-?\d+)(_bler|_mi)?\.csv$
 # INTERPOLATE_MISSING_PER_SEED. Only gaps of at most MAX_INTERP_GAP consecutive missing SNRs are
 # filled, from that seed's own neighbours (1: a missing X is filled only when X-1 and X+1 exist); a
 # longer gap stays open, so the seed counts as incomplete (see DROP_INCOMPLETE_SEEDS).
-INTERPOLATE_MISSING_PER_SEED = True
+# Default False (raw data, no filling at all); --interp (here or in build_analysis.py) turns this and
+# FILL_LEADING_BLER_ONE on together - see set_interp().
+INTERPOLATE_MISSING_PER_SEED = False
 MAX_INTERP_GAP = None   # None: no cap - fill any interior gap (as before); an int N: only gaps of <= N missing SNRs
 # Leading gap (the seed's curve starts above the figure's lowest SNR): when its first BLER is already
 # >= LEADING_FILL_MIN_BLER (saturated), the missing lower SNRs get BLER = 1.0 - BLER panel only (MI/BER
 # are not filled, so those panels average fewer seeds there). Listed as "BLER=1 filled:" in the note.
-FILL_LEADING_BLER_ONE = True
+FILL_LEADING_BLER_ONE = False   # default off; on with --interp (see set_interp)
 LEADING_FILL_MIN_BLER = 0.99
 # After that fill: the SNR grid is the SNRs that more than half of the figure's seeds have in ANY mode
 # (with several seeds, a mode is not required at an SNR no seed ran it at).
@@ -85,12 +92,46 @@ LEADING_FILL_MIN_BLER = 0.99
 DROP_INCOMPLETE_SEEDS = True
 
 
+def set_interp(on):
+    """--interp mode: per-seed interior-gap interpolation + leading BLER=1 fill (both off by default)."""
+    global INTERPOLATE_MISSING_PER_SEED, FILL_LEADING_BLER_ONE
+    INTERPOLATE_MISSING_PER_SEED = bool(on)
+    FILL_LEADING_BLER_ONE = bool(on)
+
+
+# Numeric tokens whose value is written as str(float or int) by evaluate.py/ekf.py, so the same value
+# can appear as 'cfo=0' or 'cfo=0.0' depending on how it was typed in make_multiple_tests.bash.
+NUMERIC_TOKENS = ("cfo", "cfod")
+
+
+def norm_token(tok):
+    """'cfo=0' -> 'cfo=0.0' (whole-number values of NUMERIC_TOKENS get one decimal); every other
+    token, and non-whole values (cfo=0.15), unchanged - so labels still match the filenames."""
+    name, eq, val = tok.partition("=")
+    if eq and name in NUMERIC_TOKENS:
+        try:
+            f = float(val)
+        except ValueError:
+            return tok
+        if f == int(f):
+            return f"{name}={f:.1f}"
+    return tok
+
+
+def norm_config(config):
+    """Config key with norm_token applied to every '_'-separated token (used for the CSV store keys,
+    --filter and build_analysis's comparison grouping, so 'cfo=0' and 'cfo=0.0' runs are one curve)."""
+    return "_".join(norm_token(t) for t in config.split("_"))
+
+
 def _record(store, name, read_fn):
-    """Parse one CSV name; read it and keep it if newest for its slot."""
+    """Parse one CSV name; read it and keep it if newest for its slot (slot = normalized config -
+    see norm_config - so a 'cfo=0' and a 'cfo=0.0' file of the same seed/SNR compete, newest wins)."""
     m = NAME_RE.match(name)
     if not m:
         return
     ts, config, seed, snr, kind = m.groups()
+    config = norm_config(config)
     key = (config, kind or "", int(seed), int(snr))
     if key in store and store[key][0] >= ts:
         return
@@ -210,7 +251,7 @@ def _why_txt(sd, why, have_n):
                     for m in why[sd])
 
 
-def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomplete="seeds"):
+def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomplete="all"):
     """The seed averaging behind make_figure (and write_table): per mode/metric/SNR the mean over the
     CSV rows, then over the kept seeds. `modes`: legend labels, in order; chosen[label] is the
     config key each one plots, from a load() store. Any number of modes (no palette limit here).
@@ -220,7 +261,9 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     seed's run carries its own w=/r= hash).
     incomplete (DROP_INCOMPLETE_SEEDS): what to leave out when a seed doesn't cover
     a mode's SNR grid - "seeds": that seed, from every mode (all modes shown, fewer seeds); "modes":
-    that mode (every seed kept, only fully covered modes shown)."""
+    that mode (every seed kept, only fully covered modes shown); "all" (default): every seed and every
+    mode kept, and a (mode, metric, SNR) point is drawn only when EVERY seed has it - so each point is
+    the average of the same full seed set (with one seed: every SNR that seed has)."""
     all_modes = list(modes)   # color slots stay fixed even when incomplete="modes" hides some
     cfgs = lambda v: (v,) if isinstance(v, str) else tuple(v)
 
@@ -276,7 +319,8 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
     all_seeds = sorted({sd for m in modes for d in curves[m].values() for sd in d})
     keep, grids, why = set(all_seeds), {}, collections.defaultdict(list)
     have_n = {}   # (seed, mode) -> (grid SNRs the seed has, grid size), for incomplete pairs
-    if DROP_INCOMPLETE_SEEDS and all_seeds:
+    fig_grid = set()
+    if DROP_INCOMPLETE_SEEDS and all_seeds and incomplete != "all":
         fig_cover = collections.Counter(
             snr for sd in all_seeds
             for snr in set().union(*(curves[m]["BLER"].get(sd, {}).keys() for m in modes)))
@@ -319,6 +363,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
 
     # aggregate: data[mode][metric][snr] -> (escnn, ref, n_seeds); ref = primary receiver (see AUG_REF)
     data = {m: {met: {} for met, *_ in METRICS} for m in modes}
+    n_partial = collections.Counter()   # incomplete="all": (mode) -> BLER points not drawn (some seed lacks them)
     for mode in modes:
         for met, *_ in METRICS:
             per_snr = collections.defaultdict(list)
@@ -329,9 +374,18 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                     if mode not in grids or snr in grids[mode]:
                         per_snr[snr].append(v)
             for snr, v in per_snr.items():
+                if incomplete == "all" and len(v) < len(all_seeds):   # not every seed has it - not drawn
+                    if met == "BLER":
+                        n_partial[mode] += 1
+                    continue
                 # reference: nanmean - a leading BLER=1 fill leaves it NaN when it isn't saturated too
                 ref_v = [x[1] for x in v if not np.isnan(x[1])]
                 data[mode][met][snr] = (np.mean([x[0] for x in v]), np.mean(ref_v) if ref_v else np.nan, len(v))
+    if incomplete == "all" and len(all_seeds) > 1:
+        if n_partial:
+            print("  SNRs not drawn (not every seed has them): "
+                  + ", ".join(f"{m} {n_partial[m]}" for m in modes if n_partial[m]))
+        title = f"{title}  [all {len(all_seeds)} seeds {','.join(map(str, all_seeds))}; only SNRs every seed has]"
     if dropped:
         print(f"  averaged {len(keep)}/{len(all_seeds) + len(absent)} seeds in every mode; dropped "
               + ", ".join(f"s={sd} ({drop_txt[sd]})" for sd in dropped))
@@ -346,7 +400,7 @@ def aggregate(store, chosen, modes, title="", seeds=None, snr_range=None, incomp
                 rate=rate, n_interp=n_interp, kept_seeds=sorted(keep), dropped_seeds=dropped,
                 dropped_why={sd: why[sd] for sd in dropped}, interp_pts=interp_pts,
                 dropped_txt=drop_txt, lead_pts=lead_pts,
-                snr_grid=sorted(fig_grid) if DROP_INCOMPLETE_SEEDS and all_seeds else [])
+                snr_grid=sorted(fig_grid))
 
 
 def write_seeds_note(agg, csv_path, config=None):
@@ -404,7 +458,7 @@ def write_table(store, chosen, modes, path, config=None, **kw):
     return agg
 
 
-def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None, incomplete="seeds"):
+def make_figure(store, chosen, modes, title, out, seeds=None, table=False, snr_range=None, incomplete="all"):
     """Draw the BLER/MI/BER comparison of `modes` (legend labels, in order; chosen[label] is the
     config key each one plots) from a load() store, save it to `out` and return the figure.
     Averaging: see aggregate(). Labels found in MODE_SLOT keep their fixed color; at most
@@ -486,7 +540,10 @@ def main():
     ap.add_argument("--table", action="store_true", help="also write the per-SNR table as CSV")
     ap.add_argument("--no-open", dest="open", action="store_false",
                     help="do not open the figure in Paint")
+    ap.add_argument("--interp", action="store_true",
+                    help="fill missing per-seed SNRs (interior interpolation + leading BLER=1); default: raw, no filling")
     args = ap.parse_args()
+    set_interp(args.interp)
     if len(args.modes) > len(COLORS):
         sys.exit(f"at most {len(COLORS)} modes per figure (fixed categorical palette) - split into two figures")
 
@@ -503,7 +560,7 @@ def main():
     if not store:
         sys.exit(f"no result CSVs in {where}")
     print(f"reading {len(store)} CSVs from {where}")
-    flt = set(args.filter)
+    flt = {norm_token(t) for t in args.filter}   # store keys are normalized (see _record)
 
     # config per mode
     configs = collections.defaultdict(set)

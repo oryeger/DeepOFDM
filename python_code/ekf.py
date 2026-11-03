@@ -348,9 +348,10 @@ def _build_ekf_title_string(n_users: int, mod_data: int, code_rate, timestamp: s
     if conf.channel_model[0] == 'N':
         chan_text = 'Flat'
     elif conf.channel_model[0] in ('A', 'B', 'C'):
-        # 'T' + model letter (e.g. 'TA', 'TC') - delay spread dropped, kept only to distinguish
-        # TDL from the 'Flat'/env-name cases below, not to encode every channel parameter.
-        chan_text = 'T' + conf.channel_model
+        # 'T' + model letter (e.g. 'TA', 'TC') - default delay spread dropped, kept only to distinguish
+        # TDL from the 'Flat'/env-name cases below. A non-default delay spread keeps its channel_model
+        # suffix (see config_singleton): 'C10' -> 'TC10', 'C1K' -> 'TC1K'.
+        chan_text = 'T' + getattr(conf, 'channel_model_tag', conf.channel_model)
     else:
         chan_text = conf.channel_model
     title_string = _build_ekf_filename_suffix(chan_text, mod_text, n_users, code_rate)

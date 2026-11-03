@@ -162,5 +162,5 @@ cython_debug/
 
 *.pt
 *.mat
-# Scratch files from Claude sessions
-Claude outputs/onesplit/
+# Claude session outputs live in C:\Projects\ClaudeMisc, not in the repo
+Claude outputs/

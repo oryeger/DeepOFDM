@@ -162,3 +162,5 @@ cython_debug/
 
 *.pt
 *.mat
+# Scratch files from Claude sessions
+Claude outputs/onesplit/

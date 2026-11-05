@@ -6,8 +6,9 @@
 # last make_multiple_tests.bash run (config_files/archive/<ts>_make_<cur_str>.bash and
 # <ts>_mult_<cur_str>.yaml) - e.g. <ts>_make_<cur_str>_job123456.bash - so a past archived
 # batch stays traceable to the SLURM job(s) that actually ran it, without touching the
-# archived files' contents. Safe to call again for a resubmit: a new job ID appends
-# alongside any already recorded, and re-recording the same ID is a no-op.
+# archived files' contents. One archive = one job ID: only archives that carry no job ID
+# yet are considered, so a second ID is never appended. To resubmit, rerun
+# make_multiple_tests.bash first so the new job gets its own archive.
 
 if [ $# -ne 1 ]; then
   echo "Usage: $0 <job_id | \"Submitted batch job <job_id>\">"
@@ -28,11 +29,12 @@ if [ ! -d "$archive_dir" ]; then
   exit 1
 fi
 
-latest_script=$(ls -1 "$archive_dir"/*_make_*.bash 2>/dev/null | sort | tail -1)
-latest_yaml=$(ls -1 "$archive_dir"/*_mult_*.yaml 2>/dev/null | sort | tail -1)
+latest_script=$(ls -1 "$archive_dir"/*_make_*.bash 2>/dev/null | grep -vE '_job[0-9]+\.bash$' | sort | tail -1)
+latest_yaml=$(ls -1 "$archive_dir"/*_mult_*.yaml 2>/dev/null | grep -vE '_job[0-9]+\.yaml$' | sort | tail -1)
 
 if [ -z "$latest_script" ] && [ -z "$latest_yaml" ]; then
-  echo "ERROR: no archived *_make_*.bash or *_mult_*.yaml files found under $archive_dir" >&2
+  echo "ERROR: no archive without a job ID under $archive_dir - job $job_id NOT recorded" >&2
+  echo "       (rerun make_multiple_tests.bash before submitting, so each job gets its own archive)" >&2
   exit 1
 fi
 
@@ -50,3 +52,4 @@ for target in "$latest_script" "$latest_yaml"; do
   mv "$target" "$new_target"
   echo "Recorded job $job_id: renamed $base -> $(basename "$new_target")"
 done
+

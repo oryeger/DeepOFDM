@@ -26,3 +26,4 @@ if [ -z "$job_id" ]; then
 fi
 
 "$script_dir/config_files/record_job_id.bash" "$job_id"
+

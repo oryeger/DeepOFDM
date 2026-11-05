@@ -116,8 +116,7 @@ def total_tests(path):
 
 
 # (label, array in the Parameters section) of the sweeps shown per job line
-_SWEEPS = (('aug', 'which_augment_vals'), ('mcs', 'mcs_vals'), ('cfo', 'cfos'))
-
+_SWEEPS = (('aug', 'which_augment_vals'), ('mcs', 'mcs_vals'), ('cfo', 'cfos'), ('chan', 'channel_model_vals'))
 
 def swept_values(path):
     """{label: [values]} of the _SWEEPS arrays of an archived make_multiple_tests.bash, read

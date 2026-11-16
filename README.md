@@ -90,8 +90,11 @@ conf.which_augment select which primary detectors the escnn augments:
 'AUGMENT_DEEPRX' -  Probabilities at the escnn input are the output of deeprx
 'NO_AUGMENT' -      Probabilities at the escnn input are initialized to a constant (half) and the escnn runs in standalone mode
 
-For checking transferability between primary detectors conf.override_augment_with_lmmse can be used.
-When it is set to True, in inference the escnn gets the lmmse probabilities regardless of which primary dector the escnn was trained for.
+For checking transferability between primary detectors use conf.load_escnn_weights_primary.
+'' (default) loads an escnn trained with the run's own which_augment.
+Set it to another which_augment value to load an escnn trained with that primary and run it with which_augment as the primary.
+Example: train and save with which_augment: 'AUGMENT_SPHERE'. Then run with which_augment: 'AUGMENT_DEEPSIC', load_escnn_weights_primary: 'AUGMENT_SPHERE', load_escnn_weights_tag: 'auto', escnn_load_freeze: 'all', save_escnn_weights: False.
+In ekf.py this works only with an LMMSE or Sphere primary.
 
 ### utils
 

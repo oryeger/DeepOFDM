@@ -92,7 +92,7 @@ separate_pilots: True
 chanestmode: 'dmrs'  # 'legacy': dedicated whole-block genie pilot region (today's CE, unchanged). 'dmrs': embedded in-slot DMRS CE matching ekf.py's own scheme (see coding/dmrs_pilots.py) - LMMSE/ESCNN/Sphere only, JointLLR unaffected
 
 # ESCNN train/test transfer (run 1 trains+saves under one config; run 2 loads+tests under another)
-save_escnn_weights: False  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
+save_escnn_weights: True  # Save trained ESCNN weights to Scratchpad/<params>_<tag>.pt (no date/time, same params as the CSV filename)
 load_escnn_weights_tag: '' 
 load_escnn_weights_snr_override: null
 load_escnn_weights_snr_max_override: null

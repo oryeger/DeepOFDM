@@ -15,10 +15,13 @@ end of stem, e.g.
     <ts>_make_<cur_str>_job23349678_job23357045.bash   (resubmit appends a second ID)
 so job 2334967 does not falsely match job23349678.
 
-Output: first one `vi <full path>` line per matched file (ready to copy-paste), then each
-queued job ID with its cur_str (e.g. icpilot), running / pending / other task counts, how long
-its longest-running task has been running (squeue %M) and, in the last columns, the augment(s),
-MCS(s) and cfo(s) its generator swept, then any job IDs that have no archived file.
+Output: first one `vi <full path>` line per matched file (ready to copy-paste), then one
+compact line per queued job (fits a laptop-width terminal):
+    <ID> <cur_str> run=<running>/<total> pend=<pending> left=<done or failed> old=<oldest running>
+    aug=... mcs=... cfo=... chan=...
+old= is how long its longest-running task has been running (squeue %M). The last columns are
+the augment(s) (short names: LMMSE, SPH, DSIC, DRX, NOAUG), MCS(s), cfo(s) and channel(s) its
+generator swept. Then any job IDs that have no archived file.
 """
 import argparse
 import getpass
@@ -143,11 +146,13 @@ def swept_values(path):
 
 def _fmt_sweeps(vals):
     """{label: [values]} -> ['aug=LMMSE,DEEPRX', 'mcs=28', 'cfo=0.0,0.15'], one column each
-    ('?' if unknown). Augment names are shortened like make_multiple_tests.bash's aug tag
-    (AUGMENT_LMMSE -> LMMSE, NO_AUGMENT -> NOAUG)."""
+    ('?' if unknown). Augment names are shortened so a job fits on one laptop-width line
+    (AUGMENT_LMMSE -> LMMSE, AUGMENT_SPHERE -> SPH, AUGMENT_DEEPSIC -> DSIC, AUGMENT_DEEPRX -> DRX,
+    NO_AUGMENT -> NOAUG)."""
     if vals is None:
         return [f'{label}=?' for label, _ in _SWEEPS]
-    short = {'NO_AUGMENT': 'NOAUG'}
+    short = {'NO_AUGMENT': 'NOAUG', 'AUGMENT_SPHERE': 'SPH', 'AUGMENT_DEEPSIC': 'DSIC',
+             'AUGMENT_DEEPRX': 'DRX'}
     parts = []
     for label, _ in _SWEEPS:
         v = vals[label]
@@ -214,29 +219,28 @@ def main():
         pending = states.get('PENDING', 0)
         other = sum(states.values()) - running - pending
         total = totals[job_id]
-        line = (f'{job_id}  {cur_strs[job_id]:<{width}}  '
-                f'{running:4d} running out of {total if total is not None else "?":>4} total tests'
-                f'  (pending={pending}')
+        # compact so one job fits on one laptop-width line: run=<running>/<total>,
+        # pend=<pending>, left=<tasks that left the queue (done or failed)>, old=<oldest running>
+        line = (f'{job_id} {cur_strs[job_id]:<{width}} '
+                f'run={running:>3}/{total if total is not None else "?":<3} pend={pending:<3}')
         if total is not None:
-            # finished tasks (done or failed) leave the queue
-            line += f', left the queue={max(total - sum(states.values()), 0)}'
-        line += ')'
+            line += f' left={max(total - sum(states.values()), 0)}'
         tail = ''
         if job_id in oldest:   # how long the longest-running of its running tasks has been running
-            tail += f'oldest running: {_fmt_dur(oldest[job_id])}'
+            tail += f'old={_fmt_dur(oldest[job_id])}'
         if other:
-            tail += ('  ' if tail else '') + 'other=' + ','.join(
+            tail += (' ' if tail else '') + 'other=' + ','.join(
                 f'{s}:{n}' for s, n in states.items() if s not in ('RUNNING', 'PENDING'))
         heads.append(line)
         tails.append(tail)
-    hw = max(len(h) for h in heads)   # pad the (...) part so the 'oldest running' column lines up
+    hw = max(len(h) for h in heads)   # pad the counts part so the old= column lines up
     tw = max(len(t) for t in tails)   # pad that column so the aug / mcs / cfo columns line up
     # width of each aug / mcs / cfo column (a job without an archived file has a single '-')
     sw = [max((len(sw_[i]) for sw_ in sweeps.values() if i < len(sw_)), default=0)
           for i in range(len(_SWEEPS))]
     for job_id, h, t in zip(jobs, heads, tails):
-        cols = '  '.join(f'{c:<{sw[i]}}' for i, c in enumerate(sweeps[job_id]))
-        print(f'{h:<{hw}}  {t:<{tw}}  {cols}'.rstrip())
+        cols = ' '.join(f'{c:<{sw[i]}}' for i, c in enumerate(sweeps[job_id]))
+        print(f'{h:<{hw}} {t:<{tw}} {cols}'.rstrip())
 
     if unmatched:
         print(f'\nNo archived .bash file for job(s): {" ".join(unmatched)}'

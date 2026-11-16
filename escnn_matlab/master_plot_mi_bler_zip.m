@@ -13,8 +13,9 @@
 clear; clc;
 
 % ---- User configuration ----
-archive_path     = 'C:\Projects\Scratchpad\fig5.gz';
-out_base_name    = 'CFO_MI';      % output: <work_dir>\<out_base_name>_mi_bler.{eps,fig}
+archive_path     = 'C:\Projects\Scratchpad\fig_from_archive\fig7_sel.gz';
+out_base_name    = 'UMi';         % output: <work_dir>\<out_base_name>_mi_bler.{eps,fig}
+fill_missing     = true;          % create missing (det, seed, SNR) points from neighbours (make_mats_from_archive.py --fill-missing)
 work_dir         = 'C:\Projects\Scratchpad\fig_from_archive';   % extracted CSVs, .mat files and figures (outside the repo)
 python_exe       = 'C:\Users\owner\anaconda3\python.exe';
 mats_script      = 'C:\Projects\DeepOFDM\python_code\utils\make_mats_from_archive.py';
@@ -25,7 +26,7 @@ sphere_label     = 'SPHERE';      % 'SPHERE' for full sphere (ip=0), 'RBSD' for 
 add_snr_target   = false;         % append SNR@10% to BLER legend labels
 plot_aug_iter_2  = false;         % plot second aug iteration if available
 snr_pad_left_db   = 0;            % extend SNR axis to the left by this many dB (0 = no padding)
-snr_cut_right_pts = 5;            % cut this many SNR points from the right (0 = no cut)
+snr_cut_right_pts = 0;            % cut this many SNR points from the right (0 = no cut)
 snr_cut_left_pts  = 0;            % cut this many SNR points from the left  (0 = no cut)
 output_target    = 'paper';       % 'paper' (compact, default legend) or 'ppt' (large, fontsize 14, PNG export)
 export_pdf       = false;         % also export a vector PDF (exportgraphics)
@@ -51,6 +52,9 @@ end
 
 cmd = sprintf('"%s" "%s" "%s" "%s" "%s"', python_exe, ...
     mats_script, archive_path, csv_dir, dir_path);
+if fill_missing
+    cmd = [cmd, ' --fill-missing'];
+end
 fprintf('Running: %s\n', cmd);
 status = system(cmd);
 if status ~= 0

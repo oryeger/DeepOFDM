@@ -9,7 +9,7 @@ fi
 input_file=$1
 base_name=$(basename "$input_file" .yaml)
 
-cur_str=fidmrs  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
+cur_str=tbl3  # written as-is into every generated config's cur_str: (not swept - one value for the whole batch)
 
 # ---------------- Parameters ----------------
 # seeds=(17 41 58 123 912 1011 1806 3008 )
@@ -17,8 +17,8 @@ cur_str=fidmrs  # written as-is into every generated config's cur_str: (not swep
 #seeds=(123 17 41 58 1505 1807 1011 1809 3008 1806) 
 #seeds=(1807 1806 1505 1809 0912 1011) 
 seeds=(123 17 41 58)
-snrs=($(seq 0 25))
-cfos=(0.0)
+snrs=($(seq 12 24))
+cfos=(0.15)
 cfo_drift_vals=(0.0)
 speed_vals=(0)
 
@@ -43,9 +43,7 @@ escnn_load_freeze_vals=(
 # 'all'
 # 'first_conv_only'
 # 'first_conv_and_scale_only'
-#  'second_conv'
-#  'scale'
-  'none'
+ 'none'
 )
 
 pretrain_loss_vals=(
@@ -86,17 +84,27 @@ weights_track_mode_vals=(
 #  'ekfbp'
 #  'ekfcrc'
 #   'ekfht'
-#  'ekfp'
+  'ekfp'
 #  'sgdbcei'
 #  'sgdsbp'
 #  'sgdht'
-  'notrack'
+#  'notrack'
 )
 calib_slots_per_group_vals=(1)
 
 load_escnn_weights_snr_max_override_vals=(
   'null'  
 #  25
+)
+
+# Primary the loaded ESCNN weights were trained with (transferability test). '' = the run's
+# own which_augment (matched). Only matters when load_escnn_weights_tag is set (e.g. 'auto').
+load_escnn_weights_primary_vals=(
+  ''
+#  'AUGMENT_LMMSE'
+#  'AUGMENT_SPHERE'
+#  'AUGMENT_DEEPSIC'
+#  'AUGMENT_DEEPRX'
 )
 
 
@@ -311,9 +319,23 @@ for seed in "${seeds[@]}"; do
                                                                         for bp_iters in "${bp_iters_vals[@]}"; do
                                                                           bpitag="bpi${bp_iters}"
 
+                                                                        for load_primary in "${load_escnn_weights_primary_vals[@]}"; do
+                                                                          case "$load_primary" in
+                                                                            '')              wptag="wp0" ;;
+                                                                            NO_AUGMENT)      wptag="wpNOAUG" ;;
+                                                                            AUGMENT_LMMSE)   wptag="wpLMMSE" ;;
+                                                                            AUGMENT_SPHERE)  wptag="wpSPH" ;;
+                                                                            AUGMENT_DEEPSIC) wptag="wpDSIC" ;;
+                                                                            AUGMENT_DEEPRX)  wptag="wpDRX" ;;
+                                                                            *)
+                                                                              echo "ERROR: Unknown load_escnn_weights_primary: $load_primary" >&2
+                                                                              exit 1
+                                                                              ;;
+                                                                          esac
+
                                                                         for snr in "${snrs[@]}"; do
 
-                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${rstag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_${bpitag}_s${seed}_snr${snr}.yaml"
+                                                                      out_file="${base_name}_cfo${cfo}_cd${cfo_drift//./p}_${speedtag}_clip${clip}_${uf}_${aug}_${ttag}_${sctag}_${ktag}_${ptag}_${mtag}_${utag}_${natag}_${nrtag}_${mptag}_${mixtag}_${ipm_tag}_${bstag}_${etag}_${drtag}_${wdtag}_${lrtag}_${freeze_tag}_${shtag}_${saptag}_${blftag}_${ovtag}_${tdtag}_${nlltag}_${tltag}_${bbtag}_${twtag}_${tftag}_${rstag}_${alphatag}_${sqtag}_${cditag}_${trktag}_${csgtag}_${smxtag}_${bpitag}_${wptag}_s${seed}_snr${snr}.yaml"
 
                                                                       sed -e "s/^cur_str:.*/cur_str: $cur_str/" \
                                                                           -e "s/^channel_seed:.*/channel_seed: $seed/" \
@@ -358,12 +380,15 @@ for seed in "${seeds[@]}"; do
                                                                           -e "s/^calib_slots_per_group:.*/calib_slots_per_group: $calib_slots_per_group/" \
                                                                           -e "s/^bp_iters:.*/bp_iters: $bp_iters/" \
                                                                           -e "s/^load_escnn_weights_snr_max_override:.*/load_escnn_weights_snr_max_override: $snr_max_ov/" \
+                                                                          -e "s/^load_escnn_weights_primary:.*/load_escnn_weights_primary: '$load_primary'/" \
                                                                           "$input_file" > "$out_file"
 
                                                                       grep -q "^bp_iters:" "$out_file" || echo "bp_iters: $bp_iters" >> "$out_file"
+                                                                      grep -q "^load_escnn_weights_primary:" "$out_file" || echo "load_escnn_weights_primary: '$load_primary'" >> "$out_file"
                                                                       all_config_files+=("$out_file")
                                                                       ((total_count++))
                                                                         done  # snr
+                                                                        done  # load_primary
                                                                         done  # bp_iters
                                                                         done  # snr_max_ov
                                                                       done  # calib_slots_per_group

@@ -68,7 +68,6 @@ run_tdcnn: False
 run_tdfdcnn: False
 run_jointllr: False
 which_augment: 'AUGMENT_LMMSE'
-override_augment_with_lmmse: False
 
 mhsa_no_probs: True
 
@@ -98,6 +97,7 @@ load_escnn_weights_tag: '896978'  # d62e80 (QPSK TDLC 1 UE 123 4K pilots) d36fd7
 load_escnn_weights_snr_override: null  # SNR is excluded from the tag, so by default the loader matches this run's own SNR. Set to deliberately load a different-SNR-trained model (cross-SNR transfer test). Sentinel is null/unset (not -1, since negative SNRs are valid override values here), so it can be set to any SNR including negative ones. null = no override (matches this run's own SNR).
 load_escnn_weights_snr_max_override: null  # Ignored when load_escnn_weights_snr_override is set. Otherwise, set to cap which SNR-trained checkpoint gets loaded: this run's own SNR <= this value loads that matching-SNR checkpoint as usual; SNR > this value loads the checkpoint trained at this value instead (clamps to the highest-SNR model rather than extrapolating past it). Sentinel is null/unset (not -1, since negative SNRs are valid cap values here), so it can be set to any SNR including negative ones. null = no cap (matches this run's own SNR).
 escnn_load_freeze: 'first_conv_and_scale_only'  # 'none', 'scale', 'last_conv', 'scale_only', 'last_conv_only', 'first_conv_only', 'first_conv_and_scale_only', 'all'
+load_escnn_weights_primary: ''  # Primary detector the loaded ESCNN was trained with. '' = this run's which_augment (matched). Set to another which_augment value (e.g. 'AUGMENT_SPHERE') for a transferability test: load the ESCNN trained with that primary and run it with which_augment as the primary. Works with load_escnn_weights_tag 'auto'. Use escnn_load_freeze: 'all' for a pure zero-shot test. Requires save_escnn_weights: False when it differs from which_augment
 
 # ESCNN EKF tracking (ekf.py only): unsupervised, syndrome-driven test-time adaptation of
 # whichever params escnn_load_freeze leaves unfrozen - requires load_escnn_weights_tag to be

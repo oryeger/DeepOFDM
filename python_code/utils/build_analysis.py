@@ -6,6 +6,8 @@ Usage:
     python build_analysis.py                (no arg: lists available tags)
     python build_analysis.py <tag> --interp (Part 0 comparisons: fill missing per-seed SNRs -
                                              interior interpolation + leading BLER=1; default: raw, no filling)
+    python build_analysis.py <tag> --keep-hashes (keep runs that differ only in their w=/r= weights
+                                             hashes as separate curves; default: merged into one curve)
 
 What it does, given experiment tag <tag>:
   1. Scans C:\\Projects\\Scratchpad for result CSVs of that tag and finds the
@@ -130,8 +132,12 @@ def drop_redundant_hashes(diffs):
     return diffs
 
 def _hash_tag(k):
-    """The weights hashes (r= loaded / w= saved, 6-char SHA1 prefixes) of a config key, e.g. 'r=fdc7ba'."""
-    return " ".join(tok for name, tok in _split_key_tokens(k) if name in HASH_TOKENS)
+    """The weights hashes (r= loaded / w= saved, 6-char SHA1 prefixes) of a config key, e.g. 'r=fdc7ba'.
+    A merged key (see merge_ignored_tokens) lists the hashes of all its runs."""
+    toks = []
+    for kk in MERGED.get(k, [k]):
+        toks += [tok for name, tok in _split_key_tokens(kk) if name in HASH_TOKENS and tok not in toks]
+    return " ".join(toks)
 
 def _h3(label, k):
     """Heading for one config: its differing tokens, plus its weights hash when the label lacks it."""
@@ -314,6 +320,69 @@ def _primary(k):
     import plot_multiple_csvs as pmc
     return pmc.detect_aug_type(k) or "NOAUG"
 
+# Name tokens a primary receiver ignores (it= is DeepSIC's iteration count): runs of such a primary
+# that differ only in them - and in the w=/r= weights hashes, which change with every run - are one
+# configuration, so build() merges them into one key with those tokens as '<name>=*' (e.g. LMMSE
+# it=1 at SNR 12..24 + it=3 at SNR 8..11 -> one curve over 8..24). The wildcarded key still globs
+# every merged run's files, and plot_csvs keeps one file per (seed, SNR) as always.
+IGNORED_TOKENS = {"LMMSE": {"it"}, "SPHERE": {"it"}, "DEEPRX": {"it"}}
+# Runs of one config and seed that differ only in their w=/r= weights hashes (e.g. some SNRs rerun
+# later) are merged into one curve too, for every primary. --keep-hashes turns this off.
+MERGE_HASHES = True
+MERGED = {}       # merged key -> its original keys (current build only)
+MERGED_FROM = {}  # original key -> its merged key
+
+def merge_ignored_tokens(cfgs):
+    """cfgs ({'<config>_s=<seed>': [SNRs]}, see unique_configs) with the runs that differ only in
+    their primary's IGNORED_TOKENS (and weights hashes) merged into one key: the ignored tokens, and
+    the hash tokens that differ within the group, become '<name>=*'. Runs sharing an ignored-token
+    value (e.g. two it=1 reruns differing only in w=) are left apart unless MERGE_HASHES. Fills
+    MERGED and MERGED_FROM.
+    With MERGE_HASHES (default), runs differing only in their weights hashes are merged as well, for
+    every primary. Where merged runs cover the same SNR, plot_csvs keeps the newest file (it reads
+    files in name order, timestamp first) - those SNRs are listed as a warning."""
+    MERGED.clear(); MERGED_FROM.clear()
+    groups = collections.defaultdict(list)
+    for k in cfgs:
+        ign = IGNORED_TOKENS.get(_primary(k), set())
+        wild = ign | set(HASH_TOKENS) if (ign or MERGE_HASHES) else set()
+        base = "_".join(f"{n}=*" if n in wild else t for n, t in _split_key_tokens(k)) if wild else k
+        groups[base].append(k)
+    out = {}
+    for base, ks in groups.items():
+        ign = IGNORED_TOKENS.get(_primary(ks[0]), set())
+        vals = [tuple(t for n, t in _split_key_tokens(k) if n in ign) for k in ks]
+        if len(ks) == 1 or (not MERGE_HASHES and len(set(vals)) != len(ks)):
+            if len(ks) > 1:
+                print(f"  [WARN] not merging {len(ks)} runs of [{base}]: some share their "
+                      f"{'/'.join(sorted(ign))} value (they differ in w=/r= only)")
+            for k in ks:
+                out[k] = cfgs[k]
+            continue
+        varying = {n for n in HASH_TOKENS if len({dict(_split_key_tokens(k)).get(n) for k in ks}) > 1}
+        mk = "_".join(f"{n}=*" if n in ign | varying else t for n, t in _split_key_tokens(ks[0]))
+        out[mk] = sorted({s for k in ks for s in cfgs[k]})
+        MERGED[mk] = sorted(ks)
+        for k in ks:
+            MERGED_FROM[k] = mk
+        cnt = collections.Counter(s for k in ks for s in cfgs[k])
+        dup = sorted(s for s, c in cnt.items() if c > 1)
+        if dup:
+            print(f"  [WARN] {mk}: SNRs {dup} come from more than one of the merged runs - "
+                  f"the newest file is used")
+        diff = {n for n in ign | set(HASH_TOKENS) if len({dict(_split_key_tokens(k)).get(n) for k in ks}) > 1}
+        print(f"Merged {len(ks)} {_primary(mk)} runs differing only in "
+              f"{', '.join(sorted(diff))} -> {mk}")
+    return out
+
+_FILE_RE = re.compile(r"^(\d{8}_\d{4})_(.*)_s=(\d+)(_SNR=.*)$")
+
+def _merged_name(n):
+    """A result file name with its config replaced by its merged key (see merge_ignored_tokens)."""
+    m = _FILE_RE.match(n)
+    mk = MERGED_FROM.get(f"{m.group(2)}_s={m.group(3)}") if m else None
+    return f"{m.group(1)}_{_split_seed(mk)[0]}_s={m.group(3)}{m.group(4)}" if mk else n
+
 def build(tag):
     """One build per (modulation, code rate, primary receiver): a batch mixing several of any of
     these gets a parent ANALYSIS/<tag>/ dir (index.html linking the builds) holding a
@@ -322,7 +391,7 @@ def build(tag):
     (<tag> -> <tag>_2, ...). A batch with a single modulation, rate and primary keeps the plain
     ANALYSIS/<tag>/<tag>.html layout."""
     purge_redundant_tw_variants(tag)
-    cfgs = unique_configs(tag)
+    cfgs = merge_ignored_tokens(unique_configs(tag))
     if not cfgs:
         print(f"No CSVs found for tag '{tag}'"); return 1
     groups = {}
@@ -355,9 +424,12 @@ def _mode(k):
     """Tracking mode (value of the t=/trk= token) of a config, or None."""
     return next((tok.split("=", 1)[1] for name, tok in _split_key_tokens(k) if name in ("trk", "t")), None)
 
-def _cmp_entries(keys, drop):
+def _cmp_entries(keys, drop, min_labels=2):
     """Group `keys` for the Part 0 comparisons: group key = every token except the CMP_FAMILY and
-    CMP_AXES ones and the token names in `drop`. Keeps groups with >= 2 curves. -> {gkey: {legend
+    CMP_AXES ones and the token names in `drop`. Keeps groups with >= min_labels curves (min_labels=1:
+    the seed-averaged pass, so a configuration run with a single mode/scope - e.g. one DEEPRX
+    configuration over several seeds - still gets its all-seed average; its one curve is labeled by
+    its CMP_AXES tokens (frz=...), or 'ESCNN' when it has none). -> {gkey: {legend
     label: [keys]}}; label = the mode, plus its other trk-family tokens (lr=, csg=, ...) when the
     same mode appears with several of them in a group, plus the CMP_AXES tokens (frz=...) when they
     vary in the group. Configs without a tracking mode (evaluate runs) are compared only over
@@ -385,9 +457,11 @@ def _cmp_entries(keys, drop):
             if show_axes:
                 parts += axes(k)
             lab = " ".join(parts)
+            if not lab and min_labels == 1:   # single-curve group: name the curve anyway
+                lab = " ".join(axes(k)) or "ESCNN"
             if lab:
                 labeled[lab].append(k)
-        if len(labeled) > 1:
+        if len(labeled) >= min_labels:
             out[gkey] = dict(labeled)
     return out
 
@@ -406,14 +480,16 @@ def compare_sections(tag, keys, out_dir):
     # normalized CSV store below (ctm._record). Only Part 0 - Part 1 curves glob the original names.
     keys = sorted({ctm.norm_config(k) for k in keys})
     per_seed = _cmp_entries(keys, set())
-    pooled = {g: labs for g, labs in _cmp_entries(keys, {"s"} | set(HASH_TOKENS)).items()
+    # min_labels=1: a configuration with several seeds gets its all-seed average even when it was
+    # run with one mode only (no per-seed figures for those - Part 1 already has each seed's curve)
+    pooled = {g: labs for g, labs in _cmp_entries(keys, {"s"} | set(HASH_TOKENS), min_labels=1).items()
               if len({_split_seed(k)[1] for ks in labs.values() for k in ks}) > 1}
     if not per_seed and not pooled:
         print("No configuration was run with more than one tracking mode / freeze scope - no comparison plots")
         return []
     store = {}
     for p in glob.glob(os.path.join(SCRATCH, f"*_{tag}_s=*_SNR=*.csv")):
-        ctm._record(store, os.path.basename(p), lambda p=p: LONG(p))
+        ctm._record(store, _merged_name(os.path.basename(p)), lambda p=p: LONG(p))
 
     # Pooled groups: a (label, seed) pair must map to a single run - otherwise the dropped w=/r=
     # hashes were telling genuinely different runs apart, and averaging them would mix them.
@@ -666,7 +742,8 @@ def detect_tags():
 if __name__ == "__main__":
     args = sys.argv[1:]
     interp = "--interp" in args   # fill missing per-seed SNRs in the Part 0 comparisons (default: raw, no filling)
-    args = [a for a in args if a != "--interp"]
+    MERGE_HASHES = "--keep-hashes" not in args   # default: merge runs differing only in w=/r=
+    args = [a for a in args if a not in ("--interp", "--keep-hashes")]
     sys.path.insert(0, UTILS)
     import compare_track_modes as ctm
     ctm.set_interp(interp)

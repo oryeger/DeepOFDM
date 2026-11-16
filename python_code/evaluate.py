@@ -382,6 +382,25 @@ AUGMENT_SHORT_MAP = {'AUGMENT_LMMSE': 'aLMMSE', 'AUGMENT_SPHERE': 'aSPHERE', 'AU
                      'AUGMENT_DEEPRX': 'aDEEPRX', 'NO_AUGMENT': 'NOAUG'}
 
 
+def resolve_load_weights_primary() -> str:
+    """The which_augment a loaded ESCNN checkpoint must have been trained under.
+    conf.load_escnn_weights_primary = '' (default) -> this run's own which_augment (matched
+    train/test primary, the original behavior). Set to another which_augment value (e.g.
+    'AUGMENT_SPHERE') for a cross-primary transferability test: load the ESCNN trained with that
+    primary and run it with this run's which_augment as the primary. Used by both the 'auto' tag
+    lookup (resolve_auto_escnn_weights_tag) and the explicit-tag check (check_weights_augment_match)."""
+    primary = str(getattr(conf, 'load_escnn_weights_primary', '') or '').strip()
+    if not primary:
+        return conf.which_augment
+    if primary not in AUGMENT_SHORT_MAP:
+        raise ValueError(f"load_escnn_weights_primary={primary!r} is not a which_augment value - "
+                         f"use '' or one of {list(AUGMENT_SHORT_MAP)}")
+    if primary != conf.which_augment:
+        print(f"[ESCNN] cross-primary load: ESCNN trained with {primary}, "
+              f"running with primary {conf.which_augment}", flush=True)
+    return primary
+
+
 def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
                                   code_rate, pilot_data_ratio, corr_level) -> str:
     """
@@ -427,6 +446,70 @@ def _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, ep
 def _escnn_weights_tag(suffix: str) -> str:
     """Short deterministic fingerprint of an ESCNN filename suffix, for easy reference when loading."""
     return hashlib.sha1(suffix.encode()).hexdigest()[:6]
+
+
+# Suffixes run_evaluate appends to the results title; the longest one bounds the filename length.
+_OUTPUT_SUFFIXES = (".csv", "_bler.csv", "_mi.csv")
+_MAX_FILENAME_BYTES = 255   # Linux NAME_MAX (ext4 etc.) - a longer name fails to open for writing
+
+
+def _build_results_title(chan_text, mod_text, train_samples, n_users, epochs, iterations, code_rate,
+                         pilot_data_ratio, weights_tag, formatted_date) -> str:
+    """Name (without suffix) of the result CSVs run_evaluate writes. Starts from the same
+    _build_escnn_filename_suffix as the saved weights, but drops _iqg=0_iqp=0 when IQ mismatch is
+    off (as ekf.py does since 2026-10-13) - result names only: the weights suffix, its w= hash and
+    the auto-loader's _iqg=/_iqp= matching stay unchanged. Names written before 2026-11-12 always
+    carry _iqg=0_iqp=0."""
+    corr_level = getattr(conf, 'spatial_correlation', 'none')
+    title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
+                                                 code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
+    _iqg, _iqp = getattr(conf, 'iqmm_gain', 0), getattr(conf, 'iqmm_phase', 0)
+    if _iqg == 0 and _iqp == 0:
+        title_string = title_string.replace('_iqg=' + str(_iqg) + '_iqp=' + str(_iqp), '', 1)
+    freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
+                    'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
+                    'first_conv_and_scale_only': 'f', 'all': 'a'}
+    if conf.load_escnn_weights_tag:
+        title_string = title_string + '_r=' + conf.load_escnn_weights_tag
+        # Cross-primary load (load_escnn_weights_primary): record the primary the loaded
+        # weights were trained with. Plain short names on purpose - not the aLMMSE/aSPHERE
+        # tokens, which plot_multiple_csvs.detect_aug_type reads as the inference primary.
+        _wp = str(getattr(conf, 'load_escnn_weights_primary', '') or '').strip()
+        if _wp and _wp != conf.which_augment:
+            _wp_short = {'AUGMENT_LMMSE': 'LMMSE', 'AUGMENT_SPHERE': 'SPH', 'AUGMENT_DEEPSIC': 'DSIC',
+                         'AUGMENT_DEEPRX': 'DRX', 'NO_AUGMENT': 'NOAUG'}
+            title_string = title_string + '_wp=' + _wp_short.get(_wp, _wp)
+    title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
+    if conf.save_escnn_weights and weights_tag:
+        title_string = title_string + '_w=' + weights_tag
+    _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}
+    _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
+    title_string = title_string + '_tl=' + _tl_tag
+    _beta = getattr(conf, 'beta_balance', 0.0)
+    title_string = title_string + '_bb=' + str(_beta)
+    _tw = getattr(conf, 'tw', 0.5)
+    title_string = title_string + '_tw=' + str(_tw)
+    _tsyn_fb = getattr(conf, 'tsyn_fallback_iters', 0)
+    title_string = title_string + '_tf=' + str(_tsyn_fb)
+    title_string = title_string + '_' + conf.cur_str
+    title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
+    return formatted_date + title_string
+
+
+def _check_output_name_lengths(chan_text, mod_text, train_samples, n_users, epochs, iterations, code_rate,
+                               pilot_data_ratio, formatted_date):
+    """Fail before detection/training (not after the whole run) if any result file name would
+    exceed NAME_MAX - that used to silently lose the _bler/_mi CSVs of the longest-named runs
+    (tbl3 cross-primary loads with wp=), since the BER CSV is written first and the job died on
+    the next one. Mirrors ekf.py's _check_output_name_lengths. The w= tag is not known yet, so a
+    6-char placeholder stands in when weights will be saved."""
+    name = _build_results_title(chan_text, mod_text, train_samples, n_users, epochs, iterations, code_rate,
+                                pilot_data_ratio, '0' * 6 if conf.save_escnn_weights else None, formatted_date)
+    longest = name + max(_OUTPUT_SUFFIXES, key=len)
+    n = len(longest.encode('utf-8'))
+    if n > _MAX_FILENAME_BYTES:
+        raise ValueError(f"Output file name would be {n} chars (> {_MAX_FILENAME_BYTES}): {longest}\n"
+                         f"Shorten _build_results_title (or cur_str) before running.")
 
 
 def _long_path(p: str) -> str:
@@ -525,6 +608,21 @@ def _near_miss_report(rejected, n=5):
     return "\n".join(lines)
 
 
+def resolve_load_weights_snr():
+    """The SNR whose checkpoint a weights load uses: load_escnn_weights_snr_override if set, else
+    min(conf.snr, load_escnn_weights_snr_max_override) if that is set, else conf.snr. One rule shared
+    by resolve_auto_escnn_weights_tag (which picks the tag) and the load blocks in run_evaluate and
+    ekf.py's load_pretrained_weights (which pick the file inside it), so the two steps can never
+    look for different SNRs."""
+    snr_override = getattr(conf, 'load_escnn_weights_snr_override', None)
+    snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', None)
+    if snr_override is not None:
+        return snr_override
+    if snr_max_override is not None:
+        return min(conf.snr, snr_max_override)
+    return conf.snr
+
+
 def resolve_auto_escnn_weights_tag():
     """
     If conf.load_escnn_weights_tag == 'auto', search ../Scratchpad/weights for a saved ESCNN
@@ -574,7 +672,8 @@ def resolve_auto_escnn_weights_tag():
     else:
         chan_ok = lambda name: name.startswith(conf.channel_model)
 
-    augment_tokens = {conf.which_augment, AUGMENT_SHORT_MAP.get(conf.which_augment, conf.which_augment)}
+    load_primary = resolve_load_weights_primary()
+    augment_tokens = {load_primary, AUGMENT_SHORT_MAP.get(load_primary, load_primary)}
     augment_re = re.compile(r'(?:^|_)(' + '|'.join(re.escape(t) for t in augment_tokens) + r')(?:_|$)')
 
     # Modulation to search for: a saved checkpoint's filename always encodes the modulation it
@@ -647,11 +746,31 @@ def resolve_auto_escnn_weights_tag():
             continue
         matches.append((path, tag_m.group(1)))
 
+    # Keep only checkpoints saved at the SNR the load will actually look for (resolve_load_weights_snr,
+    # the same rule the load blocks use), so 'most recent' below is picked per SNR. Without this, a
+    # newer tag covering only part of the SNR range (e.g. a low-SNR extension run) would win for
+    # every SNR and the load would then fail at the SNRs that tag lacks.
+    if matches:
+        load_snr = resolve_load_weights_snr()
+        snr_matches = [(p, t) for p, t in matches
+                       if _num(r'_SNR=(-?\d+)_', os.path.basename(p)) == int(load_snr)]
+        if not snr_matches:
+            tag_snrs = {}
+            for p, t in matches:
+                tag_snrs.setdefault(t, set()).add(_num(r'_SNR=(-?\d+)_', os.path.basename(p)))
+            raise AssertionError(
+                f"load_escnn_weights_tag: 'auto' found checkpoints matching this configuration, but none "
+                f"saved at SNR={load_snr} (the SNR the load uses - see resolve_load_weights_snr). "
+                f"Tags and their SNRs: "
+                + "; ".join(f"{t}: {sorted(s for s in snrs if s is not None)}" for t, snrs in tag_snrs.items())
+                + ". Set load_escnn_weights_snr_override / load_escnn_weights_snr_max_override, or an explicit tag.")
+        matches = snr_matches
+
     if not matches:
         raise AssertionError(
             f"load_escnn_weights_tag: 'auto' requested but no saved ESCNN weights in {weights_dir} "
             f"match channel_model={conf.channel_model!r}, channel_seed={conf.channel_seed}, "
-            f"which_augment={conf.which_augment!r}, n_users={conf.n_users}, n_ants={conf.n_ants}, "
+            f"which_augment={load_primary!r}, n_users={conf.n_users}, n_ants={conf.n_ants}, "
             f"num_res={conf.num_res}, modulation={mod_text}, iqmm_gain={cur_iqmm_gain}, "
             f"iqmm_phase={cur_iqmm_phase}, cfo={cur_effective_cfo}, clip={cur_clip:g}. "
             f"Train+save weights for this configuration first (save_escnn_weights: True), or set "
@@ -668,7 +787,7 @@ def resolve_auto_escnn_weights_tag():
     if len(distinct_tags) > 1:
         print(f"[ESCNN] load_escnn_weights_tag='auto' matched {len(distinct_tags)} distinct "
               f"checkpoints for channel_model={conf.channel_model} channel_seed={conf.channel_seed} "
-              f"which_augment={conf.which_augment} n_users={conf.n_users} n_ants={conf.n_ants} "
+              f"which_augment={load_primary} n_users={conf.n_users} n_ants={conf.n_ants} "
               f"num_res={conf.num_res} modulation={mod_text} iqmm_gain={cur_iqmm_gain} "
               f"iqmm_phase={cur_iqmm_phase} cfo={cur_effective_cfo} clip={cur_clip:g}: "
               f"{', '.join(distinct_tags)}; using most recently saved: {resolved_tag}", flush=True)
@@ -887,14 +1006,7 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
             all_tag_matches = glob.glob(os.path.join(weights_load_dir, f'*_{conf.load_escnn_weights_tag}.pt'))
             if not all_tag_matches:
                 raise FileNotFoundError(f"No saved ESCNN weights found for tag '{conf.load_escnn_weights_tag}' in {weights_load_dir}")
-            snr_override = getattr(conf, 'load_escnn_weights_snr_override', None)
-            snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', None)
-            if snr_override is not None:
-                desired_snr = snr_override
-            elif snr_max_override is not None:
-                desired_snr = min(conf.snr, snr_max_override)
-            else:
-                desired_snr = conf.snr
+            desired_snr = resolve_load_weights_snr()
             weights_matches = [p for p in all_tag_matches if f'_SNR={desired_snr}_' in os.path.basename(p)]
             if not weights_matches:
                 available_snrs = sorted({
@@ -904,7 +1016,15 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     f"No saved ESCNN weights for tag '{conf.load_escnn_weights_tag}' at SNR={desired_snr}. "
                     f"Available SNRs for this tag: {available_snrs}. Set load_escnn_weights_snr_override to pick one explicitly.")
             best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
-            check_weights_augment_match(best_weights_path, conf.which_augment)
+            load_primary = resolve_load_weights_primary()
+            if load_primary != conf.which_augment and conf.save_escnn_weights:
+                # The save below names the file by this run's which_augment, so a cross-primary
+                # model would later be picked up by 'auto' as if it were trained with that primary.
+                raise ValueError(f"save_escnn_weights=True with a cross-primary load "
+                                 f"(load_escnn_weights_primary={load_primary}, which_augment="
+                                 f"{conf.which_augment}) would save under the wrong primary - "
+                                 f"set save_escnn_weights: False for transferability runs.")
+            check_weights_augment_match(best_weights_path, load_primary)
             warn_weights_clip_mismatch(best_weights_path, conf.clip_percentage_in_tx)
             escnn_trainer.load_weights(_long_path(best_weights_path))
             escnn_trainer.set_load_freeze(conf.escnn_load_freeze)
@@ -969,6 +1089,8 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
 
         train_samples = int(pilot_size * TRAIN_PERCENTAGE / 100)
         val_samples = pilot_size - train_samples
+        _check_output_name_lengths(chan_text, mod_text, train_samples, n_users, epochs, iterations,
+                                   code_rate if conf.mcs > -1 else None, pilot_data_ratio, formatted_date)
 
         # detect sequentially
         for block_ind in range(conf.blocks_num):
@@ -1473,9 +1595,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                         probs_for_aug = torch.cat(
                             (torch.sigmoid(llrs_mat_deeprx_pilot), torch.sigmoid(llrs_mat_deeprx)), dim=0).cpu()
 
-            if conf.override_augment_with_lmmse:
-                probs_for_aug_lmmse = torch.sigmoid(torch.tensor(llrs_mat_lmmse_for_aug, dtype=torch.float32))
-
             tx_data_for_ber = tx_data
             weights_tag = None
 
@@ -1517,9 +1636,6 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                                                                                         probs_for_aug[:pilot_chunk], stage="film")
                     else:
                         train_loss_vect_film, val_loss_vect_film = [], []
-
-                if conf.override_augment_with_lmmse:
-                    probs_for_aug.copy_(probs_for_aug_lmmse)
 
                 if conf.save_escnn_weights:
                     corr_level = getattr(conf, 'spatial_correlation', 'none')
@@ -2632,29 +2748,9 @@ def run_evaluate(escnn_trainer, deepsice2e_trainer, deeprx_trainer, deepsic_trai
                     iterations) + ', ker=' + str(conf.kernel_size) + ', Clip=' + str(
                     conf.clip_percentage_in_tx))
 
-        corr_level = getattr(conf, 'spatial_correlation', 'none')
-        title_string = _build_escnn_filename_suffix(chan_text, mod_text, train_samples, n_users, epochs, iterations,
-                                                     code_rate if conf.mcs > -1 else None, pilot_data_ratio, corr_level)
-        freeze_codes = {'none': 'n', 'scale': 'sc', 'first_conv': 'fc1', 'second_conv': 'fc2', 'last_conv': 'fc3',
-                        'scale_only': 'so', 'last_conv_only': 'lco', 'first_conv_only': 'fco',
-                        'first_conv_and_scale_only': 'f', 'all': 'a'}
-        if conf.load_escnn_weights_tag:
-            title_string = title_string + '_r=' + conf.load_escnn_weights_tag
-        title_string = title_string + '_frz=' + freeze_codes.get(conf.escnn_load_freeze, conf.escnn_load_freeze)
-        if conf.save_escnn_weights and weights_tag:
-            title_string = title_string + '_w=' + weights_tag
-        _tl_short = {'gfmi': 'gf', 'bce': 'bce', 'tent': 'tent', 'tsyn': 'tsyn'}
-        _tl_tag = _tl_short.get(getattr(conf, 'training_loss', 'bce'), 'bce')
-        title_string = title_string + '_tl=' + _tl_tag
-        _beta = getattr(conf, 'beta_balance', 0.0)
-        title_string = title_string + '_bb=' + str(_beta)
-        _tw = getattr(conf, 'tw', 0.5)
-        title_string = title_string + '_tw=' + str(_tw)
-        _tsyn_fb = getattr(conf, 'tsyn_fallback_iters', 0)
-        title_string = title_string + '_tf=' + str(_tsyn_fb)
-        title_string = title_string + '_' + conf.cur_str
-        title_string = title_string + '_s=' + str(conf.channel_seed) + '_SNR=' + str(conf.snr)
-        title_string = formatted_date + title_string
+        title_string = _build_results_title(chan_text, mod_text, train_samples, n_users, epochs, iterations,
+                                            code_rate if conf.mcs > -1 else None, pilot_data_ratio, weights_tag,
+                                            formatted_date)
         output_dir = os.path.join(os.getcwd(), '..', 'Scratchpad')
         # Windows MAX_PATH (260 chars) trips on these long titles; \\?\ prefix bypasses it.
         file_path = os.path.abspath(os.path.join(output_dir, title_string) + ".csv")

@@ -217,7 +217,9 @@ from python_code.detectors.escnn.escnn_trainer import ESCNNTrainer
 from python_code.detectors.lmmse.lmmse_equalizer import LMMSE_MAXLOG_LLR_SCALE, LmmseDemod
 from python_code.detectors.sphere.sphere_decoder import SphereDecoder
 from python_code.evaluate import (AUGMENT_SHORT_MAP, calc_mi_from_ldpc, check_weights_augment_match,
-                                   crc_fail_mask, resolve_auto_escnn_weights_tag, warn_weights_clip_mismatch)
+                                  resolve_load_weights_primary,
+                                   crc_fail_mask, resolve_auto_escnn_weights_tag, resolve_load_weights_snr,
+                                 warn_weights_clip_mismatch)
 from python_code.utils.constants import DMRS_NUM_PAYLOAD_SYMB, DMRS_SYMBOL_LOCAL_IDX, NUM_SYMB_PER_SLOT, SLOT_LENGTH_SEC
 from python_code.utils.probs_utils import relevant_indices
 
@@ -407,14 +409,7 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
     if not all_tag_matches:
         raise FileNotFoundError(f"No saved ESCNN weights found for tag "
                                  f"'{conf.load_escnn_weights_tag}' in {weights_load_dir}")
-    snr_override = getattr(conf, 'load_escnn_weights_snr_override', None)
-    snr_max_override = getattr(conf, 'load_escnn_weights_snr_max_override', None)
-    if snr_override is not None:
-        desired_snr = snr_override
-    elif snr_max_override is not None:
-        desired_snr = min(conf.snr, snr_max_override)
-    else:
-        desired_snr = conf.snr
+    desired_snr = resolve_load_weights_snr()
     weights_matches = [p for p in all_tag_matches if f'_SNR={desired_snr}_' in os.path.basename(p)]
     if not weights_matches:
         available_snrs = sorted({os.path.basename(p).split('_SNR=')[1].split('_')[0]
@@ -423,7 +418,16 @@ def load_pretrained_weights(escnn_trainer: ESCNNTrainer) -> str:
                                  f"at SNR={desired_snr}. Available SNRs: {available_snrs}. Set "
                                  f"load_escnn_weights_snr_override to pick one explicitly.")
     best_weights_path = max(weights_matches, key=lambda p: os.path.getmtime(_long_path(p)))
-    check_weights_augment_match(best_weights_path, getattr(conf, 'which_augment', 'AUGMENT_LMMSE'))
+    which_augment = getattr(conf, 'which_augment', 'AUGMENT_LMMSE')
+    load_primary = resolve_load_weights_primary()
+    if load_primary != which_augment and which_augment in ('AUGMENT_DEEPSIC', 'AUGMENT_DEEPRX'):
+        # DeepSIC/DeepRx run here as a frozen primary loaded from this same checkpoint
+        # (load_frozen_augment_weights), which only a checkpoint trained under that primary has.
+        raise ValueError(f"ekf.py: cross-primary load (load_escnn_weights_primary={load_primary}) "
+                         f"is not supported with which_augment={which_augment} - the frozen "
+                         f"DeepSIC/DeepRx primary comes from the checkpoint itself. Use evaluate.py, "
+                         f"or an LMMSE/Sphere primary here.")
+    check_weights_augment_match(best_weights_path, load_primary)
     warn_weights_clip_mismatch(best_weights_path, conf.clip_percentage_in_tx)
     escnn_trainer.load_weights(_long_path(best_weights_path))
     # weights_track_mode='notrack' is just a more convenient spelling of escnn_load_freeze='all'
